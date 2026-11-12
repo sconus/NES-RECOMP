@@ -1,0 +1,5 @@
+# nes15: start a puzzle, press Select to run the auto-solver.
+120 start
+126
+200 select
+206

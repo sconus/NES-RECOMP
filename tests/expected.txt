@@ -1,0 +1,137 @@
+# Expected results for tests/run_tests.py. Regenerate with --update.
+instr_test-v5/rom_singles/01-basics.nes	pass
+instr_test-v5/rom_singles/02-implied.nes	pass
+instr_test-v5/rom_singles/03-immediate.nes	pass
+instr_test-v5/rom_singles/04-zero_page.nes	pass
+instr_test-v5/rom_singles/05-zp_xy.nes	pass
+instr_test-v5/rom_singles/06-absolute.nes	pass
+instr_test-v5/rom_singles/07-abs_xy.nes	pass
+instr_test-v5/rom_singles/08-ind_x.nes	pass
+instr_test-v5/rom_singles/09-ind_y.nes	pass
+instr_test-v5/rom_singles/10-branches.nes	pass
+instr_test-v5/rom_singles/11-stack.nes	pass
+instr_test-v5/rom_singles/12-jmp_jsr.nes	pass
+instr_test-v5/rom_singles/13-rts.nes	pass
+instr_test-v5/rom_singles/14-rti.nes	pass
+instr_test-v5/rom_singles/15-brk.nes	pass
+instr_test-v5/rom_singles/16-special.nes	pass
+ppu_vbl_nmi/rom_singles/01-vbl_basics.nes	pass
+ppu_vbl_nmi/rom_singles/02-vbl_set_time.nes	pass
+ppu_vbl_nmi/rom_singles/03-vbl_clear_time.nes	pass
+ppu_vbl_nmi/rom_singles/04-nmi_control.nes	pass
+ppu_vbl_nmi/rom_singles/05-nmi_timing.nes	pass
+ppu_vbl_nmi/rom_singles/06-suppression.nes	pass
+ppu_vbl_nmi/rom_singles/07-nmi_on_timing.nes	pass
+ppu_vbl_nmi/rom_singles/08-nmi_off_timing.nes	pass
+ppu_vbl_nmi/rom_singles/09-even_odd_frames.nes	pass
+ppu_vbl_nmi/rom_singles/10-even_odd_timing.nes	pass
+ppu_open_bus/ppu_open_bus.nes	fail: $03 ppu_open_bus / Failed #3
+oam_read/oam_read.nes	pass
+cpu_interrupts_v2/rom_singles/2-nmi_and_brk.nes	pass
+ppu_read_buffer/test_ppu_read_buffer.nes	pass
+cpu_dummy_reads/cpu_dummy_reads.nes	pass
+240pee/240pee.nes	frame:d6044010
+240pee/240pee.nes +240pee_menu.txt	frame:52a46ffa
+240pee/240pee-bnrom.nes	frame:d6044010
+240pee/240pee-bnrom.nes +240pee_menu.txt	frame:52a46ffa
+tests/axrom_switch.nes	pass
+tests/mmc1_switch.nes	pass
+instr_test-v5/all_instrs.nes	pass
+instr_test-v5/official_only.nes	pass
+ppu_vbl_nmi/ppu_vbl_nmi.nes	pass
+instr_misc/instr_misc.nes	pass
+cpu_interrupts_v2/cpu_interrupts.nes	fail: $01 While running test 3 of 5
+MMC1_A12/mmc1_a12.nes	frame:54e4f7be
+scrolltest/scroll.nes	frame:08e9aed6
+tests/irq_timing.nes	pass
+mmc3_test_2/rom_singles/1-clocking.nes	pass
+mmc3_test_2/rom_singles/2-details.nes	pass
+mmc3_test_2/rom_singles/3-A12_clocking.nes	pass
+mmc3_test_2/rom_singles/4-scanline_timing.nes	pass
+mmc3_test_2/rom_singles/5-MMC3.nes	pass
+mmc3_test_2/rom_singles/6-MMC3_alt.nes	fail: $02 6-MMC3_alt / Failed #2
+mmc3_irq_tests/1.Clocking.nes	pass
+mmc3_irq_tests/2.Details.nes	pass
+mmc3_irq_tests/3.A12_clocking.nes	pass
+mmc3_irq_tests/4.Scanline_timing.nes	pass
+mmc3_irq_tests/5.MMC3_rev_A.nes	fail: FAILED #3
+mmc3_irq_tests/6.MMC3_rev_B.nes	pass
+blargg_ppu_tests_2005.09.15b/palette_ram.nes	pass
+blargg_ppu_tests_2005.09.15b/sprite_ram.nes	pass
+blargg_ppu_tests_2005.09.15b/vbl_clear_time.nes	pass
+blargg_ppu_tests_2005.09.15b/vram_access.nes	pass
+sprite_hit_tests_2005.10.05/01.basics.nes	pass
+sprite_hit_tests_2005.10.05/02.alignment.nes	pass
+sprite_hit_tests_2005.10.05/03.corners.nes	pass
+sprite_hit_tests_2005.10.05/04.flip.nes	pass
+sprite_hit_tests_2005.10.05/05.left_clip.nes	pass
+sprite_hit_tests_2005.10.05/06.right_edge.nes	pass
+sprite_hit_tests_2005.10.05/07.screen_bottom.nes	pass
+sprite_hit_tests_2005.10.05/08.double_height.nes	pass
+sprite_hit_tests_2005.10.05/09.timing_basics.nes	pass
+sprite_hit_tests_2005.10.05/10.timing_order.nes	pass
+sprite_hit_tests_2005.10.05/11.edge_timing.nes	pass
+sprite_overflow_tests/1.Basics.nes	pass
+sprite_overflow_tests/2.Details.nes	pass
+sprite_overflow_tests/3.Timing.nes	pass
+sprite_overflow_tests/4.Obscure.nes	pass
+sprite_overflow_tests/5.Emulator.nes	pass
+vbl_nmi_timing/1.frame_basics.nes	pass
+vbl_nmi_timing/2.vbl_timing.nes	pass
+vbl_nmi_timing/3.even_odd_frames.nes	pass
+vbl_nmi_timing/4.vbl_clear_timing.nes	pass
+vbl_nmi_timing/5.nmi_suppression.nes	pass
+vbl_nmi_timing/6.nmi_disable.nes	pass
+vbl_nmi_timing/7.nmi_timing.nes	pass
+nes15-1.0.0/nes15-NTSC.nes	frame:dd2df693
+nes15-1.0.0/nes15-NTSC.nes +nes15_move.txt	frame:a1057046
+nes15-1.0.0/nes15-NTSC.nes +nes15_solver.txt	frame:a91fb3d8
+spritecans-2011/spritecans.nes	frame:ed2c45bc
+full_palette/full_palette.nes	frame:32bb17e7
+apu_test/rom_singles/1-len_ctr.nes	pass
+apu_test/rom_singles/2-len_table.nes	pass
+apu_test/rom_singles/3-irq_flag.nes	pass
+apu_test/rom_singles/4-jitter.nes	pass
+apu_test/rom_singles/5-len_timing.nes	pass
+apu_test/rom_singles/6-irq_flag_timing.nes	pass
+apu_test/rom_singles/7-dmc_basics.nes	pass
+apu_test/rom_singles/8-dmc_rates.nes	pass
+blargg_apu_2005.07.30/01.len_ctr.nes	pass
+blargg_apu_2005.07.30/02.len_table.nes	pass
+blargg_apu_2005.07.30/03.irq_flag.nes	pass
+blargg_apu_2005.07.30/04.clock_jitter.nes	pass
+blargg_apu_2005.07.30/05.len_timing_mode0.nes	pass
+blargg_apu_2005.07.30/06.len_timing_mode1.nes	pass
+blargg_apu_2005.07.30/07.irq_flag_timing.nes	pass
+blargg_apu_2005.07.30/08.irq_timing.nes	pass
+blargg_apu_2005.07.30/09.reset_timing.nes	pass
+blargg_apu_2005.07.30/10.len_halt_timing.nes	pass
+blargg_apu_2005.07.30/11.len_reload_timing.nes	pass
+cpu_interrupts_v2/rom_singles/1-cli_latency.nes	pass
+cpu_interrupts_v2/rom_singles/3-nmi_and_irq.nes	fail: $01 3-nmi_and_irq / Failed
+cpu_interrupts_v2/rom_singles/4-irq_and_dma.nes	fail: $01 4-irq_and_dma / Failed
+cpu_interrupts_v2/rom_singles/5-branch_delays_irq.nes	fail: $01 5-branch_delays_irq / Failed
+instr_misc/rom_singles/04-dummy_reads_apu.nes	pass
+instr_timing/rom_singles/1-instr_timing.nes	pass
+instr_timing/rom_singles/2-branch_timing.nes	pass
+apu_mixer/square.nes	pass
+apu_mixer/triangle.nes	pass
+apu_mixer/dmc.nes	pass
+apu_mixer/noise.nes (sound)	audio:99aebf64
+nes15-1.0.0/nes15-NTSC.nes +nes15_solver.txt (sound)	audio:20bfc97a
+dmc_dma_during_read4/dma_2007_read.nes	fail: checksum E4E1DD1A
+dmc_dma_during_read4/dma_2007_write.nes	pass
+dmc_dma_during_read4/dma_4016_read.nes	fail: Failed
+dmc_dma_during_read4/double_2007_read.nes	fail: checksum D84F6815
+dmc_dma_during_read4/read_write_2007.nes	pass
+sprdma_and_dmc_dma/sprdma_and_dmc_dma.nes	fail: $01 SPRDMA and DMC DMA / Failed
+sprdma_and_dmc_dma/sprdma_and_dmc_dma_512.nes	fail: $01 SPRDMA and DMC DMA / Failed
+read_joy3/thorough_test.nes	pass
+apu_reset/4015_cleared.nes	pass
+apu_reset/4017_timing.nes	pass
+apu_reset/4017_written.nes	pass
+apu_reset/irq_flag_cleared.nes	pass
+apu_reset/len_ctrs_enabled.nes	pass
+apu_reset/works_immediately.nes	pass
+cpu_reset/ram_after_reset.nes	pass
+cpu_reset/registers.nes	pass

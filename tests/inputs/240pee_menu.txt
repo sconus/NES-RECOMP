@@ -1,0 +1,11 @@
+# 240pee: leave the about page, move down the menu three times, open that test.
+200 b
+206
+260 down
+266
+280 down
+286
+300 down
+306
+340 a
+346

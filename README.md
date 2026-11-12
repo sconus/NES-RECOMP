@@ -1,0 +1,243 @@
+# nesrecomp
+
+A static recompiler for NES programs, built as a learning project. It turns
+the 6502 machine code in a `.nes` file into C, which a normal compiler turns
+into a native program for your Mac, with graphics in a window, sound,
+keyboard controls, bank switching for the common cartridge types, and
+battery saves.
+
+## How it works
+
+1. **Trace.** `recomp.py` starts at the cartridge's reset, NMI and IRQ
+   vectors and follows every branch, jump and subroutine call to find the
+   reachable code.
+2. **Translate.** Each 6502 instruction becomes a few lines of C. Jumps and
+   branches become `goto`s, so the CPU never "decodes" anything at runtime.
+   Reads and writes that can reach the hardware registers (`$2000-$401F`)
+   happen on the same CPU cycle as on the real console.
+3. **Fall back.** Some code can't be found ahead of time (jump tables,
+   addresses pushed onto the stack and "returned" to, code copied into
+   RAM). When the native code lands somewhere untranslated, a small
+   interpreter, generated from the same opcode table, runs it until
+   execution reaches translated code again.
+4. **Learn.** Each spot the interpreter had to handle is saved to
+   `<rom>.missed` as `BB:AAAA` (8 KB bank, address). Recompiling with
+   `--missed` translates those natively. Repeat until no new spots show up.
+   `make game` does this for you.
+
+The ROM's data (graphics, levels, music) is not copied into the generated C.
+The program loads the `.nes` file when it starts, so the output is only
+useful alongside the `.nes` file it was made from.
+
+### Bank switching
+
+Many cartridges hold more program ROM than the CPU can see at once, and
+swap 8, 16 or 32 KB banks in and out by writing to the cartridge (the
+mapper). So the same address can hold different code at different times:
+
+- Code is named by (8 KB bank, address). Labels look like `L_03_8000`,
+  and `dispatch` looks up the bank mapped at `pc` right now as well as
+  `pc`.
+- `recomp.py` has a small table per mapper: which slots switch together,
+  which never switch, and what's mapped at power-on. A jump whose
+  target bank is certain (same bank, or a slot that never switches)
+  becomes a direct `goto`; anything else goes through `dispatch`.
+- Code can switch out the bank it's running from. A store that could
+  reach the mapper checks a "bank changed" flag afterwards and carries on
+  through `dispatch` if it's set.
+
+Supported mappers: 0 NROM, 1 MMC1, 2 UxROM, 3 CNROM, 4 MMC3 (with its
+scanline IRQ), 7 AxROM, 34 BNROM. `python3 tests/romlist.py <folder>`
+shows which mapper a ROM uses.
+
+### The rest of the console (`runtime/`)
+
+- **Hardware events.** Every translated instruction starts with a cheap
+  check, `cycles >= next_event`. When the PPU needs attention (a frame is
+  done, an NMI is due) the check jumps to a small handler, which brings the
+  hardware up to date and enters the NMI handler if needed. Without a
+  check on every instruction, a game's `forever: JMP forever` loop would
+  never see an NMI.
+- **PPU** (`ppu.c`). The PPU doesn't run alongside the CPU: it catches up
+  dot by dot whenever the CPU touches it or an event is due. Each visible
+  line is drawn in one go from the scroll position at its start (lines with
+  rendering off are drawn dot by dot). It covers background and sprites,
+  sprite 0 hit, sprite overflow (including the hardware's search bug), and
+  the cycle-exact vblank and NMI behaviour the timing test ROMs check.
+- **Colours** (`palette.c`). Worked out from the NTSC video signal the NES
+  outputs (voltage levels to YIQ to RGB), not copied from a palette file.
+- **APU** (`apu.c`). The sound chip, also catching up on demand: length
+  counters, the frame counter and its IRQ, envelopes, sweeps, the five
+  channels (two pulses, triangle, noise, DMC) and the DMC's sample DMA,
+  which pauses the CPU and can repeat a `$2007` or `$4016` read it lands
+  on. When sound is wanted, the channels are mixed with the console's
+  non-linear formulas, averaged down to 48 kHz and filtered like its
+  output stage. Headless test runs skip the mixing, so they stay fast.
+- **Window and speakers** (`video_sdl.c`). SDL2, 3x size, sharp pixels,
+  paced to the NES's 60.1 frames a second. The video keeps the beat: the
+  APU's sample clock is nudged by at most 0.5% to keep SDL's audio queue
+  near 50 ms, so the sound neither drifts nor crackles.
+- **Mappers** (`mapper.c`). The CPU sees ROM through four 8 KB slots and
+  the PPU through eight 1 KB slots; each mapper decides what fills them.
+  MMC3 counts scanlines from the PPU's A12 address line, which `ppu.c`
+  reports.
+- **Interrupts** (`event.c`). NMI and IRQ timing, including the
+  one-instruction delay after CLI/PLP, an NMI taking over a BRK or IRQ
+  entry, and the reset button.
+- **Cartridge** (`cart.c`, including battery saves), **controllers**
+  (`input.c`), and the **CPU bus** and command line (`main.c`).
+
+## On a Mac
+
+Once:
+
+    xcode-select --install
+    brew install sdl2
+
+For the test suite, also clone the free test ROM collection:
+
+    git clone --depth 1 https://github.com/christopherpow/nes-test-roms.git tests/roms/nes-test-roms
+
+`python3 tests/romlist.py tests/roms` lists each ROM's mapper, sizes and
+mirroring (`--nrom` shows only mapper 0).
+
+## Play something
+
+    make run ROM=tests/roms/nes-test-roms/nes15-1.0.0/nes15-NTSC.nes
+
+This recompiles the ROM into `build/<name>`, builds it and opens a window.
+Run it again after playing for a while: anything the interpreter had to
+handle gets translated natively on the next build. Paths with spaces
+aren't supported by the Makefile.
+
+Cartridges with a battery keep their `$6000-$7FFF` RAM in `<rom>.sav`
+next to the ROM: it's loaded at start and written on exit.
+
+Sound plays through the speakers unless you pass `--mute` (or press M).
+`--wav FILE` also writes it to a file, with or without a window.
+
+| Key | NES button |
+|---|---|
+| Arrow keys | D-pad |
+| X | A |
+| Z | B |
+| Return | Start |
+| Right Shift | Select |
+| M | Mute / unmute |
+| R | Reset button |
+| Escape | Quit |
+
+The built program takes options after the ROM path:
+
+    --headless         no window (for tests)
+    --frames N         stop after N frames
+    --screenshot FILE  with --frames: save the last frame as a PNG
+    --dump-text        with --frames: print the screen's tiles as text
+    --no-save          don't load or write <rom>.sav (battery RAM)
+    --wav FILE         write the sound to a WAV file
+    --mute             no sound from the speakers (M toggles it)
+    --audio-stats      print the sound queue depth once a second
+    --input FILE       scripted button presses (below)
+    --scale N          window size, N times 256x240 (default 3)
+    --info             print the cartridge header and exit
+    --trace            print CPU state before every instruction
+    --start HEX        start here instead of the reset vector
+
+An input script holds one change per line: from frame N on, hold these
+buttons (`a b select start up down left right`). A frame number on its
+own releases everything. `tests/inputs/` has examples.
+
+    120 start      # press Start at frame 120
+    126            # release it
+
+## Tests
+
+    make test       # CPU: nestest, cycle-exact
+    make test-ppu   # everything in tests/suite.txt (needs the ROM clone)
+    make test-all   # both
+
+`make test` checks the program's state after every one of nestest's 8,991
+instructions against a reference log: registers, flags, stack pointer and
+cycle count.
+
+`make test-ppu` (the name is from when it was only PPU tests) runs
+`tests/run_tests.py`. It recompiles each ROM in
+`tests/suite.txt` (with the `.missed` loop), runs it headless, and judges
+it in one of these ways (the top of `tests/suite.txt` explains each):
+
+- `result`: the `$6000` status byte newer test ROMs write. A ROM that
+  asks for the reset button (status `$81`) gets it pressed automatically.
+- `text` and `crc`: the result text, or a checksum the test's source
+  lists as correct, read from the screen.
+- `frame` and `audio`: a fingerprint of the final picture or of the
+  recorded sound (regression checks for homebrew).
+- `silence`: the `apu_mixer` tests play a tone and its exact inverse, so
+  a correct mixer leaves near silence between their two beeps.
+
+It compares against `tests/expected.txt` and exits with an error only if
+something got worse. After an improvement, accept
+the new results with `python3 tests/run_tests.py --update`. To run part of
+the suite, pass part of a path: `python3 tests/run_tests.py sprite_hit`.
+
+Some checks needed test ROMs that didn't exist, so the project makes its
+own. Each `tests/make_*.py` writes a small ROM into `tests/`:
+
+- `make_axrom_test.py`: AxROM switching from inside the switched window.
+- `make_mmc1_test.py`: MMC1's serial register, reset, PRG modes,
+  mirroring, and its ignoring of back-to-back writes.
+- `make_irq_test.py`: when the CPU takes an IRQ (I flag, CLI, PLP, RTI,
+  acknowledge), using MMC3's counter as an IRQ source.
+
+Each check in these was confirmed by breaking that part of the runtime or
+recompiler on purpose and seeing the test report it.
+
+Current results: 111 of 123 graded tests pass, and the 11 pictures and 2
+sound recordings match. That includes all 16 `instr_test-v5` CPU tests,
+all of `ppu_vbl_nmi`, `vbl_nmi_timing`, the sprite 0 hit and sprite
+overflow suites, blargg's 2005 PPU tests, all 8 `apu_test` and 11 blargg
+APU tests, the three `apu_mixer` silence checks, all 8 reset tests, both
+CNROM tests and 10 of 12 MMC3 tests. The 12 failures:
+
+- `ppu_open_bus` #3: PPU open-bus decay isn't modelled.
+- `mmc3_test_2/6-MMC3_alt` and `mmc3_irq_tests/5.MMC3_rev_A` test some
+  older MMC3 chips, which behave differently from the one modelled.
+- `cpu_interrupts_v2` 3, 4 and 5 (and the combined ROM, which stops at
+  3): an NMI arriving during an IRQ's entry, an IRQ around sprite DMA,
+  and exactly which cycle of a JMP or taken branch checks for
+  interrupts.
+- `dmc_dma_during_read4` `dma_2007_read`, `dma_4016_read` and
+  `double_2007_read`: the repeated read lands one cycle off. The tests
+  sync to the DMC through the same DMA pauses, so no single timing value
+  fixes it; it probably needs each instruction's individual bus cycles.
+- `sprdma_and_dmc_dma` (both): a DMC fetch during sprite DMA, not
+  understood yet.
+
+`dmc_tests` (no readme, source or on-screen result) and the interactive
+or display-only `read_joy3` tests are left out of the suite.
+
+## Status
+
+- [x] iNES loader, code tracer, 6502 to C translation
+- [x] All official opcodes and all stable unofficial ones, cycle-accurate
+      (only the 12 "JAM" opcodes that lock up a real CPU are left out)
+- [x] Fallback interpreter and multi-pass `.missed` feedback
+- [x] nestest passes in full
+- [x] PPU (graphics) and an SDL window
+- [x] NMI delivery at vblank, cycle-exact
+- [x] Controller 1 on the keyboard, and scripted input for tests
+- [x] Test ROM runner with a recorded baseline
+- [x] Mappers 0, 1, 2, 3, 4, 7, 34, with banked recompilation
+- [x] IRQs (MMC3 scanline counter) and battery saves
+- [x] APU: sound through the speakers or a WAV file, frame and DMC IRQs
+- [x] The reset button
+- [ ] DMC DMA landing on reads and during sprite DMA, cycle-exact
+      (5 tests, see above), and the last 3 `cpu_interrupts_v2` tests
+- [ ] PPU open-bus decay (`ppu_open_bus` #3)
+- [ ] Colour emphasis bits, and mid-line scroll changes (the renderer
+      draws a line at a time)
+- [ ] Other mappers (MMC5, VRC, ...) and Famicom expansion sound
+- [ ] Controller 2 and game controllers
+
+`PLAN.md`, `PLAN-mappers.md` and `PLAN-sound.md` have the step-by-step
+notes for the graphics, mapper and sound stages, including how each
+timing value was tuned and what was tried for what still fails.

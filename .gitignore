@@ -1,0 +1,6 @@
+build/
+tests/roms/
+.DS_Store
+*.missed
+*.sav
+*.wav

@@ -1,0 +1,202 @@
+# Test suite for `make test-ppu` (tests/run_tests.py).
+#
+#   kind  frames  rom  [input script]
+#
+# rom is relative to tests/roms/nes-test-roms, except paths starting with
+# tests/ (ROMs made for this project). kind says how to judge it:
+#   result  blargg $6000 protocol; passes when the status byte is $00.
+#           The run stops early once the ROM reports.
+#   text    result shown on screen only; passes when a line reads
+#           "Passed" (any case) or "$01".
+#   frame   homebrew; the final frame must match the saved picture
+#           (a regression check, not a correctness check).
+#   audio   the sound (--wav) must match the saved recording (regression).
+#   silence apu_mixer: between its two beeps the sound must be near silent
+#           (see SILENCE_LIMIT in run_tests.py).
+# frames is the most frames to run.
+
+# --- CPU, through the $6000 harness
+result 3000 instr_test-v5/rom_singles/01-basics.nes
+result 3000 instr_test-v5/rom_singles/02-implied.nes
+result 3000 instr_test-v5/rom_singles/03-immediate.nes
+result 3000 instr_test-v5/rom_singles/04-zero_page.nes
+result 3000 instr_test-v5/rom_singles/05-zp_xy.nes
+result 3000 instr_test-v5/rom_singles/06-absolute.nes
+result 3000 instr_test-v5/rom_singles/07-abs_xy.nes
+result 3000 instr_test-v5/rom_singles/08-ind_x.nes
+result 3000 instr_test-v5/rom_singles/09-ind_y.nes
+result 3000 instr_test-v5/rom_singles/10-branches.nes
+result 3000 instr_test-v5/rom_singles/11-stack.nes
+result 3000 instr_test-v5/rom_singles/12-jmp_jsr.nes
+result 3000 instr_test-v5/rom_singles/13-rts.nes
+result 3000 instr_test-v5/rom_singles/14-rti.nes
+result 3000 instr_test-v5/rom_singles/15-brk.nes
+result 3000 instr_test-v5/rom_singles/16-special.nes
+
+# --- PPU, $6000 harness
+result 3000 ppu_vbl_nmi/rom_singles/01-vbl_basics.nes
+result 3000 ppu_vbl_nmi/rom_singles/02-vbl_set_time.nes
+result 3000 ppu_vbl_nmi/rom_singles/03-vbl_clear_time.nes
+result 3000 ppu_vbl_nmi/rom_singles/04-nmi_control.nes
+result 3000 ppu_vbl_nmi/rom_singles/05-nmi_timing.nes
+result 3000 ppu_vbl_nmi/rom_singles/06-suppression.nes
+result 3000 ppu_vbl_nmi/rom_singles/07-nmi_on_timing.nes
+result 3000 ppu_vbl_nmi/rom_singles/08-nmi_off_timing.nes
+result 3000 ppu_vbl_nmi/rom_singles/09-even_odd_frames.nes
+result 3000 ppu_vbl_nmi/rom_singles/10-even_odd_timing.nes
+result 3000 ppu_open_bus/ppu_open_bus.nes
+result 3000 oam_read/oam_read.nes
+result 3000 cpu_interrupts_v2/rom_singles/2-nmi_and_brk.nes
+
+# --- Mapper 3 (CNROM: CHR bank switching)
+result 3000 ppu_read_buffer/test_ppu_read_buffer.nes
+text 1200 cpu_dummy_reads/cpu_dummy_reads.nes
+
+# --- Mappers 2, 34, 7 (UxROM, BNROM, AxROM: program bank switching).
+# 240pee is tepples' 240p test suite (free software, says its about page);
+# the two builds must draw the same pictures.
+frame 300 240pee/240pee.nes
+frame 480 240pee/240pee.nes tests/inputs/240pee_menu.txt
+frame 300 240pee/240pee-bnrom.nes
+frame 480 240pee/240pee-bnrom.nes tests/inputs/240pee_menu.txt
+result 300 tests/axrom_switch.nes
+
+# --- Mapper 1 (MMC1). tests/mmc1_switch.nes (from make_mmc1_test.py)
+# checks the bank switching itself. The combined blargg ROMs are MMC1
+# boards too but turn out not to depend on program bank switching (they
+# pass with it disabled); they still cover MMC1's power-on state and
+# register writes. instr_misc test 4 and cpu_interrupts test 1 need the
+# APU and IRQs. mmc1_a12 and scrolltest are visual demos with no
+# pass/fail, kept as picture checks.
+result 60 tests/mmc1_switch.nes
+result 20000 instr_test-v5/all_instrs.nes
+result 20000 instr_test-v5/official_only.nes
+result 20000 ppu_vbl_nmi/ppu_vbl_nmi.nes
+result 20000 instr_misc/instr_misc.nes
+result 20000 cpu_interrupts_v2/cpu_interrupts.nes
+frame 600 MMC1_A12/mmc1_a12.nes
+frame 300 scrolltest/scroll.nes
+
+# --- Mapper 4 (MMC3), and IRQs. tests/irq_timing.nes (from
+# make_irq_test.py) checks when the CPU takes an IRQ (I flag, CLI/PLP/RTI
+# timing, acknowledge). 6-MMC3_alt and 5.MMC3_rev_A test the behaviour of
+# some older MMC3 chips, which differs from the one modelled (the chip in
+# Super Mario Bros. 3), so they are expected to fail.
+result 120 tests/irq_timing.nes
+result 3000 mmc3_test_2/rom_singles/1-clocking.nes
+result 3000 mmc3_test_2/rom_singles/2-details.nes
+result 3000 mmc3_test_2/rom_singles/3-A12_clocking.nes
+result 3000 mmc3_test_2/rom_singles/4-scanline_timing.nes
+result 3000 mmc3_test_2/rom_singles/5-MMC3.nes
+result 3000 mmc3_test_2/rom_singles/6-MMC3_alt.nes
+text 600 mmc3_irq_tests/1.Clocking.nes
+text 600 mmc3_irq_tests/2.Details.nes
+text 600 mmc3_irq_tests/3.A12_clocking.nes
+text 600 mmc3_irq_tests/4.Scanline_timing.nes
+text 600 mmc3_irq_tests/5.MMC3_rev_A.nes
+text 600 mmc3_irq_tests/6.MMC3_rev_B.nes
+
+# --- PPU, result on screen only (power_up_palette is left out: it checks
+#     values unique to its author's console)
+text 600 blargg_ppu_tests_2005.09.15b/palette_ram.nes
+text 600 blargg_ppu_tests_2005.09.15b/sprite_ram.nes
+text 600 blargg_ppu_tests_2005.09.15b/vbl_clear_time.nes
+text 600 blargg_ppu_tests_2005.09.15b/vram_access.nes
+text 600 sprite_hit_tests_2005.10.05/01.basics.nes
+text 600 sprite_hit_tests_2005.10.05/02.alignment.nes
+text 600 sprite_hit_tests_2005.10.05/03.corners.nes
+text 600 sprite_hit_tests_2005.10.05/04.flip.nes
+text 600 sprite_hit_tests_2005.10.05/05.left_clip.nes
+text 600 sprite_hit_tests_2005.10.05/06.right_edge.nes
+text 600 sprite_hit_tests_2005.10.05/07.screen_bottom.nes
+text 600 sprite_hit_tests_2005.10.05/08.double_height.nes
+text 600 sprite_hit_tests_2005.10.05/09.timing_basics.nes
+text 600 sprite_hit_tests_2005.10.05/10.timing_order.nes
+text 600 sprite_hit_tests_2005.10.05/11.edge_timing.nes
+text 600 sprite_overflow_tests/1.Basics.nes
+text 600 sprite_overflow_tests/2.Details.nes
+text 600 sprite_overflow_tests/3.Timing.nes
+text 600 sprite_overflow_tests/4.Obscure.nes
+text 600 sprite_overflow_tests/5.Emulator.nes
+text 600 vbl_nmi_timing/1.frame_basics.nes
+text 600 vbl_nmi_timing/2.vbl_timing.nes
+text 600 vbl_nmi_timing/3.even_odd_frames.nes
+text 600 vbl_nmi_timing/4.vbl_clear_timing.nes
+text 600 vbl_nmi_timing/5.nmi_suppression.nes
+text 600 vbl_nmi_timing/6.nmi_disable.nes
+text 600 vbl_nmi_timing/7.nmi_timing.nes
+
+# --- Homebrew pictures
+frame 300 nes15-1.0.0/nes15-NTSC.nes
+frame 330 nes15-1.0.0/nes15-NTSC.nes tests/inputs/nes15_move.txt
+frame 1800 nes15-1.0.0/nes15-NTSC.nes tests/inputs/nes15_solver.txt
+frame 300 spritecans-2011/spritecans.nes
+# StarsSE was here until the APU existed: its (third-party) music code
+# runs CLI without turning off the APU frame IRQ, and its IRQ handler is a
+# bare RTI, so it gets stuck in IRQs before turning rendering on, as it
+# would on a real NES.
+frame 300 full_palette/full_palette.nes
+
+# --- APU (sound). Step 1 of PLAN-sound.md: what the CPU can see.
+# (dmc_tests is left out: no readme, no source, no text on screen.)
+result 3000 apu_test/rom_singles/1-len_ctr.nes
+result 3000 apu_test/rom_singles/2-len_table.nes
+result 3000 apu_test/rom_singles/3-irq_flag.nes
+result 3000 apu_test/rom_singles/4-jitter.nes
+result 3000 apu_test/rom_singles/5-len_timing.nes
+result 3000 apu_test/rom_singles/6-irq_flag_timing.nes
+result 3000 apu_test/rom_singles/7-dmc_basics.nes
+result 3000 apu_test/rom_singles/8-dmc_rates.nes
+text 1200 blargg_apu_2005.07.30/01.len_ctr.nes
+text 1200 blargg_apu_2005.07.30/02.len_table.nes
+text 1200 blargg_apu_2005.07.30/03.irq_flag.nes
+text 1200 blargg_apu_2005.07.30/04.clock_jitter.nes
+text 1200 blargg_apu_2005.07.30/05.len_timing_mode0.nes
+text 1200 blargg_apu_2005.07.30/06.len_timing_mode1.nes
+text 1200 blargg_apu_2005.07.30/07.irq_flag_timing.nes
+text 1200 blargg_apu_2005.07.30/08.irq_timing.nes
+text 1200 blargg_apu_2005.07.30/09.reset_timing.nes
+text 1200 blargg_apu_2005.07.30/10.len_halt_timing.nes
+text 1200 blargg_apu_2005.07.30/11.len_reload_timing.nes
+result 3000 cpu_interrupts_v2/rom_singles/1-cli_latency.nes
+result 3000 cpu_interrupts_v2/rom_singles/3-nmi_and_irq.nes
+result 3000 cpu_interrupts_v2/rom_singles/4-irq_and_dma.nes
+result 3000 cpu_interrupts_v2/rom_singles/5-branch_delays_irq.nes
+result 3000 instr_misc/rom_singles/04-dummy_reads_apu.nes
+result 6000 instr_timing/rom_singles/1-instr_timing.nes
+result 6000 instr_timing/rom_singles/2-branch_timing.nes
+
+# --- APU sound (step 2 of PLAN-sound.md). apu_mixer plays a tone and its
+# inverse through the DMC: correct mixing cancels to near silence. Its
+# noise test fades noise in and out by design, so it is a recording check.
+silence 1500 apu_mixer/square.nes
+silence 1500 apu_mixer/triangle.nes
+silence 1500 apu_mixer/dmc.nes
+audio 1500 apu_mixer/noise.nes
+audio 900 nes15-1.0.0/nes15-NTSC.nes tests/inputs/nes15_solver.txt
+
+# --- DMC DMA (step 4 of PLAN-sound.md): a DMC sample fetch pauses the CPU,
+# and repeats a $2007/$4016 read it lands on. read_joy3/test_buttons is
+# left out: it asks for each button to be pressed; count_errors and
+# count_errors_fast just draw an X per conflict, with no pass/fail.
+#   crc  the screen must show one of the listed checksums (4th column);
+#        some tests allow several, depending on CPU/PPU alignment.
+crc 1500 dmc_dma_during_read4/dma_2007_read.nes 159A7A8F,5E3DF9C4
+text 1500 dmc_dma_during_read4/dma_2007_write.nes
+text 1500 dmc_dma_during_read4/dma_4016_read.nes
+crc 1500 dmc_dma_during_read4/double_2007_read.nes 85CFD627,F018C287,440EF923,E52F41A5
+text 1500 dmc_dma_during_read4/read_write_2007.nes
+result 3000 sprdma_and_dmc_dma/sprdma_and_dmc_dma.nes
+result 3000 sprdma_and_dmc_dma/sprdma_and_dmc_dma_512.nes
+text 6000 read_joy3/thorough_test.nes
+
+# --- The reset button (step 5 of PLAN-sound.md). These ask for reset
+# (status $81); the runtime presses it 10 frames later when headless.
+result 3000 apu_reset/4015_cleared.nes
+result 3000 apu_reset/4017_timing.nes
+result 3000 apu_reset/4017_written.nes
+result 3000 apu_reset/irq_flag_cleared.nes
+result 3000 apu_reset/len_ctrs_enabled.nes
+result 3000 apu_reset/works_immediately.nes
+result 3000 cpu_reset/ram_after_reset.nes
+result 3000 cpu_reset/registers.nes

@@ -1,0 +1,13 @@
+# nes15: start a puzzle, cursor down 3 and right 1, slide tile 14 with A.
+120 start
+126
+200 down
+206
+220 down
+226
+240 down
+246
+260 right
+266
+280 a
+286
