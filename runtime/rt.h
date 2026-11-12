@@ -14,6 +14,11 @@ extern uint64_t cycles;
    UINT64_MAX when nothing is scheduled. */
 extern uint64_t next_event;
 extern int trace_on;
+/* The instruction running now: its address and the cycle it started on.
+   With the cycle maps (cycles.h) this tells the runtime which bus cycle
+   of the instruction a DMA or interrupt falls on. */
+extern uint16_t insn_pc;
+extern uint64_t insn_start;
 
 uint8_t rd(uint16_t addr);
 void wr(uint16_t addr, uint8_t val);
@@ -44,9 +49,13 @@ void cpu_i_change(int old_i, int len);
    generated code puts EVENT_CHECK at the top of every translated
    instruction and INTERRUPT_CHECK at dispatch, which the interpreter
    passes through on every step. Both jump to the "event" block in
-   recomp_run, which calls runtime_event and enters the handler if asked. */
+   recomp_run, which calls runtime_event and enters the handler if asked.
+   EVENT_CHECK also records the instruction that is about to run. */
 #define EVENT_CHECK(addr) \
-    do { if (cycles >= next_event) { pc = (addr); goto event; } } while (0)
+    do { \
+        if (cycles >= next_event) { pc = (addr); goto event; } \
+        insn_pc = (addr); insn_start = cycles; \
+    } while (0)
 #define INTERRUPT_CHECK() do { if (cycles >= next_event) goto event; } while (0)
 
 /* The CPU's extra read from a half-computed address in indexed modes.

@@ -20,6 +20,8 @@ uint8_t C, Z, I = 1, D, V, N;
 uint16_t pc;
 uint64_t cycles = 7;          /* the reset sequence takes 7 cycles */
 int trace_on;
+uint16_t insn_pc;
+uint64_t insn_start;
 
 static uint8_t ram[0x800];    /* 2 KB of console RAM, mirrored to $1FFF */
 

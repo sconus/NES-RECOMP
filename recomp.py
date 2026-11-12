@@ -693,6 +693,7 @@ def gen_interpreter():
         "int interp_step(void) {",
         "    uint16_t ea, base; uint8_t v;",
         "    (void)ea; (void)base; (void)v;",
+        "    insn_pc = pc; insn_start = cycles;",
         "    STEP(pc);",
         "    uint8_t opc = rd(pc), o1 = rd(pc + 1), o2 = rd(pc + 2);",
         "    (void)o2;",

@@ -54,6 +54,13 @@ static void report(void) {
 }
 
 void cycle_check_step(uint16_t a) {
+    if (insn_pc != a || insn_start != cycles) {
+        fprintf(stderr, "instruction not recorded: at $%04X cycle %llu, "
+                "insn_pc $%04X insn_start %llu\n", a,
+                (unsigned long long)cycles, insn_pc,
+                (unsigned long long)insn_start);
+        exit(1);
+    }
     if (pending >= 0) {
         uint64_t took = cycles - pending_start;
         if (took != (uint64_t)pending) {

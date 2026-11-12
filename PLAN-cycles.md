@@ -99,11 +99,26 @@ Breaking the page-cross rule for X or for Y, the taken-branch rule, or
 the branch page-cross rule each made `make test` fail; dropping a cycle
 from a map stopped the recompiler. Suite unchanged (111 of 123).
 
-### 3. Instruction tracking
+### 3. Instruction tracking (done)
 Record the current instruction's start cycle and address. Measure the
 speed cost on nes15 and on a heavy test ROM; if it's more than about 10%,
 look for a cheaper way (for example deriving the start from the event
 check that already runs on every instruction).
+
+Done. `EVENT_CHECK`, at the top of every translated instruction, now
+also stores `insn_pc` and `insn_start` (`runtime/rt.h`); the interpreter
+does the same for each instruction it runs. Registers aren't saved: when
+the runtime later looks back at an instruction, its real length (the
+cycle count now minus `insn_start`) already says whether a page was
+crossed or a branch taken.
+
+`--check-cycles` also checks that both values are right before every
+instruction. Leaving them out of the interpreter made `instr_timing` fail
+that check at once.
+
+Speed: no measurable cost. Five runs each of the old and new builds:
+nes15, 6000 frames headless, 3.49-3.67 s for both; `instr_timing` 1
+(mostly interpreted), 0.59-0.76 s for both. Suite unchanged (111 of 123).
 
 ### 4. Exact interrupt polling
 Replace `NMI_LATENCY`/`IRQ_LATENCY` with the polling cycle from the maps,
