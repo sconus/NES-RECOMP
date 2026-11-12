@@ -141,6 +141,8 @@ The built program takes options after the ROM path:
     --scale N          window size, N times 256x240 (default 3)
     --info             print the cartridge header and exit
     --trace            print CPU state before every instruction
+    --check-cycles     with --trace: check each instruction's length
+                       against its cycle map
     --start HEX        start here instead of the reset vector
 
 An input script holds one change per line: from frame N on, hold these
@@ -158,7 +160,9 @@ own releases everything. `tests/inputs/` has examples.
 
 `make test` checks the program's state after every one of nestest's 8,991
 instructions against a reference log: registers, flags, stack pointer and
-cycle count.
+cycle count. It also checks that every instruction took as many cycles as
+its cycle map says (the per-cycle bus activity `recomp.py` generates for
+each opcode, used for exact DMA and interrupt timing).
 
 `make test-ppu` (the name is from when it was only PPU tests) runs
 `tests/run_tests.py`. It recompiles each ROM in

@@ -27,7 +27,7 @@ build/nestest.c: recomp.py $(NESTEST)
 	python3 recomp.py $(NESTEST) -o $@ --entry C000 $(call missed_arg,$(NESTEST))
 
 test: build/nestest
-	./build/nestest $(NESTEST) --headless --start C000 --trace > build/trace.txt
+	./build/nestest $(NESTEST) --headless --start C000 --trace --check-cycles > build/trace.txt
 	python3 tests/compare_nestest.py tests/nestest.log build/trace.txt
 
 # --- test ROM suite: see tests/suite.txt and tests/run_tests.py --------

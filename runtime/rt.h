@@ -17,6 +17,8 @@ extern int trace_on;
 
 uint8_t rd(uint16_t addr);
 void wr(uint16_t addr, uint8_t val);
+/* A read with no side effects: RAM and cartridge only, 0 for registers. */
+uint8_t peek(uint16_t addr);
 void untranslated(uint16_t addr);
 void note_missed(uint16_t addr);
 int interp_step(void);

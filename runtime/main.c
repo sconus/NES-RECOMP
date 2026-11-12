@@ -7,6 +7,7 @@
 #include "apu.h"
 #include "event.h"
 #include "cart.h"
+#include "cycles.h"
 #include "input.h"
 #include "mapper.h"
 #include "palette.h"
@@ -45,6 +46,14 @@ uint8_t rd(uint16_t a) {
     return 0;                 /* APU and unmapped space: not wired up yet */
 }
 
+uint8_t peek(uint16_t a) {
+    if (a < 0x2000) return ram[a & 0x7FF];
+    if (a >= 0x8000) return prg_read(a);
+    if (a >= 0x6000)
+        return mapper.prg_ram_disabled ? 0 : cart.prg_ram[a - 0x6000];
+    return 0;
+}
+
 void wr(uint16_t a, uint8_t v) {
     if (a < 0x2000) ram[a & 0x7FF] = v;
     else if (a < 0x4000) ppu_reg_write(a, v);
@@ -58,6 +67,7 @@ void wr(uint16_t a, uint8_t v) {
 }
 
 void trace_step(uint16_t a) {
+    if (check_cycles) cycle_check_step(a);
     printf("%04X A:%02X X:%02X Y:%02X P:%02X SP:%02X CYC:%llu\n",
            a, A, X, Y, getP(0), SP, (unsigned long long)cycles);
 }
@@ -270,6 +280,7 @@ static void usage(const char *prog) {
         "  --scale N          window size, N times 256x240 (default 3)\n"
         "  --info             print the cartridge header and exit\n"
         "  --trace            print CPU state before every instruction\n"
+        "  --check-cycles     with --trace: check each instruction's cycle map\n"
         "  --start HEX        start here instead of the reset vector\n",
         prog);
     exit(1);
@@ -286,6 +297,7 @@ int main(int argc, char **argv) {
         const char *a = argv[i];
         int more = i + 1 < argc;
         if (!strcmp(a, "--trace")) trace_on = 1;
+        else if (!strcmp(a, "--check-cycles")) check_cycles = 1;
         else if (!strcmp(a, "--headless")) headless = 1;
         else if (!strcmp(a, "--start") && more)
             start = (uint16_t)strtol(argv[++i], NULL, 16);

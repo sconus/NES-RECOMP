@@ -64,18 +64,40 @@ work happens unless an event lands inside an instruction.
 
 ## Steps
 
-### 1. A safety net
+### 1. A safety net (done)
 This is the deepest change since the PPU stage, and the folder has no
 version control. Set up git (`git init`, a `.gitignore` already exists,
 and a first commit of the current state), so any step can be compared
 with or rolled back to today. Needs your OK, since it creates a
 repository.
 
-### 2. Cycle maps
+Done: branch `main`, first commit of the state before this stage.
+`.missed`, `.sav` and `.wav` files are ignored, since runs create them.
+
+### 2. Cycle maps (done)
 Generate the per-opcode maps from `recomp.py`'s table. Add a check (run
 by `make test`) that every map's length equals the instruction's cycle
 count in every case nestest exercises. Nothing uses the maps yet, so
 nothing else changes.
+
+Done. `recomp.py` builds a map for each of the 244 opcodes
+(`cycle_map`, letters explained in `CYCLE_KEY`) and writes them into
+the generated program as `cycle_map[256]`. Example: `LDA ($nn),Y` is
+`F1LHyr`: opcode, operand, pointer low and high, a dummy read only when
+adding Y crosses a page, then the read. `runtime/cycles.c` turns a map
+into an instruction's length using the current registers. Two checks:
+
+- When the recompiler starts, every map's always-happening cycles must
+  equal the table's count, with the page-cross or branch cycles exactly
+  where the table has a penalty.
+- `--check-cycles` (with `--trace`) compares each instruction's length
+  from its map with the cycles it really took. `make test` runs it on
+  nestest (9,086 instructions, 227 opcodes). `instr_timing` 1 also
+  passes it: 8.26 million instructions, 242 opcodes.
+
+Breaking the page-cross rule for X or for Y, the taken-branch rule, or
+the branch page-cross rule each made `make test` fail; dropping a cycle
+from a map stopped the recompiler. Suite unchanged (111 of 123).
 
 ### 3. Instruction tracking
 Record the current instruction's start cycle and address. Measure the
