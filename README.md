@@ -81,9 +81,10 @@ shows which mapper a ROM uses.
   the PPU through eight 1 KB slots; each mapper decides what fills them.
   MMC3 counts scanlines from the PPU's A12 address line, which `ppu.c`
   reports.
-- **Interrupts** (`event.c`). NMI and IRQ timing, including the
-  one-instruction delay after CLI/PLP, an NMI taking over a BRK or IRQ
-  entry, and the reset button.
+- **Interrupts** (`event.c`). NMI and IRQ timing, decided on the cycle
+  the real CPU checks (from each opcode's cycle map, `cycles.c`),
+  including the one-instruction delay after CLI/PLP and taken branches,
+  an NMI taking over a BRK or IRQ entry, and the reset button.
 - **Cartridge** (`cart.c`, including battery saves), **controllers**
   (`input.c`), and the **CPU bus** and command line (`main.c`).
 
@@ -195,20 +196,19 @@ own. Each `tests/make_*.py` writes a small ROM into `tests/`:
 Each check in these was confirmed by breaking that part of the runtime or
 recompiler on purpose and seeing the test report it.
 
-Current results: 111 of 123 graded tests pass, and the 11 pictures and 2
+Current results: 113 of 123 graded tests pass, and the 11 pictures and 2
 sound recordings match. That includes all 16 `instr_test-v5` CPU tests,
 all of `ppu_vbl_nmi`, `vbl_nmi_timing`, the sprite 0 hit and sprite
 overflow suites, blargg's 2005 PPU tests, all 8 `apu_test` and 11 blargg
 APU tests, the three `apu_mixer` silence checks, all 8 reset tests, both
-CNROM tests and 10 of 12 MMC3 tests. The 12 failures:
+CNROM tests, 10 of 12 MMC3 tests and 4 of 5 `cpu_interrupts_v2`
+tests. The 10 failures:
 
 - `ppu_open_bus` #3: PPU open-bus decay isn't modelled.
 - `mmc3_test_2/6-MMC3_alt` and `mmc3_irq_tests/5.MMC3_rev_A` test some
   older MMC3 chips, which behave differently from the one modelled.
-- `cpu_interrupts_v2` 3, 4 and 5 (and the combined ROM, which stops at
-  3): an NMI arriving during an IRQ's entry, an IRQ around sprite DMA,
-  and exactly which cycle of a JMP or taken branch checks for
-  interrupts.
+- `cpu_interrupts_v2` 4 (and the combined ROM, which stops there): an
+  IRQ around sprite DMA.
 - `dmc_dma_during_read4` `dma_2007_read`, `dma_4016_read` and
   `double_2007_read`: the repeated read lands one cycle off. The tests
   sync to the DMC through the same DMA pauses, so no single timing value
@@ -234,8 +234,9 @@ or display-only `read_joy3` tests are left out of the suite.
 - [x] IRQs (MMC3 scanline counter) and battery saves
 - [x] APU: sound through the speakers or a WAV file, frame and DMC IRQs
 - [x] The reset button
+- [x] Interrupt polling on the exact cycle, from per-opcode cycle maps
 - [ ] DMC DMA landing on reads and during sprite DMA, cycle-exact
-      (5 tests, see above), and the last 3 `cpu_interrupts_v2` tests
+      (5 tests, see above), and `cpu_interrupts_v2` 4
 - [ ] PPU open-bus decay (`ppu_open_bus` #3)
 - [ ] Colour emphasis bits, and mid-line scroll changes (the renderer
       draws a line at a time)

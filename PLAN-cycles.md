@@ -120,13 +120,43 @@ Speed: no measurable cost. Five runs each of the old and new builds:
 nes15, 6000 frames headless, 3.49-3.67 s for both; `instr_timing` 1
 (mostly interpreted), 0.59-0.76 s for both. Suite unchanged (111 of 123).
 
-### 4. Exact interrupt polling
+### 4. Exact interrupt polling (done)
 Replace `NMI_LATENCY`/`IRQ_LATENCY` with the polling cycle from the maps,
 including the taken-branch case. The PPU and APU already report when
 they raise a line, in dots. Re-check every interrupt and timing test
 (`ppu_vbl_nmi`, `vbl_nmi_timing`, MMC3, `irq_timing`, `cpu_interrupts`),
 since they were all tuned against the old constants.
 Target: `cpu_interrupts_v2` 5, then 3.
+
+Done; both targets pass (113 of 123). Three changes:
+
+- **Polling cycle** (`poll_end` in `runtime/event.c`). The rule from the
+  maps: the CPU decides on an instruction's second-to-last cycle, except
+  a taken branch that stays on its page, which decides on its first. For
+  every other instruction that is what the old rule already assumed, so
+  only that case moved. Fixed `5-branch_delays_irq`.
+- **An NMI that's too late no longer hides an IRQ.** When an NMI was
+  pending but too late for a boundary, `runtime_event` returned without
+  checking the IRQ. Now the IRQ entry starts, and the NMI can take it over
+  as on hardware (`3-nmi_and_irq` rows 8-10).
+- **Reading `$4015` reschedules the APU.** Clearing the frame IRQ flag
+  didn't ask for a wake-up at the next frame IRQ, so that IRQ was only
+  noticed when some other event happened to run, here the NMI, up to 7
+  cycles late (`3-nmi_and_irq` rows 10-12).
+
+`NMI_LATENCY` and `IRQ_LATENCY` stay, at 6 dots, but now mean something
+narrower: how far into a CPU cycle the PPU and APU raise their lines,
+measured from the polling cycle the map gives rather than from the end of
+the instruction. Exact cycles alone don't remove them; that would need the
+sub-cycle phase between the PPU's and CPU's clocks.
+
+Every interrupt and timing test still passes (`ppu_vbl_nmi`,
+`vbl_nmi_timing`, MMC3, `irq_timing`, `cpu_interrupts` 1 and 2). The
+combined `cpu_interrupts` ROM now stops at test 4 instead of 3. The nes15
+sound recording changed: an NMI landing after a taken branch now arrives
+one instruction later, which moves some register writes by a few cycles
+(RMS difference about 1% of the signal, no shift in time). Accepted as
+the new baseline.
 
 ### 5. Exact DMC DMA
 Halt on the first read cycle at or after the request, using the maps;

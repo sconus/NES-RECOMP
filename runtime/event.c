@@ -6,6 +6,7 @@
 #include "event.h"
 #include "ppu.h"
 #include "apu.h"
+#include "cycles.h"
 
 uint64_t next_event = UINT64_MAX;
 static int nmi_pending;
@@ -35,14 +36,29 @@ void cpu_request_reset(void) {
    2-nmi_and_brk; 3-nmi_and_irq checks the same for IRQs. */
 #define BRK_HIJACK_CYCLE 5
 
-/* The CPU samples its NMI input once per instruction, before the last
-   cycle. An NMI that arrives later than that waits until after the NEXT
-   instruction. In PPU dots: taken at a boundary only if it was raised at
-   least NMI_LATENCY dots before. Tuned with the ppu_vbl_nmi tests. */
+/* The CPU decides whether to take an interrupt once per instruction, on
+   its second-to-last cycle; a line that goes active later waits until
+   after the NEXT instruction. poll_end() gives, for the instruction that
+   just finished, the cycle that decision counts from (see below). An
+   NMI is taken only if it was raised at least NMI_LATENCY dots before
+   that, an IRQ IRQ_LATENCY dots: the dots cover where in the CPU cycle
+   the PPU and APU raise their lines. Tuned with the ppu_vbl_nmi tests,
+   the MMC3 timing tests and cpu_interrupts_v2. */
 #define NMI_LATENCY 6
-/* The same for IRQs. Tuned with cpu_interrupts_v2/5-branch_delays_irq
-   (APU frame IRQ) and the MMC3 timing tests. */
 #define IRQ_LATENCY 6
+
+/* For a normal instruction, its end (= cycles now). A taken branch that
+   stays on its page decides on its first cycle instead, ignoring its
+   last one, so an interrupt in that cycle waits one more instruction
+   (cpu_interrupts_v2 5-branch_delays_irq). Found from the instruction's
+   cycle map and how long it really took (cycles.c). */
+static uint64_t poll_end(void) {
+    const char *m = cycle_map[peek(insn_pc)];
+    uint64_t took = cycles - insn_start;
+    if (m && m[2] == 't' && took == 3)      /* branch, taken, same page */
+        return cycles - 1;
+    return cycles;
+}
 
 void cpu_request_nmi(uint64_t at_dot) {
     nmi_pending = 1;
@@ -121,19 +137,21 @@ uint16_t runtime_event(void) {
     }
     ppu_schedule();
     apu_schedule();
+    uint64_t poll = poll_end();
     if (nmi_pending) {
-        if (nmi_dot + NMI_LATENCY <= cycles * 3 && cycles >= nmi_blocked_until) {
+        if (nmi_dot + NMI_LATENCY <= poll * 3 && cycles >= nmi_blocked_until) {
             nmi_pending = 0;
             nmi_blocked_until = cycles + 7 + 1;
             return 0xFFFA;
         }
-        /* Too late for this boundary: ask again after the next instruction. */
+        /* Too late for this boundary: ask again after the next instruction.
+           An IRQ can still be taken now, and the NMI may then take over
+           its entry (brk_vector; cpu_interrupts_v2 3-nmi_and_irq). */
         schedule_event(cycles + 1);
-        return 0;
     }
     int i_flag = cycles == old_i_until ? old_i : I;
     if (irq_sources && !i_flag) {
-        if (irq_dot + IRQ_LATENCY <= cycles * 3 && cycles >= nmi_blocked_until) {
+        if (irq_dot + IRQ_LATENCY <= poll * 3 && cycles >= nmi_blocked_until) {
             nmi_blocked_until = cycles + 7 + 1;
             return 0xFFFE;           /* the line stays up until acknowledged */
         }

@@ -681,6 +681,7 @@ uint8_t apu_read_status(void) {
     if (apu.dmc_irq) s |= 0x80;
     apu.frame_irq = 0;                      /* reading clears the frame IRQ */
     update_irq_line();
+    apu_schedule();                         /* so the next one isn't missed */
     return s;
 }
 
