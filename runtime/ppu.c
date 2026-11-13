@@ -388,8 +388,28 @@ static void advance_v(void) {
     ppu.v = (ppu.v + ((ppu.ctrl & 0x04) ? 32 : 1)) & 0x7FFF;
 }
 
+/* The PPU's data lines hold their last value (the "decay register"),
+   which is what write-only registers and undriven bits read back as.
+   Each bit fades to 0 if nothing refreshes it for about 600 ms (it varies
+   between consoles; ppu_open_bus wants it gone within a second). A
+   write refreshes all 8 bits; a read only the bits that register drives. */
+#define BUS_DECAY_DOTS (600ull * 5369318 / 1000)    /* 5369318 dots a second */
+
+static void bus_decay(void) {
+    for (int b = 0; b < 8; b++)
+        if (ppu.dots - ppu.bus_refreshed[b] > BUS_DECAY_DOTS)
+            ppu.io_bus &= (uint8_t)~(1 << b);
+}
+
+static void bus_set(uint8_t val, uint8_t mask) {
+    ppu.io_bus = (ppu.io_bus & ~mask) | (val & mask);
+    for (int b = 0; b < 8; b++)
+        if (mask & (1 << b)) ppu.bus_refreshed[b] = ppu.dots;
+}
+
 uint8_t ppu_reg_read(uint16_t addr) {
     ppu_catch_up();
+    bus_decay();
     switch (addr & 7) {
     case 2:   /* status: top 3 bits are flags, the rest is stale bus */
         /* The race with vblank starting (line 241, dot 1). Here dot is
@@ -400,18 +420,21 @@ uint8_t ppu_reg_read(uint16_t addr) {
             if (ppu.dot == 1) ppu.suppress_vbl = 1;
             else if (ppu.dot == 2 || ppu.dot == 3) cpu_cancel_nmi();
         }
-        ppu.io_bus = (ppu.status & 0xE0) | (ppu.io_bus & 0x1F);
+        bus_set(ppu.status, 0xE0);
         ppu.status &= ~STATUS_VBLANK;     /* reading clears the vblank flag */
         ppu.w = 0;
         break;
-    case 4:
-        ppu.io_bus = ppu.oam[ppu.oam_addr];
+    case 4: {
+        /* A sprite's attribute byte has no bits 2-4: they read as 0. */
+        uint8_t v = ppu.oam[ppu.oam_addr];
+        bus_set((ppu.oam_addr & 3) == 2 ? v & 0xE3 : v, 0xFF);
         break;
+    }
     case 7:
         if ((ppu.v & 0x3FFF) >= 0x3F00) {
             /* Palette reads come straight back; the buffer is filled
                from the nametable "underneath" the palette. */
-            ppu.io_bus = (ppu_mem_read(ppu.v) & 0x3F) | (ppu.io_bus & 0xC0);
+            bus_set(ppu_mem_read(ppu.v), 0x3F);
             ppu.read_buffer = ppu_mem_read(ppu.v - 0x1000);
         } else {
             /* The buffer is refilled a moment after a read. A second read
@@ -422,7 +445,7 @@ uint8_t ppu_reg_read(uint16_t addr) {
                depending on CPU-PPU alignment; this is one of them
                (dmc_dma_during_read4/double_2007_read). */
             int back_to_back = ppu.dots - ppu.last_2007_read <= READ_2007_REPEAT_DOTS;
-            ppu.io_bus = back_to_back ? ppu.prev_read_buffer : ppu.read_buffer;
+            bus_set(back_to_back ? ppu.prev_read_buffer : ppu.read_buffer, 0xFF);
             if (!back_to_back) ppu.prev_read_buffer = ppu.read_buffer;
             ppu.read_buffer = ppu_mem_read(ppu.v);
         }
@@ -447,7 +470,7 @@ uint8_t ppu_reg_read(uint16_t addr) {
 void ppu_reg_write(uint16_t addr, uint8_t val) {
     uint64_t target = cycles * 3 + WRITE_SKEW;
     while (ppu.dots < target) step_dot();
-    ppu.io_bus = val;
+    bus_set(val, 0xFF);
     switch (addr & 7) {
     case 0: {
         uint8_t was = ppu.ctrl;

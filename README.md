@@ -62,8 +62,10 @@ shows which mapper a ROM uses.
   dot by dot whenever the CPU touches it or an event is due. Each visible
   line is drawn in one go from the scroll position at its start (lines with
   rendering off are drawn dot by dot). It covers background and sprites,
-  sprite 0 hit, sprite overflow (including the hardware's search bug), and
-  the cycle-exact vblank and NMI behaviour the timing test ROMs check.
+  sprite 0 hit, sprite overflow (including the hardware's search bug),
+  the cycle-exact vblank and NMI behaviour the timing test ROMs check,
+  and the "decay register": what write-only registers read back, each
+  bit fading to 0 about 600 ms after it was last refreshed.
 - **Colours** (`palette.c`). Worked out from the NTSC video signal the NES
   outputs (voltage levels to YIQ to RGB), not copied from a palette file.
 - **APU** (`apu.c`). The sound chip, also catching up on demand: length
@@ -197,16 +199,15 @@ own. Each `tests/make_*.py` writes a small ROM into `tests/`:
 Each check in these was confirmed by breaking that part of the runtime or
 recompiler on purpose and seeing the test report it.
 
-Current results: 120 of 123 graded tests pass, and the 11 pictures and 2
+Current results: 121 of 123 graded tests pass, and the 11 pictures and 2
 sound recordings match. That includes all 16 `instr_test-v5` CPU tests,
 all of `ppu_vbl_nmi`, `vbl_nmi_timing`, the sprite 0 hit and sprite
 overflow suites, blargg's 2005 PPU tests, all 8 `apu_test` and 11 blargg
 APU tests, the three `apu_mixer` silence checks, all 8 reset tests, both
 CNROM tests, 10 of 12 MMC3 tests, all of `cpu_interrupts_v2`, all of
-`dmc_dma_during_read4` and both `sprdma_and_dmc_dma` tests. The 3
-failures:
+`dmc_dma_during_read4`, both `sprdma_and_dmc_dma` tests and
+`ppu_open_bus`. The 2 failures:
 
-- `ppu_open_bus` #3: PPU open-bus decay isn't modelled.
 - `mmc3_test_2/6-MMC3_alt` and `mmc3_irq_tests/5.MMC3_rev_A` test some
   older MMC3 chips, which behave differently from the one modelled.
 
@@ -231,7 +232,7 @@ or display-only `read_joy3` tests are left out of the suite.
 - [x] Interrupt polling on the exact cycle, from per-opcode cycle maps
 - [x] DMC DMA halting on the exact cycle, 3 or 4 cycles long
 - [x] Sprite DMA cycle by cycle, with DMC fetches inside it
-- [ ] PPU open-bus decay (`ppu_open_bus` #3)
+- [x] PPU open-bus decay
 - [ ] Colour emphasis bits, and mid-line scroll changes (the renderer
       draws a line at a time)
 - [ ] Other mappers (MMC5, VRC, ...) and Famicom expansion sound

@@ -25,7 +25,7 @@ ppu_vbl_nmi/rom_singles/07-nmi_on_timing.nes	pass
 ppu_vbl_nmi/rom_singles/08-nmi_off_timing.nes	pass
 ppu_vbl_nmi/rom_singles/09-even_odd_frames.nes	pass
 ppu_vbl_nmi/rom_singles/10-even_odd_timing.nes	pass
-ppu_open_bus/ppu_open_bus.nes	fail: $03 ppu_open_bus / Failed #3
+ppu_open_bus/ppu_open_bus.nes	pass
 oam_read/oam_read.nes	pass
 cpu_interrupts_v2/rom_singles/2-nmi_and_brk.nes	pass
 ppu_read_buffer/test_ppu_read_buffer.nes	pass
