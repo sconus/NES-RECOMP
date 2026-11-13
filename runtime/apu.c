@@ -23,6 +23,7 @@
 #include "apu.h"
 #include "event.h"
 #include "cycles.h"
+#include "mapper.h"
 #include "rt.h"
 
 /* Note lengths, indexed by the top 5 bits of the 4th channel register. */
@@ -457,6 +458,7 @@ static void generate(uint64_t to) {
         int n = (apu.noise.shift & 1) || !apu.len[3].counter
                 ? 0 : envelope_volume(&apu.noise.env);
         snd.sum += snd.pulse_table[p] + snd.tnd_table[t][n][apu.dmc_level];
+        if (mapper.audio_step) snd.sum += mapper.audio_step();
         snd.count++;
         if ((double)snd.at + 1 >= snd.next_sample) {
             emit_sample((float)(snd.sum / snd.count));

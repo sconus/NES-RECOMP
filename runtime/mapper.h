@@ -49,6 +49,13 @@ struct mapper {
        fetching through v, return 1 and give its palette and the 4 KB of
        CHR its pattern comes from; return 0 for the normal fetch. */
     int (*bg_tile)(uint16_t v, uint8_t *palette, const uint8_t **chr4k);
+    /* Expansion sound: step the cartridge's own channels by one CPU cycle
+       and return their output, in the same units as the APU's mix (its
+       two pulses at full volume make about 0.26). Called by the APU for
+       every cycle it mixes, so only when sound is being made. A chip
+       calls apu_catch_up() before changing its sound registers, so the
+       change lands on the right cycle. */
+    float (*audio_step)(void);
     const char *name;
 };
 

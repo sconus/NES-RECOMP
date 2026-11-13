@@ -1,0 +1,127 @@
+# Plan: Famicom expansion sound
+
+Goal: the extra sound channels some Famicom cartridges carry, mixed with
+the console's own APU, and the boards that come with them:
+
+| Chip | Mapper | Sound |
+|---|---|---|
+| VRC6 | 24, 26 | 2 pulses (16 duty steps) and a sawtooth |
+| Sunsoft 5B (FME-7) | 69 | 3 square channels (an AY-3-8910 clone) with noise and an envelope |
+| Namco 163 | 19 | 1-8 wavetable channels, time-multiplexed, in 128 bytes of RAM |
+| MMC5 | 5 (exists) | 2 pulses like the APU's (no sweep) and an 8-bit PCM channel |
+| VRC7 | 85 | 6 FM channels (a cut-down Yamaha OPLL) |
+
+`make test-all` must not get worse at any step; nestest stays exact.
+
+## Test material
+
+The free ROM collection has nothing with expansion sound (its NSF files
+use only the APU, and it has no VRC6, 5B, N163 or VRC7 ROMs). So, as for
+VRC4 and MMC2, the project writes its own test ROMs, and checks what
+comes out of the speaker objectively:
+
+- Each test ROM plays a sequence of notes with known settings, one
+  channel at a time, with silence between them, starting with a reference
+  note on the APU's own pulse channel.
+- A new check in `tests/run_tests.py` records the sound (`--wav`), splits
+  it at the silences, and measures each note's pitch and loudness. Pitch
+  must match the frequency the chip's documentation gives for those
+  settings; loudness, relative to the APU reference, must match the
+  documented mixing level (both within a tolerance).
+- As before, each check is confirmed by breaking the feature on purpose.
+
+That checks the chips against their documentation, not against
+recordings of real hardware; the nesdev wiki's mixing levels are
+themselves measurements, with some spread between cartridges.
+
+## Approach
+
+- **Mixing.** The APU already steps its channels every CPU cycle while
+  it catches up. A mapper with sound gets a hook there: step its own
+  channels one cycle and return its output, which is added to the mix at
+  the chip's documented level relative to the APU.
+- **Timing.** A write to a sound register brings the APU (and so the
+  chip) up to that cycle first, so notes start on the right cycle.
+- **Banking.** Each board is a `MAPPERS` entry plus registers in
+  `mapper.c`, as before. VRC6 and VRC7 reuse VRC4's IRQ code.
+
+## Steps
+
+### 1. Groundwork: the mixing hook and the tone check (done)
+Add the hook to the APU mixer, and the "tones" check to the runner.
+Prove the check itself with a generated ROM that plays APU pulse notes
+of known pitch and volume.
+
+Done.
+- `mapper.audio_step` (`runtime/mapper.h`): the APU calls it for every
+  cycle it mixes and adds what it returns to the mix. A chip calls
+  `apu_catch_up()` before changing its sound registers.
+- The `tones` check (`tests/run_tests.py`): it splits the recording at
+  silences (10 ms windows under 2% of the loudest), measures each note's
+  pitch from the spacing of its rising zero crossings over the middle 60%,
+  and its RMS loudness relative to the first note. Pitch must be within
+  0.25%, loudness within 10%. The console's output filters cut low
+  frequencies (an 880 Hz note measures 1.19 times as loud as the same
+  note at 440 Hz), so loudness is only compared between notes of the
+  same pitch; other notes get `-`.
+- `tests/make_tone_test.py` builds tone ROMs from lists of register
+  writes (`tone_rom`); `apu_tones.nes` plays five APU pulse notes. They
+  measure 440.40 and 880.80 Hz (expected 440.4 and 880.8), and
+  loudness 0.509 for volume 7 (expected 0.509) and 0.924 for 25% duty
+  (expected 0.866 before the filters; the filters favour its stronger
+  high harmonics, so that's within the tolerance but not by much).
+- Breaking the APU on purpose: a pulse period one longer (438.7 Hz),
+  volume ignored, the 25% duty playing 50%, or pulse 2 silent each fail
+  the check.
+
+### 2. VRC6 (24, 26)
+Banking (16 KB + 8 KB PRG, eight 1 KB CHR banks, mirroring), the VRC
+IRQ, and its three channels: two pulses with 16-step duty and a
+"digitized" mode, and the sawtooth. Mapper 26 swaps two address lines.
+Check: a generated test ROM of tones (pitch, duty, volume, sawtooth
+rate), and the IRQ through the VRC4 test's method.
+
+### 3. Sunsoft FME-7 and 5B (69)
+Banking (four 8 KB PRG slots including RAM or ROM at `$6000`, eight
+1 KB CHR banks, mirroring) and the 16-bit CPU-cycle IRQ counter; then the
+5B's three square channels: 12-bit period, logarithmic volume, tone and
+noise enables, and the envelope generator. Check: tones and the IRQ.
+
+### 4. Namco 163 (19)
+Banking (8 KB PRG, 1 KB CHR including the nametable RAM choices) and its
+15-bit IRQ counter; then the wavetable channels, stepped one at a time
+as the chip does (one channel every 15 CPU cycles), with the number of
+enabled channels affecting each one's rate. Check: tones from a known
+waveform in sound RAM.
+
+### 5. MMC5's sound
+Two pulses (the APU's, without sweep, with length counters and
+envelopes) and the PCM channel (written by the CPU). Check: tones.
+
+### 6. VRC7 (85)
+Banking and the VRC IRQ, then FM synthesis: six channels, each a
+modulator and a carrier, with the chip's 15 built-in instruments and one
+custom instrument, following the nesdev wiki's description of the chip.
+This is the largest piece; if exact OPLL behaviour (envelope rates,
+log-sine tables) turns out too large, the step lands with pitch and
+volume right and the finer timbre noted as approximate. Check: tones
+(pitch and level of a pure-sine instrument).
+
+### 7. Suite, README, notes
+Accept the new checks, update the README's mapper list and status, and
+write where the stage ended.
+
+## Not in this stage
+- The Famicom Disk System's sound (it comes with the disk drive, not a
+  mapper).
+- NSF music files: playing them would need a small player program around
+  the music code, a natural follow-up once the chips exist.
+- MMC5's vertical split (left from the last stage).
+
+## Risks
+- No reference recordings: the checks prove the code follows the
+  documentation. Where the wiki gives a range (mixing levels vary between
+  cartridges), the tolerance has to cover it.
+- Speed: stepping extra channels every cycle costs time when sound is
+  on. Headless test runs without `--wav` skip mixing, as now.
+- VRC7 is a real FM synthesizer in miniature; it may land approximate.

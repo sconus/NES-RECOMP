@@ -198,6 +198,10 @@ it in one of these ways (the top of `tests/suite.txt` explains each):
   recorded sound (regression checks for homebrew).
 - `silence`: the `apu_mixer` tests play a tone and its exact inverse, so
   a correct mixer leaves near silence between their two beeps.
+- `tones`: a test ROM plays notes one at a time; each note's pitch (to
+  0.25%) and loudness relative to the first (to 10%) are measured from
+  the recording and compared with what the sound chip's documentation
+  predicts.
 
 A suite line can also pass options to the program, such as
 `--mmc3-rev=A`. It compares against `tests/expected.txt` and exits with
@@ -215,6 +219,9 @@ own. Each `tests/make_*.py` writes a small ROM into `tests/`:
   acknowledge), using MMC3's counter as an IRQ source.
 - `make_gxrom_test.py`: GxROM's PRG and CHR switching and its bus
   conflicts.
+- `make_tone_test.py`: notes of known pitch and volume, for the `tones`
+  check (`apu_tones.nes` uses only the APU; the expansion sound
+  generators build on it).
 - `make_mmc2_test.py`: MMC2 and MMC4's tile-triggered CHR latches,
   driven through `$2007` reads.
 - `make_vrc4_test.py`: one ROM per VRC4 mapper number (21, 23, 25):
@@ -224,7 +231,7 @@ own. Each `tests/make_*.py` writes a small ROM into `tests/`:
 Each check in these was confirmed by breaking that part of the runtime or
 recompiler on purpose and seeing the test report it.
 
-Current results: 129 of 130 graded tests pass, and the 23 pictures and 2
+Current results: 130 of 131 graded tests pass, and the 23 pictures and 2
 sound recordings match. That includes all 16 `instr_test-v5` CPU tests,
 all of `ppu_vbl_nmi`, `vbl_nmi_timing`, the sprite 0 hit and sprite
 overflow suites, blargg's 2005 PPU tests, all 8 `apu_test` and 11 blargg

@@ -56,6 +56,7 @@ mmc3_irq_tests/3.A12_clocking.nes	pass
 mmc3_irq_tests/4.Scanline_timing.nes	pass
 mmc3_irq_tests/5.MMC3_rev_A.nes --mmc3-rev=A	pass
 mmc3_irq_tests/6.MMC3_rev_B.nes	pass
+tests/apu_tones.nes	pass
 tests/gxrom_switch.nes	pass
 other/test001.nes	frame:3fea565c
 other/Streemerz_bundle.nes +a53_streemerz.txt	frame:27b96123

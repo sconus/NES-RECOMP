@@ -51,8 +51,10 @@ def load_suite():
         options = [c for c in line[3:] if c.startswith("--")]
         line = [c for c in line if not c.startswith("--")]
         extra = line[3] if len(line) > 3 else None
-        # For "crc" the 4th column lists accepted checksums, not a script.
-        script = extra if kind != "crc" else None
+        # For "crc" the 4th column lists accepted checksums, and for
+        # "tones" the expected notes, not a script.
+        script = extra if kind not in ("crc", "tones") else None
+        notes = extra if kind == "tones" else None
         crcs = extra.upper().split(",") if kind == "crc" and extra else []
         name = rom + (" +" + os.path.basename(script) if script else "")
         if options:
@@ -63,7 +65,7 @@ def load_suite():
         for o in options:
             args += o.split("=", 1)
         tests.append(dict(kind=kind, frames=frames, rom=rom, script=script,
-                          name=name, crcs=crcs, args=args))
+                          name=name, crcs=crcs, args=args, notes=notes))
     return tests
 
 
@@ -141,6 +143,76 @@ def silence_ratio(path):
     return max(middle) / loud, None
 
 
+# "tones": a test ROM plays notes one at a time with silence between
+# them. Split the recording at the silences and measure each note: its
+# pitch (from the spacing of rising zero crossings) and its loudness (RMS,
+# relative to the first note). The console's output filters cut low
+# frequencies, so loudness is only compared between notes of the same
+# pitch and similar waveform; "-" skips it.
+TONE_WINDOW = 480               # 10 ms
+TONE_PITCH_TOLERANCE = 0.0025   # 0.25 % (an off-by-one period at 440 Hz is 0.4 %)
+TONE_LEVEL_TOLERANCE = 0.10     # 10 %
+
+
+def tone_segments(x):
+    """(start, end) sample ranges of the notes in recording x."""
+    import math
+    w = TONE_WINDOW
+    rms = [math.sqrt(sum(v * v for v in x[i:i + w]) / w)
+           for i in range(0, len(x) - w, w)]
+    if not rms or max(rms) == 0:
+        return []
+    on = [r > 0.02 * max(rms) for r in rms]
+    segments, start = [], None
+    for i, o in enumerate(on + [False]):
+        if o and start is None:
+            start = i
+        elif not o and start is not None:
+            if i - start >= 10:                         # at least 100 ms
+                segments.append((start * w, i * w))
+            start = None
+    return segments
+
+
+def measure_tone(x, start, end):
+    """Pitch in Hz and RMS of the middle 60% of a note."""
+    import math
+    a = start + (end - start) // 5
+    b = end - (end - start) // 5
+    seg = x[a:b]
+    mean = sum(seg) / len(seg)
+    y = [v - mean for v in seg]
+    rms = math.sqrt(sum(v * v for v in y) / len(y))
+    crossings = []
+    for i in range(1, len(y)):
+        if y[i - 1] < 0 <= y[i]:
+            crossings.append(i - 1 + -y[i - 1] / (y[i] - y[i - 1]))
+    if len(crossings) < 3:
+        return 0.0, rms
+    return 48000.0 * (len(crossings) - 1) / (crossings[-1] - crossings[0]), rms
+
+
+def check_tones(path, expected):
+    """expected: "440@1,880@-,...": pitch @ loudness relative to note 1."""
+    want = []
+    for item in expected.split(","):
+        f, lvl = item.split("@")
+        want.append((float(f), None if lvl == "-" else float(lvl)))
+    x = wav_samples(path)
+    segs = tone_segments(x)
+    if len(segs) != len(want):
+        return "fail: heard %d notes, expected %d" % (len(segs), len(want))
+    measured = [measure_tone(x, a, b) for a, b in segs]
+    ref = measured[0][1]
+    for i, ((f, lvl), (hz, rms)) in enumerate(zip(want, measured), 1):
+        if abs(hz / f - 1) > TONE_PITCH_TOLERANCE:
+            return "fail: note %d is %.1f Hz, expected %.1f" % (i, hz, f)
+        if lvl is not None and abs(rms / ref / lvl - 1) > TONE_LEVEL_TOLERANCE:
+            return "fail: note %d is %.3f as loud as note 1, expected %.3f" % (
+                i, rms / ref, lvl)
+    return "pass"
+
+
 def judge(test, out, err, png):
     """Return 'pass', 'fail: <why>' or 'frame:<crc>'."""
     stop = re.search(r"stopped: (.*)", err)
@@ -181,6 +253,10 @@ def judge(test, out, err, png):
         if not os.path.exists(wav):
             return "fail: no sound file"
         return "audio:%08x" % zlib.crc32(wav_samples(wav).tobytes())
+    if test["kind"] == "tones":
+        if not os.path.exists(wav):
+            return "fail: no sound file"
+        return check_tones(wav, test["notes"])
     if test["kind"] == "silence":
         if not os.path.exists(wav):
             return "fail: no sound file"
@@ -224,7 +300,7 @@ def run_one(test, cflags, libs, rt_objs):
             cmd.append("--dump-text")
         if test["kind"] == "frame":
             cmd += ["--screenshot", png]
-        if test["kind"] in ("audio", "silence"):
+        if test["kind"] in ("audio", "silence", "tones"):
             cmd += ["--wav", png[:-4] + ".wav"]
         if test["script"]:
             cmd += ["--input", os.path.join(ROOT, test["script"])]

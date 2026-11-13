@@ -13,6 +13,9 @@
 #   audio   the sound (--wav) must match the saved recording (regression).
 #   silence apu_mixer: between its two beeps the sound must be near silent
 #           (see SILENCE_LIMIT in run_tests.py).
+#   tones   a test ROM plays notes one at a time; each note's pitch and
+#           its loudness relative to the first must match the 4th column
+#           (pitch@level, comma-separated; level "-" isn't checked).
 # frames is the most frames to run.
 # Columns starting with -- are options for the built program, for
 # example --mmc3-rev=A for tests of the older MMC3 chip.
@@ -97,6 +100,11 @@ text 600 mmc3_irq_tests/3.A12_clocking.nes
 text 600 mmc3_irq_tests/4.Scanline_timing.nes
 text 600 mmc3_irq_tests/5.MMC3_rev_A.nes --mmc3-rev=A
 text 600 mmc3_irq_tests/6.MMC3_rev_B.nes
+
+# --- Expansion sound (PLAN-expansion.md). tests/apu_tones.nes (from
+# make_tone_test.py) plays APU pulse notes of known pitch and volume; it
+# proves the tones check itself.
+tones 360 tests/apu_tones.nes 440.4@1,880.8@-,440.4@0.509,440.4@0.866,440.4@1
 
 # --- Mapper 66 (GxROM) and 11 (Color Dreams). tests/gxrom_switch.nes (from
 # make_gxrom_test.py) checks PRG and CHR switching and bus conflicts.
