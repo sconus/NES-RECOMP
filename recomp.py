@@ -252,6 +252,14 @@ MAPPERS = {
     34: dict(name="BNROM", unit=4, fixed={}, power_on={0: 0, 1: 1, 2: 2, 3: 3}),
     11: dict(name="Color Dreams", unit=4, fixed={}, power_on={0: 0, 1: 1, 2: 2, 3: 3}),
     66: dict(name="GxROM", unit=4, fixed={}, power_on={0: 0, 1: 1, 2: 2, 3: 3}),
+    # Konami VRC2/VRC4: 8 KB banks at $8000 and $A000, the last 8 KB fixed;
+    # VRC4 can swap $8000 with $C000 (the second-to-last bank), so only
+    # $E000 is safe to treat as fixed (like MMC3). Four mapper numbers for
+    # the same chips wired to different address lines.
+    21: dict(name="VRC4", unit=1, fixed={3: -1}, power_on={0: 0, 1: 1, 2: -2, 3: -1}),
+    22: dict(name="VRC2", unit=1, fixed={3: -1}, power_on={0: 0, 1: 1, 2: -2, 3: -1}),
+    23: dict(name="VRC4", unit=1, fixed={3: -1}, power_on={0: 0, 1: 1, 2: -2, 3: -1}),
+    25: dict(name="VRC4", unit=1, fixed={3: -1}, power_on={0: 0, 1: 1, 2: -2, 3: -1}),
     # Action 53 switches 16 or 32 KB with either half fixed, depending on a
     # mode the program sets, so no slot is safe to treat as fixed. It
     # starts in its last 32 KB.

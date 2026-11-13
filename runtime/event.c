@@ -6,6 +6,7 @@
 #include "event.h"
 #include "ppu.h"
 #include "apu.h"
+#include "mapper.h"
 #include "cycles.h"
 
 uint64_t next_event = UINT64_MAX;
@@ -132,6 +133,7 @@ uint16_t brk_vector(void) {
 uint16_t runtime_event(void) {
     ppu_catch_up();                 /* may raise an NMI and finish a frame */
     apu_catch_up();                 /* may raise an IRQ */
+    if (mapper.catch_up) mapper.catch_up();     /* so may the mapper */
     if (cycles >= dmc_dma_due) apu_dma_point(0);
     next_event = UINT64_MAX;
     if (reset_requested) {
@@ -143,10 +145,12 @@ uint16_t runtime_event(void) {
         ppu_soft_reset();
         ppu_schedule();
         apu_schedule();
+        if (mapper.schedule) mapper.schedule();
         return 0xFFFC;
     }
     ppu_schedule();
     apu_schedule();
+    if (mapper.schedule) mapper.schedule();
     uint64_t poll = poll_end();
     if (nmi_pending) {
         if (nmi_dot + NMI_LATENCY <= poll * 3 && cycles >= nmi_blocked_until) {

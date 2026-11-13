@@ -113,6 +113,16 @@ frame 300 other/test001.nes
 frame 1400 other/Streemerz_bundle.nes tests/inputs/a53_streemerz.txt
 text 900 other/test28.nes
 
+# --- Mappers 21, 22, 23, 25 (Konami VRC2/VRC4). tests/vrc4_*.nes (from
+# make_vrc4_test.py) check PRG banks and swap mode, CHR banks, mirroring
+# and the IRQ in both modes, writing through both address wirings of each
+# mapper number. m22chrbankingtest steps through CHR banks; at frame 1000
+# it must show bank 62 (verified by eye: 007 at frame 120, 012 at 200).
+result 60 tests/vrc4_21.nes
+result 60 tests/vrc4_23.nes
+result 60 tests/vrc4_25.nes
+frame 1000 m22chrbankingtest/0-127.nes
+
 # --- PPU, result on screen only (power_up_palette is left out: it checks
 #     values unique to its author's console)
 text 600 blargg_ppu_tests_2005.09.15b/palette_ram.nes

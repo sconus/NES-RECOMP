@@ -21,6 +21,11 @@ struct mapper {
        PPU calls it when A12 changes. `dot` is in ppu.dots units. */
     void (*a12)(int level, uint64_t dot);
     int watch_lines;        /* PPU should wake the CPU at each A12 clock */
+    /* Mappers with their own clock (VRC4's IRQ counter) bring themselves
+       up to the CPU's current cycle, and ask for an event when they next
+       need attention. Called from runtime_event and after mapper writes. */
+    void (*catch_up)(void);
+    void (*schedule)(void);
     const char *name;
 };
 

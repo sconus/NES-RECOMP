@@ -89,7 +89,7 @@ couldn't be found (it isn't in the action53 repository), so the most
 likely explanation, an older revision of the mapper, is unconfirmed.
 It's in the suite as an expected failure.
 
-### 3. Konami VRC2 and VRC4 (21, 22, 23, 25)
+### 3. Konami VRC2 and VRC4 (21, 22, 23, 25) (done)
 8 KB PRG banks (with a swap mode on VRC4), 1 KB CHR banks written as two
 4-bit halves, mirroring, and on VRC4 an IRQ counter clocked by the CPU
 (by cycles or by approximate scanlines). The four mapper numbers are the
@@ -97,6 +97,40 @@ same chip family wired to different address lines; iNES 1.0 headers don't
 say which wiring, so each mapper number accepts both of its variants.
 Checks: `m22chrbankingtest` (against its reference picture), and a
 generated VRC4 test for banking and the IRQ timing.
+
+Done (`vrc_*` in `runtime/mapper.c`), from the nesdev wiki's "VRC2 and
+VRC4" and "VRC IRQ" pages:
+- Each mapper number decodes both of its wirings at once (they don't
+  overlap): 21 = A1/A2 and A6/A7, 23 = A0/A1 and A2/A3, 25 = A1/A0 and
+  A3/A2; 22 = A1/A0 only. 21, 23 and 25 are VRC4 (a superset of VRC2),
+  22 is VRC2a, which drops the lowest CHR bank bit.
+- PRG: 8 KB banks at `$8000` and `$A000`, the second-to-last at `$C000`
+  (VRC4's swap mode exchanges `$8000` and `$C000`), the last at `$E000`.
+  In `MAPPERS` like MMC3: only `$E000` fixed.
+- CHR: eight 1 KB banks, each written as a low 4 bits and high 5 bits.
+- VRC4's PRG RAM enable bit is ignored (the RAM stays usable); VRC2's
+  1-bit latch at `$6000` is covered by plain RAM there.
+- The IRQ counter has its own clock, so mappers got two new hooks,
+  `catch_up` and `schedule`, called from `runtime_event` and after mapper
+  writes, as the PPU and APU are. It's worked out one counter clock at a
+  time: every CPU cycle in cycle mode, or in scanline mode whenever a
+  prescaler that starts at 341 and loses 3 a cycle reaches 0 (114, 114,
+  113 cycles).
+
+Checks:
+- `m22chrbankingtest` steps through CHR banks with mapper 22's dropped
+  bit; it showed 007, 012 and 062 at frames 120, 200 and 1000, exactly
+  as its source predicts. Frame 1000 is a picture check.
+- `tests/vrc4_21.nes`, `vrc4_23.nes`, `vrc4_25.nes` (from
+  `make_vrc4_test.py`) check PRG banks, swap mode, CHR (with the high
+  nibble), one-screen mirroring, and the IRQ: cycle mode fires at 256
+  cycles, scanline mode after two scanlines, and acknowledging with A = 0
+  stops it. Registers are written through both wirings.
+- Breaking each wiring, the swap mode, the CHR high nibble, one-screen
+  mirroring, cycle mode, the acknowledge rule or the prescaler rate each
+  fails exactly the check aimed at it.
+
+Suite: 127 of 128 (the one failure is still `test28`), 17 pictures.
 
 ### 4. MMC2 and MMC4 (9, 10)
 CHR banks switched automatically when the PPU reads tile `$FD` or `$FE`

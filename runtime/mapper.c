@@ -168,6 +168,155 @@ static void a53_reset(void) {
     a53_apply();
 }
 
+/* ---- 21, 22, 23, 25: Konami VRC2 and VRC4 (nesdev wiki "VRC2 and VRC4",
+   "VRC IRQ"). The same chips, wired to different CPU address lines for
+   the chip's register select bits A0 and A1:
+     21  VRC4a (A1, A2) and VRC4c (A6, A7)
+     22  VRC2a (A1, A0)
+     23  VRC2b/VRC4f (A0, A1) and VRC4e (A2, A3)
+     25  VRC2c/VRC4b (A1, A0) and VRC4d (A3, A2)
+   An iNES 1.0 header can't say which wiring, and the two wirings of each
+   number don't overlap, so both are decoded at once. Mappers 21, 23 and
+   25 are treated as VRC4 (a superset of VRC2), 22 as VRC2.
+   Registers, by chip select (0-3) within each $1000 range:
+     $8000      PRG bank for $8000 (or $C000 in swap mode), 5 bits
+     $9000/1    mirroring: vertical, horizontal (VRC4 also one-screen
+                low, high)
+     $9002      VRC4: bit 1 swap mode, bit 0 PRG RAM enable (ignored here:
+                the RAM stays usable)
+     $A000      PRG bank for $A000
+     $B000-$E003  CHR banks: two registers per 1 KB bank, low 4 bits then
+                high 5 bits (VRC2a drops the lowest bit of the result)
+     $F000-$F003  VRC4 IRQ: latch low/high nibble, control, acknowledge
+   $C000 holds the second-to-last 8 KB (or the $8000 bank in swap mode)
+   and $E000 the last. ----------------------------------------------- */
+
+static struct {
+    int vrc2;                   /* mapper 22: VRC2a */
+    uint8_t prg0, prg1, swap, mirror;
+    uint16_t chr[8];
+    /* IRQ: latch, counter, control bits, and the scanline prescaler,
+       valid at cycle irq_time. */
+    uint8_t latch, counter, enable, enable_after_ack, cycle_mode;
+    int prescaler;
+    uint64_t irq_time;
+} vrc;
+
+static int vrc_select(uint16_t addr) {
+    int a0, a1;
+    switch (cart.mapper) {
+    case 21: a0 = (addr >> 1 | addr >> 6) & 1; a1 = (addr >> 2 | addr >> 7) & 1; break;
+    case 22: a0 = (addr >> 1) & 1;              a1 = addr & 1;                   break;
+    case 23: a0 = (addr | addr >> 2) & 1;       a1 = (addr >> 1 | addr >> 3) & 1; break;
+    default: a0 = (addr >> 1 | addr >> 3) & 1;  a1 = (addr | addr >> 2) & 1;      break;
+    }
+    return a1 << 1 | a0;
+}
+
+static void vrc_apply(void) {
+    set_prg_8k(vrc.swap ? 2 : 0, vrc.prg0);
+    set_prg_8k(vrc.swap ? 0 : 2, -2);
+    set_prg_8k(1, vrc.prg1);
+    set_prg_8k(3, -1);
+    for (int i = 0; i < 8; i++)
+        set_chr_1k(i, vrc.vrc2 ? vrc.chr[i] >> 1 : vrc.chr[i]);
+    static const enum mirroring mir[4] = {
+        MIRROR_VERTICAL, MIRROR_HORIZONTAL, MIRROR_SINGLE_LOW, MIRROR_SINGLE_HIGH };
+    cart.mirroring = mir[vrc.vrc2 ? vrc.mirror & 1 : vrc.mirror & 3];
+}
+
+/* The IRQ counter counts up and trips the IRQ when it passes $FF,
+   reloading from the latch. In cycle mode it's clocked every CPU cycle; in
+   scanline mode by a prescaler that starts at 341 and loses 3 each cycle,
+   clocking the counter and adding 341 whenever it reaches 0 or below
+   (114, 114, 113 cycles: a scanline). Nothing is clocked while disabled.
+   Worked out a clock at a time, not a cycle at a time. */
+static uint64_t vrc_cycles_to_clock(void) {
+    return vrc.cycle_mode ? 1 : (uint64_t)((vrc.prescaler + 2) / 3);
+}
+
+static void vrc_irq_catch_up(void) {
+    uint64_t now = cycles;
+    if (!vrc.enable) { vrc.irq_time = now; return; }
+    for (;;) {
+        uint64_t k = vrc_cycles_to_clock();
+        if (vrc.irq_time + k > now) break;
+        vrc.irq_time += k;
+        if (!vrc.cycle_mode) vrc.prescaler += 341 - 3 * (int)k;
+        if (vrc.counter == 0xFF) {
+            vrc.counter = vrc.latch;
+            cpu_set_irq_at(IRQ_MAPPER, 1, vrc.irq_time * 3);
+        } else {
+            vrc.counter++;
+        }
+    }
+    if (!vrc.cycle_mode) vrc.prescaler -= 3 * (int)(now - vrc.irq_time);
+    vrc.irq_time = now;
+}
+
+static void vrc_irq_schedule(void) {
+    if (!vrc.enable) return;
+    /* When the counter next passes $FF. */
+    uint64_t clocks = 0x100 - vrc.counter;
+    uint64_t first = vrc_cycles_to_clock();
+    uint64_t per = vrc.cycle_mode ? 1 : 341 / 3;    /* close enough to wake early */
+    schedule_event(vrc.irq_time + first + (clocks - 1) * per);
+}
+
+static void vrc_write(uint16_t addr, uint8_t val) {
+    int reg = vrc_select(addr);
+    switch (addr & 0xF000) {
+    case 0x8000: vrc.prg0 = val & 0x1F; break;
+    case 0xA000: vrc.prg1 = val & 0x1F; break;
+    case 0x9000:
+        if (vrc.vrc2 || reg < 2) vrc.mirror = val;
+        else if (reg == 2) vrc.swap = (val >> 1) & 1;
+        break;
+    case 0xB000: case 0xC000: case 0xD000: case 0xE000: {
+        int bank = ((addr >> 12) - 0xB) * 2 + (reg >> 1);
+        if (reg & 1)
+            vrc.chr[bank] = (uint16_t)((vrc.chr[bank] & 0x0F) | (val & (vrc.vrc2 ? 0x0F : 0x1F)) << 4);
+        else
+            vrc.chr[bank] = (uint16_t)((vrc.chr[bank] & ~0x0F) | (val & 0x0F));
+        break;
+    }
+    case 0xF000:
+        if (vrc.vrc2) break;
+        vrc_irq_catch_up();
+        switch (reg) {
+        case 0: vrc.latch = (uint8_t)((vrc.latch & 0xF0) | (val & 0x0F)); break;
+        case 1: vrc.latch = (uint8_t)((vrc.latch & 0x0F) | (val & 0x0F) << 4); break;
+        case 2:   /* control: acknowledge, reset the prescaler, maybe reload */
+            vrc.enable_after_ack = val & 1;
+            vrc.enable = (val >> 1) & 1;
+            vrc.cycle_mode = (val >> 2) & 1;
+            vrc.prescaler = 341;
+            if (vrc.enable) vrc.counter = vrc.latch;
+            cpu_set_irq(IRQ_MAPPER, 0);
+            break;
+        case 3:   /* acknowledge; A is copied to E */
+            vrc.enable = vrc.enable_after_ack;
+            cpu_set_irq(IRQ_MAPPER, 0);
+            break;
+        }
+        break;
+    }
+    vrc_apply();
+}
+
+static void vrc_reset(void) {
+    memset(&vrc, 0, sizeof vrc);
+    vrc.vrc2 = cart.mapper == 22;
+    vrc.prg1 = 1;
+    vrc.prescaler = 341;
+    vrc.irq_time = cycles;
+    vrc_apply();
+    if (!vrc.vrc2) {
+        mapper.catch_up = vrc_irq_catch_up;
+        mapper.schedule = vrc_irq_schedule;
+    }
+}
+
 /* ---- 1: MMC1. Registers are loaded one bit at a time. -----------------
 
    Each write to $8000-$FFFF shifts bit 0 into a 5-bit register; the fifth
@@ -343,6 +492,10 @@ void mapper_init(void) {
         set_prg_32k(0);
         break;
     case 66: mapper.name = "GxROM"; write_reg = gxrom_write; set_prg_32k(0); break;
+    case 21: case 23: case 25:
+        mapper.name = "VRC4"; write_reg = vrc_write; vrc_reset();
+        break;
+    case 22: mapper.name = "VRC2"; write_reg = vrc_write; vrc_reset(); break;
     case 28:
         mapper.name = "Action 53"; write_reg = a53_write; write_low = a53_select;
         a53_reset();
@@ -369,4 +522,5 @@ void mapper_write(uint16_t addr, uint8_t val) {
     ppu_catch_up();     /* CHR or mirroring may change mid-frame */
     write_reg(addr, val);
     ppu_schedule();     /* an IRQ may now be due sooner */
+    if (mapper.schedule) mapper.schedule();
 }
