@@ -28,6 +28,10 @@ extern struct mapper mapper;
 
 /* Set up the mapper named in the cartridge header. Exits if unsupported. */
 void mapper_init(void);
+/* Which MMC3 to behave like: 'B' (the default; most games) or 'A', an
+   older chip (Crystalis) that raises its IRQ only when the counter
+   reaches 0, not when it reloads a 0. Set with --mmc3-rev. */
+extern char mmc3_revision;
 /* CPU write to $8000-$FFFF. */
 void mapper_write(uint16_t addr, uint8_t val);
 

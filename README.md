@@ -83,7 +83,10 @@ shows which mapper a ROM uses.
 - **Mappers** (`mapper.c`). The CPU sees ROM through four 8 KB slots and
   the PPU through eight 1 KB slots; each mapper decides what fills them.
   MMC3 counts scanlines from the PPU's A12 address line, which `ppu.c`
-  reports.
+  reports. Two MMC3 revisions differ in when that counter raises its IRQ;
+  the newer one (B) is the default, and `--mmc3-rev A` selects the older
+  one, which a few boards (Crystalis) have. A cartridge doesn't say which
+  it has.
 - **Interrupts** (`event.c`). NMI and IRQ timing, decided on the cycle
   the real CPU checks (from each opcode's cycle map, `cycles.c`),
   including the one-instruction delay after CLI/PLP and taken branches,
@@ -143,6 +146,7 @@ The built program takes options after the ROM path:
     --audio-stats      print the sound queue depth once a second
     --input FILE       scripted button presses (below)
     --scale N          window size, N times 256x240 (default 3)
+    --mmc3-rev A|B     which MMC3 chip to act like (default B)
     --info             print the cartridge header and exit
     --trace            print CPU state before every instruction
     --check-cycles     with --trace: check each instruction's length
@@ -182,9 +186,10 @@ it in one of these ways (the top of `tests/suite.txt` explains each):
 - `silence`: the `apu_mixer` tests play a tone and its exact inverse, so
   a correct mixer leaves near silence between their two beeps.
 
-It compares against `tests/expected.txt` and exits with an error only if
-something got worse. After an improvement, accept
-the new results with `python3 tests/run_tests.py --update`. To run part of
+A suite line can also pass options to the program, such as
+`--mmc3-rev=A`. It compares against `tests/expected.txt` and exits with
+an error only if something got worse. After an improvement, accept the
+new results with `python3 tests/run_tests.py --update`. To run part of
 the suite, pass part of a path: `python3 tests/run_tests.py sprite_hit`.
 
 Some checks needed test ROMs that didn't exist, so the project makes its
@@ -199,17 +204,15 @@ own. Each `tests/make_*.py` writes a small ROM into `tests/`:
 Each check in these was confirmed by breaking that part of the runtime or
 recompiler on purpose and seeing the test report it.
 
-Current results: 121 of 123 graded tests pass, and the 11 pictures and 2
+Current results: all 123 graded tests pass, and the 11 pictures and 2
 sound recordings match. That includes all 16 `instr_test-v5` CPU tests,
 all of `ppu_vbl_nmi`, `vbl_nmi_timing`, the sprite 0 hit and sprite
 overflow suites, blargg's 2005 PPU tests, all 8 `apu_test` and 11 blargg
 APU tests, the three `apu_mixer` silence checks, all 8 reset tests, both
-CNROM tests, 10 of 12 MMC3 tests, all of `cpu_interrupts_v2`, all of
+CNROM tests, all 12 MMC3 tests (the two for the older chip run with
+`--mmc3-rev=A`), all of `cpu_interrupts_v2`, all of
 `dmc_dma_during_read4`, both `sprdma_and_dmc_dma` tests and
-`ppu_open_bus`. The 2 failures:
-
-- `mmc3_test_2/6-MMC3_alt` and `mmc3_irq_tests/5.MMC3_rev_A` test some
-  older MMC3 chips, which behave differently from the one modelled.
+`ppu_open_bus`.
 
 `dmc_tests` (no readme, source or on-screen result) and the interactive
 or display-only `read_joy3` tests are left out of the suite.

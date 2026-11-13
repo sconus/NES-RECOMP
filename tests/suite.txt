@@ -14,6 +14,8 @@
 #   silence apu_mixer: between its two beeps the sound must be near silent
 #           (see SILENCE_LIMIT in run_tests.py).
 # frames is the most frames to run.
+# Columns starting with -- are options for the built program, for
+# example --mmc3-rev=A for tests of the older MMC3 chip.
 
 # --- CPU, through the $6000 harness
 result 3000 instr_test-v5/rom_singles/01-basics.nes
@@ -88,12 +90,12 @@ result 3000 mmc3_test_2/rom_singles/2-details.nes
 result 3000 mmc3_test_2/rom_singles/3-A12_clocking.nes
 result 3000 mmc3_test_2/rom_singles/4-scanline_timing.nes
 result 3000 mmc3_test_2/rom_singles/5-MMC3.nes
-result 3000 mmc3_test_2/rom_singles/6-MMC3_alt.nes
+result 3000 mmc3_test_2/rom_singles/6-MMC3_alt.nes --mmc3-rev=A
 text 600 mmc3_irq_tests/1.Clocking.nes
 text 600 mmc3_irq_tests/2.Details.nes
 text 600 mmc3_irq_tests/3.A12_clocking.nes
 text 600 mmc3_irq_tests/4.Scanline_timing.nes
-text 600 mmc3_irq_tests/5.MMC3_rev_A.nes
+text 600 mmc3_irq_tests/5.MMC3_rev_A.nes --mmc3-rev=A
 text 600 mmc3_irq_tests/6.MMC3_rev_B.nes
 
 # --- PPU, result on screen only (power_up_palette is left out: it checks

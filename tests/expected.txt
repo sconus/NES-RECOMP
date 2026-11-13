@@ -49,12 +49,12 @@ mmc3_test_2/rom_singles/2-details.nes	pass
 mmc3_test_2/rom_singles/3-A12_clocking.nes	pass
 mmc3_test_2/rom_singles/4-scanline_timing.nes	pass
 mmc3_test_2/rom_singles/5-MMC3.nes	pass
-mmc3_test_2/rom_singles/6-MMC3_alt.nes	fail: $02 6-MMC3_alt / Failed #2
+mmc3_test_2/rom_singles/6-MMC3_alt.nes --mmc3-rev=A	pass
 mmc3_irq_tests/1.Clocking.nes	pass
 mmc3_irq_tests/2.Details.nes	pass
 mmc3_irq_tests/3.A12_clocking.nes	pass
 mmc3_irq_tests/4.Scanline_timing.nes	pass
-mmc3_irq_tests/5.MMC3_rev_A.nes	fail: FAILED #3
+mmc3_irq_tests/5.MMC3_rev_A.nes --mmc3-rev=A	pass
 mmc3_irq_tests/6.MMC3_rev_B.nes	pass
 blargg_ppu_tests_2005.09.15b/palette_ram.nes	pass
 blargg_ppu_tests_2005.09.15b/sprite_ram.nes	pass

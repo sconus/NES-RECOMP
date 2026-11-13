@@ -1,3 +1,4 @@
+#include <ctype.h>
 /* nesrecomp runtime: the CPU memory bus and the program entry point.
    The .nes file is loaded at runtime; the generated code holds only the
    translated instruction logic. */
@@ -280,6 +281,7 @@ static void usage(const char *prog) {
         "  --audio-stats      print the sound queue depth once a second\n"
         "  --input FILE       scripted button presses (see README.md)\n"
         "  --scale N          window size, N times 256x240 (default 3)\n"
+        "  --mmc3-rev A|B     which MMC3 chip to act like (default B)\n"
         "  --info             print the cartridge header and exit\n"
         "  --trace            print CPU state before every instruction\n"
         "  --check-cycles     with --trace: check each instruction's cycle map\n"
@@ -313,6 +315,11 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "--wav") && more) wav_path = argv[++i];
         else if (!strcmp(a, "--mute")) mute = 1;
         else if (!strcmp(a, "--audio-stats")) audio_stats = 1;
+        else if (!strcmp(a, "--mmc3-rev") && more) {
+            char r = (char)toupper((unsigned char)argv[++i][0]);
+            if (r != 'A' && r != 'B') usage(argv[0]);
+            mmc3_revision = r;
+        }
         else if (!strcmp(a, "--info")) { cart_print_info(rom_path); return 0; }
         else usage(argv[0]);
     }

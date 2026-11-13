@@ -47,15 +47,23 @@ def load_suite():
         if not line:
             continue
         kind, frames, rom = line[0], int(line[1]), line[2]
+        # Columns like --mmc3-rev=A are options for the built program.
+        options = [c for c in line[3:] if c.startswith("--")]
+        line = [c for c in line if not c.startswith("--")]
         extra = line[3] if len(line) > 3 else None
         # For "crc" the 4th column lists accepted checksums, not a script.
         script = extra if kind != "crc" else None
         crcs = extra.upper().split(",") if kind == "crc" and extra else []
         name = rom + (" +" + os.path.basename(script) if script else "")
+        if options:
+            name += " " + " ".join(options)
         if kind == "audio":
             name += " (sound)"          # may share a ROM and script with a picture
+        args = []
+        for o in options:
+            args += o.split("=", 1)
         tests.append(dict(kind=kind, frames=frames, rom=rom, script=script,
-                          name=name, crcs=crcs))
+                          name=name, crcs=crcs, args=args))
     return tests
 
 
@@ -220,6 +228,7 @@ def run_one(test, cflags, libs, rt_objs):
             cmd += ["--wav", png[:-4] + ".wav"]
         if test["script"]:
             cmd += ["--input", os.path.join(ROOT, test["script"])]
+        cmd += test["args"]
         try:
             r = sh(cmd, cwd=ROOT, timeout=120)
         except subprocess.TimeoutExpired:

@@ -172,14 +172,23 @@ static void mmc3_apply(void) {
     set_prg_8k(3, -1);
 }
 
+char mmc3_revision = 'B';
+
 static void mmc3_clock(void) {
+    /* Revision A only raises the IRQ when the counter gets to 0: by
+       counting down, or reloading after a $C001 clear. Reloading after it
+       reached 0 by itself doesn't, even to 0. Revision B raises it
+       whenever the counter is 0 after a clock (mmc3_irq_tests readme). */
+    int reaches_zero = mmc3.counter != 0 || mmc3.reload;
     if (mmc3.counter == 0 || mmc3.reload) {
         mmc3.counter = mmc3.latch;
         mmc3.reload = 0;
     } else {
         mmc3.counter--;
     }
-    if (mmc3.counter == 0 && mmc3.irq_enabled) cpu_set_irq(IRQ_MAPPER, 1);
+    if (mmc3.counter == 0 && mmc3.irq_enabled &&
+        (mmc3_revision != 'A' || reaches_zero))
+        cpu_set_irq(IRQ_MAPPER, 1);
 }
 
 static void mmc3_a12(int level, uint64_t dot) {
