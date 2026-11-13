@@ -481,8 +481,108 @@ static void mmc5_apply_chr(void) {
     }
 }
 
+/* MMC5's sound (nesdev wiki "MMC5 audio"): two pulses like the APU's
+   ($5000-$5007 as $4000-$4007), but without a sweep, not muted by short
+   periods, and with the envelope and length counter clocked at a fixed
+   240 Hz (M2 / 7424 on the die), so length counts run twice as fast; and
+   an 8-bit PCM channel written at $5011 (a write of 0 is ignored, and
+   trips the PCM IRQ if $5010 bit 7 enables it). All as loud as the APU's
+   channels with the same values, but inverted. The PCM read mode (the DAC
+   following reads of $8000-$BFFF) isn't modelled. */
+static const uint8_t mmc5_length_table[32] = {
+    10, 254, 20, 2, 40, 4, 80, 6, 160, 8, 60, 10, 14, 12, 26, 14,
+    12, 16, 24, 18, 48, 20, 96, 22, 192, 24, 72, 26, 16, 28, 32, 30 };
+static const uint8_t mmc5_duty[4][8] = {
+    { 0, 1, 0, 0, 0, 0, 0, 0 }, { 0, 1, 1, 0, 0, 0, 0, 0 },
+    { 0, 1, 1, 1, 1, 0, 0, 0 }, { 1, 0, 0, 1, 1, 1, 1, 1 } };
+
+static struct {
+    struct {
+        uint8_t ctrl, enabled, step, length, env_start, env_divider, env_decay;
+        uint16_t period, timer;
+    } p[2];
+    uint8_t pcm, pcm_irq_enable, pcm_trip;
+    int cycle;                       /* pulse timers run every 2 cycles */
+    uint64_t next_frame;             /* CPU cycle of the next 240 Hz tick */
+} m5a;
+
 static void mmc5_update_irq(void) {
-    cpu_set_irq_at(IRQ_MAPPER, mmc5.irq_enable && mmc5.irq_pending, ppu.dots);
+    cpu_set_irq_at(IRQ_MAPPER, (mmc5.irq_enable && mmc5.irq_pending) ||
+                               (m5a.pcm_irq_enable && m5a.pcm_trip), ppu.dots);
+}
+
+/* The 240 Hz ticks (envelopes and length counters), up to CPU cycle
+   `upto`. They keep their own time, so length counters run (and $5015
+   reads right) even when no sound is being made. */
+static void mmc5_frames(uint64_t upto) {
+    while (m5a.next_frame <= upto) {
+        m5a.next_frame += 7424;
+        for (int i = 0; i < 2; i++) {
+            __typeof__(m5a.p[0]) *q = &m5a.p[i];
+            if (q->env_start) {
+                q->env_start = 0;
+                q->env_decay = 15;
+                q->env_divider = q->ctrl & 15;
+            } else if (q->env_divider == 0) {
+                q->env_divider = q->ctrl & 15;
+                if (q->env_decay) q->env_decay--;
+                else if (q->ctrl & 0x20) q->env_decay = 15;     /* loop */
+            } else {
+                q->env_divider--;
+            }
+            if (q->length && !(q->ctrl & 0x20)) q->length--;
+        }
+    }
+}
+
+static float mmc5_audio_step(uint64_t cycle) {
+    mmc5_frames(cycle);
+    m5a.cycle ^= 1;
+    int sum = 0;
+    for (int i = 0; i < 2; i++) {
+        __typeof__(m5a.p[0]) *q = &m5a.p[i];
+        if (m5a.cycle) {                    /* timers every other cycle */
+            if (q->timer == 0) { q->timer = q->period; q->step = (q->step - 1) & 7; }
+            else q->timer--;
+        }
+        if (q->length && mmc5_duty[q->ctrl >> 6][q->step])
+            sum += (q->ctrl & 0x10) ? (q->ctrl & 15) : q->env_decay;
+    }
+    /* The APU's mixing curves, for the same values (inverted). */
+    float out = sum ? 95.88f / (8128.0f / sum + 100.0f) : 0.0f;
+    if (m5a.pcm) out += 159.79f / (1.0f / (m5a.pcm / 22638.0f) + 100.0f);
+    return -out;
+}
+
+static void mmc5_sound_write(uint16_t addr, uint8_t val) {
+    apu_catch_up();                 /* the change lands on this cycle */
+    mmc5_frames(cycles);
+    if (addr <= 0x5007) {
+        __typeof__(m5a.p[0]) *q = &m5a.p[(addr >> 2) & 1];
+        switch (addr & 3) {
+        case 0: q->ctrl = val; break;
+        case 1: break;              /* no sweep */
+        case 2: q->period = (uint16_t)((q->period & 0x700) | val); break;
+        case 3:
+            q->period = (uint16_t)((q->period & 0xFF) | (val & 7) << 8);
+            if (q->enabled) q->length = mmc5_length_table[val >> 3];
+            q->step = 0;
+            q->env_start = 1;
+            break;
+        }
+    } else if (addr == 0x5010) {
+        m5a.pcm_irq_enable = val >> 7;
+        mmc5_update_irq();
+    } else if (addr == 0x5011) {
+        if (val) m5a.pcm = val;
+        m5a.pcm_trip = val == 0;
+        mmc5_update_irq();
+    } else if (addr == 0x5015) {
+        for (int i = 0; i < 2; i++) {
+            m5a.p[i].enabled = (val >> i) & 1;
+            if (!m5a.p[i].enabled) m5a.p[i].length = 0;
+        }
+    }
 }
 
 static void mmc5_scanline(int line) {
@@ -568,7 +668,8 @@ static void mmc5_write_low(uint16_t addr, uint8_t val) {
             mmc5.last_b = addr >= 0x5128;
             mmc5_apply_chr();
         }
-        break;                      /* sound, split screen: not modelled */
+        if (addr <= 0x5015) mmc5_sound_write(addr, val);
+        break;                      /* the split screen isn't modelled */
     }
 }
 
@@ -576,6 +677,16 @@ static int mmc5_read_low(uint16_t addr) {
     if (addr >= 0x5C00)
         return mmc5.exram_mode >= 2 ? mmc5.exram[addr - 0x5C00] : -1;
     switch (addr) {
+    case 0x5010: {                  /* PCM IRQ (acknowledged by reading) */
+        int v = (m5a.pcm_trip && m5a.pcm_irq_enable) << 7;
+        m5a.pcm_trip = 0;
+        mmc5_update_irq();
+        return v;
+    }
+    case 0x5015:
+        apu_catch_up();
+        mmc5_frames(cycles);
+        return (m5a.p[0].length > 0) | (m5a.p[1].length > 0) << 1;
     case 0x5204: {
         uint8_t v = (uint8_t)(mmc5.irq_pending << 7 | mmc5.in_frame << 6);
         mmc5.irq_pending = 0;       /* reading acknowledges */
@@ -623,6 +734,9 @@ static void mmc5_reset(void) {
     mapper.nt_write = mmc5_nt_write;
     mapper.scanline = mmc5_scanline;
     mapper.bg_tile = mmc5_bg_tile;
+    memset(&m5a, 0, sizeof m5a);
+    m5a.next_frame = cycles + 7424;
+    mapper.audio_step = mmc5_audio_step;
     write_low = mmc5_write_low;
     read_low = mmc5_read_low;
 }
@@ -658,7 +772,8 @@ static struct {
     uint8_t freq_ctrl;              /* $9003 */
 } vrc6;
 
-static float vrc6_audio_step(void) {
+static float vrc6_audio_step(uint64_t cycle) {
+    (void)cycle;
     if (!(vrc6.freq_ctrl & 1)) {
         int shift = (vrc6.freq_ctrl & 4) ? 8 : (vrc6.freq_ctrl & 2) ? 4 : 0;
         for (int c = 0; c < 3; c++) {
@@ -836,7 +951,8 @@ static void fme_env_clock(void) {
     }
 }
 
-static float fme_audio_step(void) {
+static float fme_audio_step(uint64_t cycle) {
+    (void)cycle;
     uint8_t *r = fme.regs;
     for (int c = 0; c < 3; c++) {
         if (fme.tone_timer[c] == 0) {
@@ -999,7 +1115,8 @@ static void n163_irq_schedule(void) {
         schedule_event(n163.irq_time + (0x7FFFu - n163.irq_counter));
 }
 
-static float n163_audio_step(void) {
+static float n163_audio_step(uint64_t cycle) {
+    (void)cycle;
     uint8_t *w = n163.ram;
     int count = ((w[0x7F] >> 4) & 7) + 1;
     if (!n163.sound_off && --n163.timer <= 0) {

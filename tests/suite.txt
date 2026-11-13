@@ -121,6 +121,11 @@ tones 700 tests/fme7_tones.nes 440.4@1,440.4@-,440.4@0.501/2,440.4@0.178/2,440.4
 # against the APU (16.5 dB, from the wiki's measurements).
 result 60 tests/n163.nes
 tones 700 tests/n163_tones.nes 440.4@1,440.0@6.682,440.0@0.467/2,440.0@0.500/2,440.0@0.500/2,440.0@0.649/2,440.0@0.927/2
+# MMC5's sound (make_mmc5_sound_test.py): the 240 Hz length counter, $5015,
+# the PCM IRQ; the pulses and PCM against the APU (the PCM's $00 writes
+# are ignored, so its last note must be silent).
+result 60 tests/mmc5_sound.nes
+tones 600 tests/mmc5_tones.nes 440.4@1,440.4@1.000,440.4@1.000,440.4@0.509,439.6@3.993
 
 # --- Mapper 66 (GxROM) and 11 (Color Dreams). tests/gxrom_switch.nes (from
 # make_gxrom_test.py) checks PRG and CHR switching and bus conflicts.

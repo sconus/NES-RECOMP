@@ -458,7 +458,7 @@ static void generate(uint64_t to) {
         int n = (apu.noise.shift & 1) || !apu.len[3].counter
                 ? 0 : envelope_volume(&apu.noise.env);
         snd.sum += snd.pulse_table[p] + snd.tnd_table[t][n][apu.dmc_level];
-        if (mapper.audio_step) snd.sum += mapper.audio_step();
+        if (mapper.audio_step) snd.sum += mapper.audio_step(snd.at);
         snd.count++;
         if ((double)snd.at + 1 >= snd.next_sample) {
             emit_sample((float)(snd.sum / snd.count));

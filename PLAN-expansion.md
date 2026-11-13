@@ -189,9 +189,40 @@ channel 7; a ramp and a 25% square from other wave addresses). Breaking
 the averaging, the 15-cycle update, the wave address or length, the
 level, channel 7, nametable RAM as CHR, or the IRQ each fails a check.
 
-### 5. MMC5's sound
+### 5. MMC5's sound (done)
 Two pulses (the APU's, without sweep, with length counters and
 envelopes) and the PCM channel (written by the CPU). Check: tones.
+
+Done (`mmc5_sound_write`, `mmc5_audio_step`, `mmc5_frames` in
+`runtime/mapper.c`), from the nesdev wiki's "MMC5 audio":
+- The pulses: the APU's registers, duty, envelopes and length table, but
+  no sweep, no mute for short periods, and envelopes and length counters
+  clocked at a fixed 240 Hz (every 7424 cycles, M2 / 7424 from the die),
+  so lengths run out twice as fast as the APU's. Mixed with the APU's
+  pulse curve for the same values ("equivalent in volume"), inverted.
+- PCM: `$5011` writes in write mode; a write of 0 is ignored but trips
+  the PCM IRQ when `$5010` bit 7 enables it (read `$5010` to acknowledge);
+  mixed with the APU's DMC curve for the same value, inverted. Read mode
+  (the DAC following reads of `$8000-$BFFF`) isn't modelled.
+- `$5015`: enables (disabling clears the length counter) and length
+  status.
+- The 240 Hz ticks keep their own time (`mmc5_frames`, by absolute CPU
+  cycle), so length counters run, and `$5015` reads right, in headless
+  runs that make no sound. The mixing hook now passes the cycle being
+  mixed (`audio_step(cycle)`) for that.
+
+The tone generator learned one thing: a note can be a routine that plays
+itself, for the PCM channel, which the CPU has to keep writing.
+
+Checks: `tests/mmc5_sound.nes` (the length counter running out between
+100,000 and 180,000 cycles, as 240 Hz predicts; `$5015` clearing it; the
+PCM IRQ on a 0 write and not on others) and `tests/mmc5_tones.nes`
+(pulses against the APU, 1.000 and 0.509 measured and expected; PCM at
+439.6 Hz, 3.993 measured and expected; a PCM note of `$C0`/`$00` that
+must stay silent). Its first version hung: the test ROM never turned
+off the APU's frame IRQ, which its IRQ handler didn't acknowledge. Breaking
+the 240 Hz rate, the ignored zero writes, the PCM IRQ, `$5015`, the pulse
+timer rate or the PCM level each fails a check.
 
 ### 6. VRC7 (85)
 Banking and the VRC IRQ, then FM synthesis: six channels, each a

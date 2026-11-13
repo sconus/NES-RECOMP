@@ -57,7 +57,7 @@ struct mapper {
        every cycle it mixes, so only when sound is being made. A chip
        calls apu_catch_up() before changing its sound registers, so the
        change lands on the right cycle. */
-    float (*audio_step)(void);
+    float (*audio_step)(uint64_t cycle);    /* the CPU cycle being mixed */
     const char *name;
 };
 

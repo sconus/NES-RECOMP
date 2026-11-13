@@ -38,7 +38,8 @@ def tone_rom(path, notes, mapper=0, setup=(), prg_kb=32, chr_kb=8,
     """Write an iNES ROM at `path` that plays `notes`.
 
     notes: list of (start_writes, stop_writes), each a list of
-    (address, value) register writes. setup: writes made once at reset
+    (address, value) register writes; start can instead be a function
+    that emits code (given the Asm) playing the whole note itself. setup: writes made once at reset
     (mapper set-up, sound chip enables). The program sits in the last
     8 KB of PRG ROM, which must be mapped at $E000 at power-on.
     """
@@ -59,8 +60,11 @@ def tone_rom(path, notes, mapper=0, setup=(), prg_kb=32, chr_kb=8,
     writes(setup)
     wait_frames(30)                             # let the output settle
     for start, stop in notes:
-        writes(start)
-        wait_frames(NOTE_FRAMES)
+        if callable(start):         # a routine that plays the note itself
+            start(a)
+        else:
+            writes(start)
+            wait_frames(NOTE_FRAMES)
         writes(stop)
         wait_frames(GAP_FRAMES)
     a.label("done")

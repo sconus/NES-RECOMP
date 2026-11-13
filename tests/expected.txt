@@ -65,6 +65,8 @@ tests/fme7.nes	pass
 tests/fme7_tones.nes	pass
 tests/n163.nes	pass
 tests/n163_tones.nes	pass
+tests/mmc5_sound.nes	pass
+tests/mmc5_tones.nes	pass
 tests/gxrom_switch.nes	pass
 other/test001.nes	frame:3fea565c
 other/Streemerz_bundle.nes +a53_streemerz.txt	frame:27b96123
