@@ -57,7 +57,7 @@ Done.
   each fails `joy2`. The held-strobe check was added after the first
   round of breaks showed nothing covered it.
 
-### 2. Game controllers
+### 2. Game controllers (done)
 - Open game controllers at start and when plugged in later; the first
   plays controller 1, the second controller 2, alongside the keyboard.
 - Mapping: D-pad and left stick to the D-pad (stick with a dead zone),
@@ -65,6 +65,30 @@ Done.
   position, as on the NES (right face button = A, bottom = B).
   Opposite directions cancel, as the keyboard does now.
 - Check: the virtual-controller self-test, run by `make test`.
+
+Done (`runtime/gamepad.c`).
+- Controllers are opened at start and on SDL's "device added" event;
+  each takes the first free slot (controller 1, then 2), and unplugging
+  one frees its slot without moving the other.
+- Mapping as planned. `SDL_HINT_GAMECONTROLLER_USE_BUTTON_LABELS` is set
+  to 0 so Nintendo controllers aren't swapped to match their labels: the
+  right face button is A on every brand. The stick counts past half way
+  (16384 of 32767). Opposite directions cancel, as for the keyboard (in
+  `video_buttons`, which now adds the controller's buttons).
+- `--test-gamepads` (run by `make test`, with no ROM or window): attaches
+  SDL virtual game controllers and checks the face buttons, Start and
+  Back, the D-pad, the stick in four directions and inside the dead
+  zone, a second controller becoming controller 2 without affecting
+  controller 1, and unplugging and replugging. Breaking the face-button
+  positions, the stick, the dead zone, the stick's vertical direction or
+  the unplug handling each fails it with a message saying what came out.
+- A game was run in a window with no controller attached to make sure
+  start-up is clean.
+- Tried by hand with a real Xbox Series X controller over Bluetooth:
+  `read_joy3/test_buttons` passed (A on the right face button, B on the
+  bottom one, Select on View, Start on Menu, the D-pad). A first run
+  failed when a different button was pressed than the one on screen,
+  which is what that test is for.
 
 ### 3. Suite, README, notes
 Accept the new checks, document the keys and the controller mapping, and

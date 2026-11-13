@@ -1,5 +1,6 @@
 # nesrecomp
-#   make test               recompile nestest and check it against the log
+#   make test               recompile nestest and check it against the log,
+#                           and the game controller mapping
 #   make test-ppu           run tests/suite.txt (needs the test ROM clone)
 #   make test-all           both
 #   make game ROM=x.nes     recompile any NROM game into build/<name>
@@ -29,6 +30,7 @@ build/nestest.c: recomp.py $(NESTEST)
 test: build/nestest
 	./build/nestest $(NESTEST) --headless --start C000 --trace --check-cycles > build/trace.txt
 	python3 tests/compare_nestest.py tests/nestest.log build/trace.txt
+	./build/nestest --test-gamepads
 
 # --- test ROM suite: see tests/suite.txt and tests/run_tests.py --------
 test-ppu:

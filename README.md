@@ -2,9 +2,10 @@
 
 A static recompiler for NES programs, built as a learning project. It turns
 the 6502 machine code in a `.nes` file into C, which a normal compiler turns
-into a native program for your Mac, with graphics in a window, sound,
-keyboard controls, bank switching for the common cartridge types, and
-battery saves.
+into a native program for your Mac, with graphics in a window, sound
+(including the Famicom cartridges' extra sound chips), two players on the
+keyboard or game controllers, bank switching for the common cartridge
+types, and battery saves.
 
 ## How it works
 
@@ -90,6 +91,8 @@ mapper a ROM uses.
   their own sound chips (VRC6, VRC7, Sunsoft 5B, Namco 163, MMC5) add
   their channels to that mix cycle by cycle (`mapper.c`). Headless test
   runs skip the mixing, so they stay fast.
+- **Game controllers** (`gamepad.c`). Through SDL's game controller
+  support, with plugging in and out handled as it happens.
 - **Window and speakers** (`video_sdl.c`). SDL2, 3x size, sharp pixels,
   paced to the NES's 60.1 frames a second. The video keeps the beat: the
   APU's sample clock is nudged by at most 0.5% to keep SDL's audio queue
@@ -155,6 +158,19 @@ Sound plays through the speakers unless you pass `--mute` (or press M).
 | R | Reset button |
 | Escape | Quit |
 
+Game controllers (Xbox, PlayStation, Switch Pro and others SDL knows)
+work too, alongside the keyboard: the first one connected plays
+controller 1, the second controller 2, and they can be plugged in or out
+while the game runs. The buttons go by position, as on the NES pad:
+
+| NES button | Game controller |
+|---|---|
+| D-pad | D-pad, or the left stick past half way |
+| A | Right face button (Xbox B, PlayStation circle, Switch A) |
+| B | Bottom face button (Xbox A, PlayStation cross, Switch B) |
+| Start | Start / Menu |
+| Select | Back / Select / Share |
+
 The built program takes options after the ROM path:
 
     --headless         no window (for tests)
@@ -189,7 +205,9 @@ controller 2). A frame number on its own releases everything.
     make test-ppu   # everything in tests/suite.txt (needs the ROM clone)
     make test-all   # both
 
-`make test` checks the program's state after every one of nestest's 8,991
+`make test` also runs `--test-gamepads`, which plugs in virtual game
+controllers, presses and tilts them, and checks the NES buttons that
+come out. It checks the program's state after every one of nestest's 8,991
 instructions against a reference log: registers, flags, stack pointer and
 cycle count. It also checks that every instruction took as many cycles as
 its cycle map says (the per-cycle bus activity `recomp.py` generates for
@@ -280,7 +298,8 @@ or display-only `read_joy3` tests are left out of the suite.
 - [x] nestest passes in full
 - [x] PPU (graphics) and an SDL window
 - [x] NMI delivery at vblank, cycle-exact
-- [x] Controllers 1 and 2 on the keyboard, and scripted input for both
+- [x] Controllers 1 and 2 on the keyboard or game controllers, and
+      scripted input for both
 - [x] Test ROM runner with a recorded baseline
 - [x] Mappers 0, 1, 2, 3, 4, 7, 34, with banked recompilation
 - [x] Mappers 5, 9, 10, 11, 21, 22, 23, 25, 28, 66 (MMC5 without its
@@ -297,7 +316,6 @@ or display-only `read_joy3` tests are left out of the suite.
 - [x] Expansion sound: VRC6, Sunsoft 5B, Namco 163, MMC5 and VRC7
       (mappers 5, 19, 24, 26, 69, 85; VRC7's envelope timing and
       modulation depth approximate)
-- [ ] Controller 2 and game controllers
 
 `PLAN.md`, `PLAN-mappers.md`, `PLAN-sound.md`, `PLAN-cycles.md`,
 `PLAN-render.md`, `PLAN-mappers2.md` and `PLAN-expansion.md` have the

@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include "apu.h"
 #include "event.h"
+#include "gamepad.h"
 #include "input.h"
 #include "palette.h"
 #include "ppu.h"
@@ -90,6 +91,8 @@ static void sdl_fail(const char *what) {
 
 void video_init(int scale, const char *title) {
     if (SDL_Init(SDL_INIT_VIDEO) != 0) sdl_fail("SDL_Init");
+    if (gamepad_init() != 0)        /* no controllers is fine; say why */
+        fprintf(stderr, "game controllers unavailable: %s\n", SDL_GetError());
     window = SDL_CreateWindow(title, SDL_WINDOWPOS_CENTERED,
                               SDL_WINDOWPOS_CENTERED, NES_WIDTH * scale,
                               NES_HEIGHT * scale, SDL_WINDOW_ALLOW_HIGHDPI);
@@ -114,6 +117,7 @@ static void handle_events(void) {
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
         if (e.type == SDL_QUIT) exit(0);
+        gamepad_event(&e);
         if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_ESCAPE) exit(0);
         if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_m && !e.key.repeat)
             toggle_mute();
@@ -140,6 +144,7 @@ uint8_t video_buttons(int player) {
     uint8_t b = 0;
     for (int i = 0; i < 8; i++)
         if (keys[keymap[player][i].key]) b |= keymap[player][i].button;
+    b |= gamepad_buttons(player);
     /* A real D-pad can't press opposite directions at once, and some
        games misbehave if they see it; cancel both instead. */
     if ((b & (BTN_UP | BTN_DOWN)) == (BTN_UP | BTN_DOWN))

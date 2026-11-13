@@ -7,6 +7,7 @@
 #include "rt.h"
 #include "apu.h"
 #include "event.h"
+#include "gamepad.h"
 #include "cart.h"
 #include "cycles.h"
 #include "input.h"
@@ -294,6 +295,7 @@ static void usage(const char *prog) {
         "  --scale N          window size, N times 256x240 (default 3)\n"
         "  --mmc3-rev A|B     which MMC3 chip to act like (default B)\n"
         "  --info             print the cartridge header and exit\n"
+        "(or, with no ROM: --test-gamepads checks the game controller mapping)\n"
         "  --trace            print CPU state before every instruction\n"
         "  --check-cycles     with --trace: check each instruction's cycle map\n"
         "  --start HEX        start here instead of the reset vector\n",
@@ -302,6 +304,8 @@ static void usage(const char *prog) {
 }
 
 int main(int argc, char **argv) {
+    /* A self-test of the game controller mapping, with no ROM (make test). */
+    if (argc == 2 && !strcmp(argv[1], "--test-gamepads")) return gamepad_self_test();
     if (argc < 2 || argv[1][0] == '-') usage(argv[0]);
     rom_path = argv[1];
     cart_load(rom_path);
