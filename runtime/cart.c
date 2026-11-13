@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "cart.h"
+#include "nsf.h"
 
 struct cart cart;
 
@@ -15,8 +16,13 @@ void cart_load(const char *path) {
     FILE *f = fopen(path, "rb");
     if (!f) { perror(path); exit(1); }
     uint8_t h[16];
-    if (fread(h, 1, 16, f) != 16 || memcmp(h, "NES\x1a", 4))
-        fail(path, "not an iNES file");
+    if (fread(h, 1, 16, f) != 16) fail(path, "not an iNES or NSF file");
+    if (!memcmp(h, "NESM\x1a", 5)) {            /* an NSF music file */
+        nsf_load(path, f);
+        fclose(f);
+        return;
+    }
+    if (memcmp(h, "NES\x1a", 4)) fail(path, "not an iNES or NSF file");
 
     cart.mapper = (h[6] >> 4) | (h[7] & 0xF0);
     if ((h[7] & 0x0C) == 0x08)                  /* NES 2.0 header */
@@ -77,6 +83,7 @@ void cart_write_save(const char *rom_path) {
 }
 
 void cart_print_info(const char *path) {
+    if (cart.mapper == MAPPER_NSF) { nsf_print_info(path); return; }
     static const char *mir[] = { "horizontal", "vertical", "four-screen",
                                  "single-screen", "single-screen" };
     printf("%s\n  mapper %d, PRG %zu KB, CHR %zu KB %s, %s mirroring%s\n",

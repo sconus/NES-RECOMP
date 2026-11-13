@@ -6,6 +6,7 @@
 #include <math.h>
 #include "cart.h"
 #include "mapper.h"
+#include "nsf.h"
 #include "ppu.h"
 #include "rt.h"
 #include "event.h"
@@ -1615,6 +1616,10 @@ void mapper_init(void) {
         mapper.name = "VRC6"; write_reg = vrc6_write; vrc6_reset();
         break;
     case 22: mapper.name = "VRC2"; write_reg = vrc_write; vrc_reset(); break;
+    case MAPPER_NSF:
+        mapper.name = "NSF"; write_reg = nrom_write;
+        read_low = nsf_read_low; write_low = nsf_write_low;
+        break;
     case 28:
         mapper.name = "Action 53"; write_reg = a53_write; write_low = a53_select;
         a53_reset();

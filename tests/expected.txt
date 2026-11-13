@@ -15,6 +15,17 @@ instr_test-v5/rom_singles/13-rts.nes	pass
 instr_test-v5/rom_singles/14-rti.nes	pass
 instr_test-v5/rom_singles/15-brk.nes	pass
 instr_test-v5/rom_singles/16-special.nes	pass
+nes_instr_test/nsf_singles/01-implied.nsf	pass
+nes_instr_test/nsf_singles/02-immediate.nsf	pass
+nes_instr_test/nsf_singles/03-zero_page.nsf	pass
+nes_instr_test/nsf_singles/04-zp_xy.nsf	pass
+nes_instr_test/nsf_singles/05-absolute.nsf	pass
+nes_instr_test/nsf_singles/06-abs_xy.nsf	pass
+nes_instr_test/nsf_singles/07-ind_x.nsf	pass
+nes_instr_test/nsf_singles/08-ind_y.nsf	pass
+nes_instr_test/nsf_singles/09-branches.nsf	pass
+nes_instr_test/nsf_singles/10-stack.nsf	pass
+nes_instr_test/nsf_singles/11-special.nsf	pass
 ppu_vbl_nmi/rom_singles/01-vbl_basics.nes	pass
 ppu_vbl_nmi/rom_singles/02-vbl_set_time.nes	pass
 ppu_vbl_nmi/rom_singles/03-vbl_clear_time.nes	pass

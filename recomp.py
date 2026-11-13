@@ -4,16 +4,17 @@ nesrecomp - a static recompiler for NES (6502) programs.
 
 It reads an iNES (.nes) file, traces the reachable 6502 code starting from
 the cartridge's interrupt vectors (or entry points you give it), and writes
-C source where every 6502 instruction becomes a few lines of C.
+C source where every 6502 instruction becomes a few lines of C. An NSF
+music file works the same way, starting from its init and play routines.
 
 The ROM data itself is NOT copied into the output: the generated program
-still loads the .nes file at runtime for graphics and data tables. Only the
+still loads the .nes (or .nsf) file at runtime for graphics and data tables. Only the
 control flow and instruction logic are translated.
 
 Usage:
     python3 recomp.py game.nes -o build/game.c [--entry C000 ...]
 
-Current scope: mapper 0 (NROM). Bank switching comes later.
+Mappers: see MAPPERS below.
 """
 import argparse
 import sys
@@ -235,6 +236,7 @@ check_cycle_maps()
 #   fixed: slot -> bank for slots that never switch (negative counts from
 #          the last bank).
 #   power_on: slot -> bank at reset (where the vectors are read).
+NSF_MAPPER = 0x1000                  # runtime/nsf.h: MAPPER_NSF
 MAPPERS = {
     0:  dict(name="NROM",  unit=None),
     # MMC1 can fix either half or switch all 32 KB, depending on a mode
@@ -288,14 +290,21 @@ MAPPERS = {
     # starts in its last 32 KB.
     28: dict(name="Action 53", unit=2, fixed={},
              power_on={0: -4, 1: -3, 2: -2, 3: -1}),
+    # An NSF music file (not an iNES mapper; the runtime uses the same
+    # number): 32 KB at $8000 that never moves.
+    NSF_MAPPER: dict(name="NSF", unit=None),
 }
 
 
 class Rom:
     def __init__(self, path):
         data = open(path, "rb").read()
+        self.nsf = None
+        if data[:5] == b"NESM\x1a":
+            self.load_nsf(data)
+            return
         if data[:4] != b"NES\x1a":
-            sys.exit("not an iNES file")
+            sys.exit("not an iNES or NSF file")
         self.prg_banks = data[4]
         self.chr_banks = data[5]
         self.mapper = (data[6] >> 4) | (data[7] & 0xF0)
@@ -326,6 +335,28 @@ class Rom:
                 # 512 KB MMC1 boards start in the first 256 KB, so the
                 # "last" bank at power-on is the last of that half.
                 self.power_on.update({2: 30, 3: 31})
+
+    def load_nsf(self, data):
+        """An NSF: the program at its load address in 32 KB at $8000, and
+        the init and play routines as entry points (see runtime/nsf.h)."""
+        h = data[:0x80]
+        load, init, play = (h[i] | h[i + 1] << 8 for i in (8, 10, 12))
+        if any(h[0x70:0x78]):
+            sys.exit("NSF bank switching isn't supported yet")
+        if load < 0x8000:
+            sys.exit("NSF loads below $8000")
+        prg = bytearray(0x8000)
+        body = data[0x80:0x80 + 0x10000 - load]
+        prg[load - 0x8000:load - 0x8000 + len(body)] = body
+        self.nsf = dict(load=load, init=init, play=play)
+        self.prg = bytes(prg)
+        self.banks = 4
+        self.mapper = NSF_MAPPER
+        self.mapper_name = "NSF"
+        self.unit = None
+        self.low_regs = None
+        self.power_on = {s: s for s in range(4)}
+        self.fixed = dict(self.power_on)
 
     def read(self, bank, addr):
         """A program ROM byte, with `bank` in the slot that holds addr."""
@@ -820,6 +851,8 @@ def main():
 
     vectors = [rom.read16(0xFFFA), rom.read16(0xFFFC), rom.read16(0xFFFE)]
     entries = [rom.power_on_loc(v) for v in vectors]
+    if rom.nsf:                  # no reset: the runtime calls init and play
+        entries += [rom.power_on_loc(rom.nsf[k]) for k in ("init", "play")]
     entries += [rom.power_on_loc(int(e, 16)) for e in args.entry]
     for path in args.missed:
         for line in open(path):
@@ -837,9 +870,13 @@ def main():
     with open(args.out, "w") as f:
         f.write(generate(rom, insns, unknown, args.rom.split("/")[-1]))
 
-    print("mapper %d (%s), %d KB program ROM" % (
-        rom.mapper, rom.mapper_name, len(rom.prg) // 1024))
-    print("vectors: NMI=%04X RESET=%04X IRQ=%04X" % tuple(vectors))
+    if not rom.nsf:
+        print("mapper %d (%s), %d KB program ROM" % (
+            rom.mapper, rom.mapper_name, len(rom.prg) // 1024))
+    if rom.nsf:
+        print("NSF: load=%(load)04X init=%(init)04X play=%(play)04X" % rom.nsf)
+    else:
+        print("vectors: NMI=%04X RESET=%04X IRQ=%04X" % tuple(vectors))
     banks = sorted({loc[0] for loc in insns})
     print("translated %d instructions in %d bank(s) -> %s" % (
         len(insns), len(banks), args.out))

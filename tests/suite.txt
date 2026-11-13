@@ -2,8 +2,9 @@
 #
 #   kind  frames  rom  [input script]
 #
-# rom is relative to tests/roms/nes-test-roms, except paths starting with
-# tests/ (ROMs made for this project). kind says how to judge it:
+# rom (a .nes or .nsf file) is relative to tests/roms/nes-test-roms,
+# except paths starting with tests/ (ROMs made for this project). kind
+# says how to judge it:
 #   result  blargg $6000 protocol; passes when the status byte is $00.
 #           The run stops early once the ROM reports.
 #   text    result shown on screen only; passes when a line reads
@@ -37,6 +38,21 @@ result 3000 instr_test-v5/rom_singles/13-rts.nes
 result 3000 instr_test-v5/rom_singles/14-rti.nes
 result 3000 instr_test-v5/rom_singles/15-brk.nes
 result 3000 instr_test-v5/rom_singles/16-special.nes
+
+# --- NSF music files (PLAN-nsf.md). blargg's instruction tests built as
+# NSFs: they report through $6000 too, and run entirely inside init, so
+# they also check the player never calls play while init is running.
+result 3000 nes_instr_test/nsf_singles/01-implied.nsf
+result 3000 nes_instr_test/nsf_singles/02-immediate.nsf
+result 3000 nes_instr_test/nsf_singles/03-zero_page.nsf
+result 3000 nes_instr_test/nsf_singles/04-zp_xy.nsf
+result 3000 nes_instr_test/nsf_singles/05-absolute.nsf
+result 3000 nes_instr_test/nsf_singles/06-abs_xy.nsf
+result 3000 nes_instr_test/nsf_singles/07-ind_x.nsf
+result 3000 nes_instr_test/nsf_singles/08-ind_y.nsf
+result 3000 nes_instr_test/nsf_singles/09-branches.nsf
+result 3000 nes_instr_test/nsf_singles/10-stack.nsf
+result 3000 nes_instr_test/nsf_singles/11-special.nsf
 
 # --- PPU, $6000 harness
 result 3000 ppu_vbl_nmi/rom_singles/01-vbl_basics.nes

@@ -12,6 +12,7 @@
 #include "cycles.h"
 #include "input.h"
 #include "mapper.h"
+#include "nsf.h"
 #include "palette.h"
 #include "ppu.h"
 #include "video.h"
@@ -97,6 +98,8 @@ static uint8_t *missed_slot(int bank, uint16_t a) {
 }
 
 void note_missed(uint16_t a) {
+    /* The NSF driver (nsf.h) is always interpreted: not worth counting. */
+    if (cart.mapper == MAPPER_NSF && a >= NSF_DRIVER && a < 0x4200) return;
     if (a < 0x8000) { missed_count++; return; }
     uint8_t *m = missed_slot(mapper.prg_bank[(a >> 13) & 3], a);
     if (!*m) { *m = 1; missed_count++; }
@@ -282,7 +285,7 @@ static void frame_done(const uint16_t *fb) {
 
 static void usage(const char *prog) {
     fprintf(stderr,
-        "usage: %s game.nes [options]\n"
+        "usage: %s game.nes|music.nsf [options]\n"
         "  --headless         no window (for tests)\n"
         "  --frames N         stop after N frames\n"
         "  --screenshot FILE  with --frames: save the last frame as a PNG\n"
@@ -294,6 +297,7 @@ static void usage(const char *prog) {
         "  --input FILE       scripted button presses (see README.md)\n"
         "  --scale N          window size, N times 256x240 (default 3)\n"
         "  --mmc3-rev A|B     which MMC3 chip to act like (default B)\n"
+        "  --song N           NSF: play song N (from 1; default: the file's own)\n"
         "  --info             print the cartridge header and exit\n"
         "(or, with no ROM: --test-gamepads checks the game controller mapping)\n"
         "  --trace            print CPU state before every instruction\n"
@@ -311,7 +315,7 @@ int main(int argc, char **argv) {
     cart_load(rom_path);
     mapper_init();
     uint16_t start = rd(0xFFFC) | (rd(0xFFFD) << 8);
-    int scale = 3, no_save = 0, mute = 0;
+    int scale = 3, no_save = 0, mute = 0, song = 0;
     for (int i = 2; i < argc; i++) {
         const char *a = argv[i];
         int more = i + 1 < argc;
@@ -335,9 +339,12 @@ int main(int argc, char **argv) {
             if (r != 'A' && r != 'B') usage(argv[0]);
             mmc3_revision = r;
         }
+        else if (!strcmp(a, "--song") && more) song = atoi(argv[++i]);
         else if (!strcmp(a, "--info")) { cart_print_info(rom_path); return 0; }
         else usage(argv[0]);
     }
+    /* An NSF has no reset vector: the runtime's driver calls its routines. */
+    if (cart.mapper == MAPPER_NSF) start = nsf_start(song);
     if ((screenshot_path || dump_text) && !stop_after_frames) {
         fprintf(stderr, "--screenshot and --dump-text need --frames N\n");
         return 1;
