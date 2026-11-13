@@ -14,7 +14,7 @@
 #include "rt.h"
 
 struct ppu ppu = { .sprite0_line = -1, .overflow_line = -1 };
-void (*ppu_frame_done)(const uint8_t *framebuffer);
+void (*ppu_frame_done)(const uint16_t *framebuffer);
 
 #define DOTS_PER_LINE 341
 #define LINES_PER_FRAME 262
@@ -71,6 +71,8 @@ void ppu_mem_write(uint16_t addr, uint8_t val) {
    --------------------------------------------------------------------- */
 
 static int rendering_enabled(void) { return (ppu.mask & 0x18) != 0; }
+/* $2001 bits 5-7 (emphasise red, green, blue), placed above the colour. */
+static uint16_t emphasis_bits(void) { return (uint16_t)(ppu.mask & 0xE0) << 1; }
 
 /* Move v down one pixel row, wrapping into the next nametable below. */
 static void increment_y(void) {
@@ -187,8 +189,9 @@ static void evaluate_overflow(int line) {
 }
 
 static void draw_line(int line) {
-    uint8_t *out = &ppu.framebuffer[line * NES_WIDTH];
+    uint16_t *out = &ppu.framebuffer[line * NES_WIDTH];
     uint8_t grey = (ppu.mask & 0x01) ? 0x30 : 0x3F;
+    uint16_t emphasis = emphasis_bits();
 
     if (!rendering_enabled()) return;   /* drawn dot by dot in step_dot */
 
@@ -210,7 +213,7 @@ static void draw_line(int line) {
         if (sp[px] && (front[px] || !bg_opaque)) entry = sp[px];
         else if (bg_opaque) entry = bg[px];
         else entry = 0;
-        out[px] = ppu.palette[pal_offset(0x3F00 | entry)] & grey;
+        out[px] = (ppu.palette[pal_offset(0x3F00 | entry)] & grey) | emphasis;
     }
 }
 
@@ -280,7 +283,7 @@ static void step_dot(void) {
             uint16_t a = (ppu.v & 0x3FFF) >= 0x3F00 ? ppu.v : 0x3F00;
             uint8_t grey = (ppu.mask & 0x01) ? 0x30 : 0x3F;
             ppu.framebuffer[line * NES_WIDTH + dot - 1] =
-                ppu.palette[pal_offset(a)] & grey;
+                (ppu.palette[pal_offset(a)] & grey) | emphasis_bits();
         }
         if (line == ppu.sprite0_line && dot == ppu.sprite0_dot) {
             ppu.status |= STATUS_SPRITE0;

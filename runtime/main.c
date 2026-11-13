@@ -234,7 +234,7 @@ static int test_rom_finished(void) {
     return r[1] == 0xDE && r[2] == 0xB0 && r[3] == 0x61 && r[0] < 0x80;
 }
 
-static void finish_run(const uint8_t *fb) {
+static void finish_run(const uint16_t *fb) {
     if (screenshot_path && video_save_png(fb, screenshot_path) == 0)
         fprintf(stderr, "saved frame %llu to %s\n",
                 (unsigned long long)ppu.frame, screenshot_path);
@@ -242,7 +242,7 @@ static void finish_run(const uint8_t *fb) {
     exit(0);
 }
 
-static void frame_done(const uint8_t *fb) {
+static void frame_done(const uint16_t *fb) {
     if (wav_path || speakers) drain_sound();
     if (audio_stats && ppu.frame % 60 == 0)
         fprintf(stderr, "frame %llu: %d samples queued\n",

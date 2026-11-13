@@ -67,7 +67,9 @@ shows which mapper a ROM uses.
   and the "decay register": what write-only registers read back, each
   bit fading to 0 about 600 ms after it was last refreshed.
 - **Colours** (`palette.c`). Worked out from the NTSC video signal the NES
-  outputs (voltage levels to YIQ to RGB), not copied from a palette file.
+  outputs (voltage levels to YIQ to RGB), not copied from a palette file,
+  including the three colour-emphasis bits of `$2001`, which dim parts of
+  that signal: 512 colours in all.
 - **APU** (`apu.c`). The sound chip, also catching up on demand: length
   counters, the frame counter and its IRQ, envelopes, sweeps, the five
   channels (two pulses, triangle, noise, DMC) and the DMC's sample DMA,
@@ -236,8 +238,9 @@ or display-only `read_joy3` tests are left out of the suite.
 - [x] DMC DMA halting on the exact cycle, 3 or 4 cycles long
 - [x] Sprite DMA cycle by cycle, with DMC fetches inside it
 - [x] PPU open-bus decay
-- [ ] Colour emphasis bits, and mid-line scroll changes (the renderer
-      draws a line at a time)
+- [x] Colour emphasis
+- [ ] Mid-line scroll and `$2001` changes (the renderer draws a line at
+      a time; see `PLAN-render.md`)
 - [ ] Other mappers (MMC5, VRC, ...) and Famicom expansion sound
 - [ ] Controller 2 and game controllers
 

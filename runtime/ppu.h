@@ -36,13 +36,15 @@ struct ppu {
     uint64_t vblank_dot;            /* when the vblank flag was last set */
 
     /* One finished picture: 6-bit NES colour numbers, 256 x 240. */
-    uint8_t framebuffer[NES_WIDTH * NES_HEIGHT];
+    /* Per pixel: colour (bits 0-5) and the $2001 emphasis bits in effect
+       (bits 6-8: red, green, blue). nes_rgb (palette.h) turns it into RGB. */
+    uint16_t framebuffer[NES_WIDTH * NES_HEIGHT];
 };
 
 extern struct ppu ppu;
 
 /* Called at the start of every vblank with the finished picture. */
-extern void (*ppu_frame_done)(const uint8_t *framebuffer);
+extern void (*ppu_frame_done)(const uint16_t *framebuffer);
 
 /* Run the PPU forward to the CPU's current cycle. Called before every CPU
    access that the PPU could see or affect, and from runtime_event. */

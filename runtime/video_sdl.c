@@ -159,14 +159,14 @@ static void wait_for_next_frame(void) {
     }
 }
 
-void video_present(const uint8_t *fb) {
+void video_present(const uint16_t *fb) {
     void *pixels;
     int pitch;
     if (SDL_LockTexture(texture, NULL, &pixels, &pitch) == 0) {
         for (int y = 0; y < NES_HEIGHT; y++) {
             uint32_t *row = (uint32_t *)((uint8_t *)pixels + y * pitch);
             for (int x = 0; x < NES_WIDTH; x++)
-                row[x] = nes_rgb[fb[y * NES_WIDTH + x] & 0x3F];
+                row[x] = nes_rgb[fb[y * NES_WIDTH + x] & 0x1FF];
         }
         SDL_UnlockTexture(texture);
     }

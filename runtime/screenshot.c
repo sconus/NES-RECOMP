@@ -24,7 +24,7 @@ static void chunk(FILE *f, const char *type, const uint8_t *data, uint32_t len) 
     fwrite(b, 1, 4, f);
 }
 
-int video_save_png(const uint8_t *fb, const char *path) {
+int video_save_png(const uint16_t *fb, const char *path) {
     /* Raw image: each row starts with filter byte 0, then RGB pixels. */
     enum { ROW = 1 + NES_WIDTH * 3 };
     static uint8_t raw[ROW * NES_HEIGHT];
@@ -32,7 +32,7 @@ int video_save_png(const uint8_t *fb, const char *path) {
         uint8_t *r = &raw[y * ROW];
         r[0] = 0;
         for (int x = 0; x < NES_WIDTH; x++) {
-            uint32_t c = nes_rgb[fb[y * NES_WIDTH + x] & 0x3F];
+            uint32_t c = nes_rgb[fb[y * NES_WIDTH + x] & 0x1FF];
             r[1 + x * 3] = c >> 16;
             r[2 + x * 3] = c >> 8;
             r[3 + x * 3] = (uint8_t)c;

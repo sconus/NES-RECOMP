@@ -87,7 +87,7 @@ nes15-1.0.0/nes15-NTSC.nes	frame:dd2df693
 nes15-1.0.0/nes15-NTSC.nes +nes15_move.txt	frame:a1057046
 nes15-1.0.0/nes15-NTSC.nes +nes15_solver.txt	frame:a91fb3d8
 spritecans-2011/spritecans.nes	frame:ed2c45bc
-full_palette/full_palette.nes	frame:32bb17e7
+full_palette/full_palette.nes	frame:e3486dbf
 apu_test/rom_singles/1-len_ctr.nes	pass
 apu_test/rom_singles/2-len_table.nes	pass
 apu_test/rom_singles/3-irq_flag.nes	pass
