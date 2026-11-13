@@ -31,6 +31,11 @@ quarter of the rate. The header asks for a play call every 1136 us
   nsf_rate_pal.nsf  NTSC field 3000 us, PAL field 1136 us, PAL only:
                     the PAL rate must be used
 A player using the wrong field plays 166.7 and 83.3 Hz.
+
+tests/nsf_two_chips.nsf: an NSF with two expansion chips (VRC6 and 5B,
+header byte $7B = $21), whose outputs must both reach the mix: an APU
+note (the reference), a VRC6 pulse (as loud as the APU's, as in
+vrc6_tones), then a 5B square (loudness not compared).
 """
 import os
 import sys
@@ -38,6 +43,9 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from make_mmc1_test import Asm  # noqa: E402
+from make_tone_test import tone_nsf  # noqa: E402
+import make_fme7_test  # noqa: E402
+import make_vrc6_test  # noqa: E402
 
 BANKS = 12
 START = [3, 9, 2, 10, 4, 5, 6, 11]      # slot -> starting bank
@@ -207,6 +215,12 @@ def main():
         print("wrote", path)
     hz = 1e6 / RATE_US
     print("expected: %.1f@1,%.1f@-" % (hz / 2, hz / 4))
+    vrc6 = make_vrc6_test.tone_notes(24)
+    fme = make_fme7_test.tone_notes()
+    notes = [vrc6[0], vrc6[1], (fme[1][0], fme[1][1].split("@")[0] + "@-")]
+    tone_nsf(os.path.join(HERE, "nsf_two_chips.nsf"), [n for n, _ in notes],
+             chips=0x21, setup=[(0x9003, 0x00)])
+    print("expected:", ",".join(e for _, e in notes))
 
 
 if __name__ == "__main__":

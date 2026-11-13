@@ -33,7 +33,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from make_mmc1_test import Asm  # noqa: E402
-from make_tone_test import (tone_rom, apu_pulse, apu_pulse_wave,  # noqa: E402
+from make_tone_test import (tone_rom, tone_nsf, apu_pulse, apu_pulse_wave,  # noqa: E402
                             pulse_hz, CPU_HZ, level)
 
 COUNT = 0x10
@@ -160,6 +160,7 @@ def status_rom(path):
 def main():
     notes = tone_notes()
     tone_rom(os.path.join(HERE, "mmc5_tones.nes"), [n for n, _ in notes], mapper=5)
+    tone_nsf(os.path.join(HERE, "nsf_mmc5.nsf"), [n for n, _ in notes], chips=8)
     print("expected:", ",".join(e for _, e in notes if e))
     status_rom(os.path.join(HERE, "mmc5_sound.nes"))
 

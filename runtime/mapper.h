@@ -74,6 +74,14 @@ void mapper_init(void);
    older chip (Crystalis) that raises its IRQ only when the counter
    reaches 0, not when it reloads a 0. Set with --mmc3-rev. */
 extern char mmc3_revision;
+/* NSF expansion sound: the chips an NSF's header lists (byte $7B), at
+   their NSF addresses. Reset them (and choose which) before each song;
+   the low-address hooks are called by nsf.c for $4020-$5FFF. */
+enum { NSF_VRC6 = 1, NSF_VRC7 = 2, NSF_FDS = 4, NSF_MMC5 = 8, NSF_N163 = 16,
+       NSF_5B = 32 };
+void nsf_chips_reset(uint8_t chips);
+void nsf_chip_write_low(uint16_t addr, uint8_t val);
+int nsf_chip_read_low(uint16_t addr);           /* -1: not a chip's */
 /* CPU write to $8000-$FFFF. */
 void mapper_write(uint16_t addr, uint8_t val);
 /* CPU write to $4020-$5FFF, which some boards also decode (Action 53's

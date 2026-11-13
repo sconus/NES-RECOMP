@@ -38,7 +38,10 @@ void nsf_load(const char *path, FILE *f) {
     memcpy(nsf.banks, h + 0x70, 8);
     nsf.pal_flags = h[0x7A];
     nsf.pal_only = (nsf.pal_flags & 3) == 1;    /* bit 1 = both work */
-    nsf.chips = h[0x7B];
+    nsf.chips = h[0x7B] & 0x3F;
+    if (nsf.chips & NSF_FDS)
+        fprintf(stderr, "%s: uses the FDS sound chip, which isn't supported: "
+                        "its part will be silent\n", path);
 
     nsf.banked = 0;
     for (int i = 0; i < 8; i++) nsf.banked |= nsf.banks[i] != 0;
@@ -71,10 +74,23 @@ void nsf_load(const char *path, FILE *f) {
     cart.battery = 0;
 }
 
+static const char *chip_names(void) {
+    static char out[80];
+    static const char *names[6] = { "VRC6", "VRC7", "FDS", "MMC5", "Namco 163", "5B" };
+    out[0] = 0;
+    for (int i = 0; i < 6; i++)
+        if (nsf.chips >> i & 1) {
+            strcat(out, out[0] ? ", " : "  expansion sound: ");
+            strcat(out, names[i]);
+        }
+    if (out[0]) strcat(out, "\n");
+    return out;
+}
+
 void nsf_print_info(const char *path) {
     printf("%s\n  NSF: \"%s\" by %s (%s)\n"
            "  %d song(s), starting at %d; load $%04X, init $%04X, play $%04X\n"
-           "  play every %u us%s%s%s%s\n",
+           "  play every %u us%s%s%s\n%s",
            path, nsf.title, nsf.artist, nsf.copyright, nsf.songs,
            nsf.start_song, nsf.load, nsf.init, nsf.play,
            nsf_play_period_us(),
@@ -82,7 +98,7 @@ void nsf_print_info(const char *path) {
                : " (the header says 0: using 60 Hz)",
            nsf.pal_only ? ", made for PAL (played at PAL speed, NTSC pitch)" : "",
            nsf.banked ? ", bank switched" : "",
-           nsf.chips ? ", uses expansion sound" : "");
+           chip_names());
 }
 
 /* The driver, assembled by hand. SONG is patched in by nsf_start. */
@@ -135,6 +151,7 @@ uint16_t nsf_start(int song) {
     p = put(p, loop, sizeof loop);
 
     play_period = (uint64_t)(nsf_play_period_us() * CPU_HZ / 1e6 + 0.5);
+    nsf_chips_reset(nsf.chips & ~NSF_FDS);      /* fresh chips each song */
     next_play = cycles + play_period;
     return NSF_DRIVER;
 }
@@ -177,11 +194,12 @@ int nsf_read_low(uint16_t addr) {
     }
     if (addr >= NSF_DRIVER && addr < NSF_DRIVER + sizeof driver)
         return driver[addr - NSF_DRIVER];
-    return -1;
+    return nsf_chip_read_low(addr);
 }
 
 void nsf_write_low(uint16_t addr, uint8_t val) {
     if (nsf.banked && addr >= 0x5FF8) set_slot_4k(addr - 0x5FF8, val);
+    else nsf_chip_write_low(addr, val);
 }
 
 /* ---- The screen ----------------------------------------------------

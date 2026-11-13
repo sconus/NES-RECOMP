@@ -185,12 +185,44 @@ Done.
   checked, nestest exact; the ROM reset tests pass through the changed
   reset path.
 
-### 4. Expansion chips in NSFs
+### 4. Expansion chips in NSFs (done)
 - Turn on the chips the header lists, at their NSF addresses, using the
   sound code that already exists for VRC6, VRC7, MMC5, Namco 163 and
   Sunsoft 5B.
 - Check: NSF versions of the expansion-sound stage's tone tests, with
   the same expected notes, so they must sound the same as the ROMs.
+
+Done.
+- `mapper.c`: each chip's sound code was pulled apart from its
+  cartridge's bank switching (`vrc6_sound_write`, `fme_sound_data`, and a
+  sound-only reset for each chip), so an NSF can use the sound without
+  the rest. A new NSF section turns on the chips in header byte $7B, at
+  their NSF addresses: VRC6 $9000-$B002, VRC7 $9010/$9030, MMC5
+  $5000-$5015 (plus the $5205 multiplier and $5C00-$5FF5 as RAM),
+  Namco 163 $4800 and $F800, 5B $C000/$E000. Their outputs are added
+  together. The chips start fresh with each song.
+- FDS (bit 2) isn't supported: a message says its part will be silent.
+  `--info` lists the chips.
+- `recomp.py`: stores to $8000-$FFFF are cycle-timed when they can
+  reach something, which for an NSF now includes sound chips
+  (`high_writes`). Programs without chips recompile to identical C.
+- Checks: `tone_nsf` (`make_tone_test.py`) builds an NSF from the same
+  notes as a tone ROM, timed by delay loops in init instead of the
+  PPU; each chip's generator now also writes one
+  (`tests/nsf_vrc6.nsf`, `nsf_vrc7`, `nsf_mmc5`, `nsf_n163`, `nsf_5b`),
+  and each passes with the same expected notes as its ROM (VRC6 from
+  mapper 24's addresses). `tests/nsf_two_chips.nsf` has VRC6 and 5B
+  together. The ROMs regenerate byte-identical.
+- Breaks, each failing a check: VRC7's select at $9000; Namco 163's
+  address port ignored; MMC5's PCM and $5015 ignored; the VRC6 sawtooth
+  ignored; only the first chip mixed (the two-chip test); chips never
+  switched on. A first try at the "only one chip" break didn't break
+  anything for that pair of chips, so it was redone.
+- Not checked: that chips start fresh on a song change (nothing here
+  changes song with a chip playing), and the write timing (a few cycles
+  either way doesn't change a note).
+- Results: 164 of 165 graded tests (test28 the only failure), nestest
+  exact.
 
 ### 5. Suite, README, notes
 Accept the new checks, document the NSF options and keys, and write

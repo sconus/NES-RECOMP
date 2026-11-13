@@ -325,6 +325,9 @@ class Rom:
         m = MAPPERS[self.mapper]
         self.mapper_name = m["name"]
         self.unit = m["unit"]
+        # Do stores to $8000-$FFFF (or low_regs) reach anything? Yes for a
+        # mapper that switches banks; for an NSF, when it has sound chips.
+        self.high_writes = self.unit is not None
         self.low_regs = m.get("low_regs")
         if self.unit is None:                    # nothing moves: NROM layout
             self.power_on = {s: s % self.banks for s in range(4)}
@@ -350,6 +353,7 @@ class Rom:
         self.nsf = dict(load=load, init=init, play=play)
         self.mapper = NSF_MAPPER
         self.mapper_name = "NSF"
+        chips = h[0x7B] & 0x3F
         start = list(h[0x70:0x78])
         body = data[0x80:]
         if any(start):
@@ -364,6 +368,7 @@ class Rom:
             self.fixed = {}
             self.power_on = {s: b % self.banks for s, b in enumerate(start)}
             self.low_regs = (0x5FF8, 0x5FFF)
+            self.high_writes = True
             return
         if load < 0x8000:
             sys.exit("NSF loads below $8000")
@@ -375,6 +380,7 @@ class Rom:
         self.banks = 4
         self.unit = None
         self.low_regs = None
+        self.high_writes = chips != 0
         self.power_on = {s: s for s in range(4)}
         self.fixed = dict(self.power_on)
 
@@ -707,9 +713,10 @@ def gen_insn(loc, opc, operand, rom, insns):
                 "0x%04X" % (operand[0] | operand[1] << 8) if size == 3 else "ea")
         writes = mnem in STORES or mnem in RMW or mnem in HIGH_STORES
         # Writes that may reach a mapper are timed too: some mappers (MMC1)
-        # care which cycle a write lands on.
+        # care which cycle a write lands on, and a sound chip's change
+        # should land on the right cycle.
         timed = may_touch_io(mode, operand) or (
-            writes and rom.unit is not None and may_write_mapper(mode, operand, rom))
+            writes and rom.high_writes and may_write_mapper(mode, operand, rom))
         body += mem_body(mnem, mode, cyc, pen, cross, base, timed)
         # Code in a switchable bank that writes to the mapper may have just
         # switched itself out: carry on through dispatch if so.

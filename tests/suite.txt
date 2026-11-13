@@ -69,6 +69,16 @@ audio 300 other/dnsf2_enginetest3.nsf --song=4
 audio 300 other/dnsf2_enginetest3.nsf --song=5
 audio 300 other/dnsf2_enginetest3.nsf --song=6
 audio 480 other/dnsf2_enginetest3.nsf tests/inputs/nsf_songs.txt
+# Expansion chips in NSFs: the expansion-sound stage's tone tests built
+# as NSFs (tone_nsf in make_tone_test.py, from each chip's generator),
+# with the same expected notes as the ROMs above.
+tones 700 tests/nsf_vrc6.nsf 440.4@1,440.4@1.000,440.4@0.467,440.4@0.927,440.4@0.578,440.4@1.000,440.4@1.000,439.3@1.458,439.3@0.717
+tones 600 tests/nsf_vrc7.nsf 440.4@1,440.0@-,440.0@0.251/2,880.0@1.282/2,440.0@1/2,440.0@0.573/2
+tones 600 tests/nsf_mmc5.nsf 440.4@1,440.4@1.000,440.4@1.000,440.4@0.509,439.6@3.993
+tones 700 tests/nsf_n163.nsf 440.4@1,440.0@6.682,440.0@0.467/2,440.0@0.500/2,440.0@0.500/2,440.0@0.649/2,440.0@0.927/2
+tones 700 tests/nsf_5b.nsf 440.4@1,440.4@-,440.4@0.501/2,440.4@0.178/2,440.4@1/2,440.4@1/2,437.0@0.570/2,437.0@0.548/2
+# Two chips in one NSF (VRC6 and 5B): both must reach the mix.
+tones 300 tests/nsf_two_chips.nsf 440.4@1,440.4@1.000,440.4@-
 
 # --- PPU, $6000 harness
 result 3000 ppu_vbl_nmi/rom_singles/01-vbl_basics.nes

@@ -36,7 +36,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from make_mmc1_test import Asm  # noqa: E402
-from make_tone_test import (tone_rom, apu_pulse, pulse_hz, CPU_HZ,  # noqa: E402
+from make_tone_test import (tone_rom, tone_nsf, apu_pulse, pulse_hz, CPU_HZ,  # noqa: E402
                             APU_PULSE_MIX, apu_pulse_wave, level)
 
 COUNT = 0x10                    # zero page: IRQs taken
@@ -199,6 +199,9 @@ def main():
                  setup=[(reg(mapper, 0x9003), 0x00), (reg(mapper, 0xB003), 0x20)])
         print("expected:", ",".join(e for _, e in notes))
         banking_rom(mapper, os.path.join(HERE, "vrc6_%d.nes" % mapper))
+    # The NSF: the VRC6 at its usual (mapper 24) addresses.
+    tone_nsf(os.path.join(HERE, "nsf_vrc6.nsf"), [n for n, _ in tone_notes(24)],
+             chips=1, setup=[(0x9003, 0x00)])
 
 
 if __name__ == "__main__":

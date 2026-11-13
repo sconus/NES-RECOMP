@@ -555,6 +555,11 @@ static float mmc5_audio_step(uint64_t cycle) {
     return -out;
 }
 
+static void mmc5_sound_reset(void) {
+    memset(&m5a, 0, sizeof m5a);
+    m5a.next_frame = cycles + 7424;
+}
+
 static void mmc5_sound_write(uint16_t addr, uint8_t val) {
     apu_catch_up();                 /* the change lands on this cycle */
     mmc5_frames(cycles);
@@ -735,8 +740,7 @@ static void mmc5_reset(void) {
     mapper.nt_write = mmc5_nt_write;
     mapper.scanline = mmc5_scanline;
     mapper.bg_tile = mmc5_bg_tile;
-    memset(&m5a, 0, sizeof m5a);
-    m5a.next_frame = cycles + 7424;
+    mmc5_sound_reset();
     mapper.audio_step = mmc5_audio_step;
     write_low = mmc5_write_low;
     read_low = mmc5_read_low;
@@ -811,6 +815,31 @@ static void vrc6_apply(uint8_t b003) {
     cart.mirroring = mir[(b003 >> 2) & 3];
 }
 
+/* The sound registers: $9000-$9003, $A000-$A002, $B000-$B002 (addr
+   already reduced to $x000-$x003; $B003 isn't sound). */
+static void vrc6_sound_write(uint16_t addr, uint8_t val) {
+    int reg = addr & 3;
+    if (addr == 0x9003) { apu_catch_up(); vrc6.freq_ctrl = val; return; }
+    if (reg == 3) return;
+    int c = ((addr >> 12) & 0xF) - 9;
+    apu_catch_up();                 /* the change lands on this cycle */
+    if (reg == 0) vrc6.ctrl[c] = val;
+    else if (reg == 1) vrc6.period[c] = (uint16_t)((vrc6.period[c] & 0xF00) | val);
+    else {
+        vrc6.period[c] = (uint16_t)((vrc6.period[c] & 0xFF) | (val & 0x0F) << 8);
+        vrc6.enable[c] = val >> 7;
+        if (!vrc6.enable[c]) {      /* disabled: duty and saw reset */
+            if (c < 2) vrc6.step[c] = 15;
+            else { vrc6.saw_acc = 0; vrc6.saw_clock = 0; }
+        }
+    }
+}
+
+static void vrc6_sound_reset(void) {
+    memset(&vrc6, 0, sizeof vrc6);
+    vrc6.step[0] = vrc6.step[1] = 15;
+}
+
 static void vrc6_write(uint16_t addr, uint8_t val) {
     if (cart.mapper == 26)                       /* A0 and A1 swapped */
         addr = (uint16_t)((addr & ~3) | (addr & 1) << 1 | (addr >> 1 & 1));
@@ -819,24 +848,10 @@ static void vrc6_write(uint16_t addr, uint8_t val) {
     switch (addr & 0xF000) {
     case 0x8000: set_prg_16k(0, val & 0x0F); break;
     case 0xC000: set_prg_8k(2, val & 0x1F); break;
-    case 0x9000: case 0xA000: case 0xB000: {
-        if (addr == 0xB003) { vrc6_apply(val); break; }
-        if (addr == 0x9003) { apu_catch_up(); vrc6.freq_ctrl = val; break; }
-        if (reg == 3) break;
-        int c = ((addr >> 12) & 0xF) - 9;
-        apu_catch_up();             /* the change lands on this cycle */
-        if (reg == 0) vrc6.ctrl[c] = val;
-        else if (reg == 1) vrc6.period[c] = (uint16_t)((vrc6.period[c] & 0xF00) | val);
-        else {
-            vrc6.period[c] = (uint16_t)((vrc6.period[c] & 0xFF) | (val & 0x0F) << 8);
-            vrc6.enable[c] = val >> 7;
-            if (!vrc6.enable[c]) {      /* disabled: duty and saw reset */
-                if (c < 2) vrc6.step[c] = 15;
-                else { vrc6.saw_acc = 0; vrc6.saw_clock = 0; }
-            }
-        }
+    case 0x9000: case 0xA000: case 0xB000:
+        if (addr == 0xB003) vrc6_apply(val);
+        else vrc6_sound_write(addr, val);
         break;
-    }
     case 0xD000: case 0xE000:
         set_chr_1k(((addr >> 12) - 0xD) * 4 + reg, val);
         break;
@@ -851,8 +866,7 @@ static void vrc6_write(uint16_t addr, uint8_t val) {
 
 static void vrc6_reset(void) {
     memset(&vrc, 0, sizeof vrc);
-    memset(&vrc6, 0, sizeof vrc6);
-    vrc6.step[0] = vrc6.step[1] = 15;
+    vrc6_sound_reset();
     vrc.prescaler = 341;
     vrc.irq_time = cycles;
     set_prg_16k(0, 0); set_prg_8k(2, -2); set_prg_8k(3, -1);
@@ -992,6 +1006,25 @@ static float fme_audio_step(uint64_t cycle) {
     return out;
 }
 
+/* The 5B's data port ($E000), for the register selected at $C000. */
+static void fme_sound_data(uint8_t val) {
+    if (fme.select & 0xF0) return;
+    apu_catch_up();                 /* the change lands on this cycle */
+    fme.regs[fme.select & 15] = val;
+    if ((fme.select & 15) == 13) {          /* new shape: restart */
+        fme.env_step = 0;
+        fme.env_flip = 0;
+        fme.env_holding = 0;
+    }
+}
+
+static void fme_sound_reset(void) {
+    memset(&fme, 0, sizeof fme);
+    fme.lfsr = 1;
+    for (int n = 2; n < 32; n++)    /* 1.5 dB a step; full scale = APU pulse */
+        fme_dac[n] = 0.1494f * powf(10.0f, (n - 31) * 1.5f / 20.0f);
+}
+
 static void fme_write(uint16_t addr, uint8_t val) {
     switch (addr & 0xE000) {
     case 0x8000: fme.command = val & 0x0F; break;
@@ -1013,25 +1046,13 @@ static void fme_write(uint16_t addr, uint8_t val) {
         break;
     }
     case 0xC000: fme.select = val; break;
-    case 0xE000:
-        if (fme.select & 0xF0) break;
-        apu_catch_up();             /* the change lands on this cycle */
-        fme.regs[fme.select & 15] = val;
-        if ((fme.select & 15) == 13) {          /* new shape: restart */
-            fme.env_step = 0;
-            fme.env_flip = 0;
-            fme.env_holding = 0;
-        }
-        break;
+    case 0xE000: fme_sound_data(val); break;
     }
 }
 
 static void fme_reset(void) {
-    memset(&fme, 0, sizeof fme);
-    fme.lfsr = 1;
+    fme_sound_reset();
     fme.irq_time = cycles;
-    for (int n = 2; n < 32; n++)    /* 1.5 dB a step; full scale = APU pulse */
-        fme_dac[n] = 0.1494f * powf(10.0f, (n - 31) * 1.5f / 20.0f);
     set_prg_8k(0, 0); set_prg_8k(1, 1); set_prg_8k(2, 2); set_prg_8k(3, -1);
     mapper.catch_up = fme_irq_catch_up;
     mapper.schedule = fme_irq_schedule;
@@ -1384,6 +1405,12 @@ static void vrc7_sound_write(uint8_t reg, uint8_t val) {
     vrc7.regs[reg] = val;
 }
 
+static void vrc7_sound_reset(void) {
+    memset(&vrc7, 0, sizeof vrc7);
+    for (int ch = 0; ch < 6; ch++)
+        for (int o = 0; o < 2; o++) { vrc7.op[ch][o].att = 48; vrc7.op[ch][o].stage = EG_OFF; }
+}
+
 static void vrc7_write(uint16_t addr, uint8_t val) {
     int second = ((addr >> 4) | (addr >> 3)) & 1;   /* A4 (7a) or A3 (7b) */
     switch (addr & 0xF000) {
@@ -1416,9 +1443,7 @@ static void vrc7_write(uint16_t addr, uint8_t val) {
 
 static void vrc7_reset(void) {
     memset(&vrc, 0, sizeof vrc);
-    memset(&vrc7, 0, sizeof vrc7);
-    for (int ch = 0; ch < 6; ch++)
-        for (int o = 0; o < 2; o++) { vrc7.op[ch][o].att = 48; vrc7.op[ch][o].stage = EG_OFF; }
+    vrc7_sound_reset();
     vrc.prescaler = 341;
     vrc.irq_time = cycles;
     set_prg_8k(0, 0); set_prg_8k(1, 1); set_prg_8k(2, 2); set_prg_8k(3, -1);
@@ -1574,6 +1599,80 @@ static void mmc3_reset(void) {
 
 /* ---------------------------------------------------------------------- */
 
+/* ---- NSF expansion sound (nesdev wiki "NSF"). Header byte $7B lists
+   the chips; each sits at its usual addresses, with no bank switching or
+   IRQs of its own:
+     bit 0  VRC6      $9000-$9003, $A000-$A002, $B000-$B002
+     bit 1  VRC7      $9010 register select, $9030 data
+     bit 2  FDS       (not supported: silent)
+     bit 3  MMC5      $5000-$5015 sound, $5205/$5206 multiplier, and
+                      $5C00-$5FF5 as plain RAM
+     bit 4  Namco 163 $4800 sound RAM data, $F800 its address
+     bit 5  5B        $C000 register select, $E000 data
+   The chips' outputs add up, as on a cartridge each joins the APU's. */
+static uint8_t nsf_chips;
+static uint8_t nsf_exram[0x400];
+
+static float nsf_audio_step(uint64_t cycle) {
+    float out = 0;
+    if (nsf_chips & NSF_VRC6) out += vrc6_audio_step(cycle);
+    if (nsf_chips & NSF_VRC7) out += vrc7_audio_step(cycle);
+    if (nsf_chips & NSF_MMC5) out += mmc5_audio_step(cycle);
+    if (nsf_chips & NSF_N163) out += n163_audio_step(cycle);
+    if (nsf_chips & NSF_5B) out += fme_audio_step(cycle);
+    return out;
+}
+
+void nsf_chips_reset(uint8_t chips) {
+    nsf_chips = chips;
+    vrc6_sound_reset();
+    vrc7_sound_reset();
+    memset(&mmc5, 0, sizeof mmc5);
+    mmc5_sound_reset();
+    memset(nsf_exram, 0, sizeof nsf_exram);
+    memset(&n163, 0, sizeof n163);
+    n163.channel = 7;
+    fme_sound_reset();
+    mapper.audio_step = chips ? nsf_audio_step : NULL;
+}
+
+static void nsf_chip_write(uint16_t addr, uint8_t val) {
+    if ((nsf_chips & NSF_VRC6) && addr >= 0x9000 && addr < 0xC000 &&
+        (addr & 0x0FFC) == 0 && addr != 0xB003)
+        vrc6_sound_write(addr, val);
+    if (nsf_chips & NSF_VRC7) {
+        if (addr == 0x9010) vrc7.select = val;
+        else if (addr == 0x9030) vrc7_sound_write(vrc7.select, val);
+    }
+    if ((nsf_chips & NSF_N163) && addr >= 0xF800) n163.addr = val;
+    if (nsf_chips & NSF_5B) {
+        if ((addr & 0xE000) == 0xC000) fme.select = val;
+        else if ((addr & 0xE000) == 0xE000) fme_sound_data(val);
+    }
+}
+
+void nsf_chip_write_low(uint16_t addr, uint8_t val) {
+    if ((nsf_chips & NSF_N163) && addr >= 0x4800 && addr < 0x5000)
+        n163_write_low(addr, val);
+    if (nsf_chips & NSF_MMC5) {
+        if (addr >= 0x5000 && addr <= 0x5015) mmc5_sound_write(addr, val);
+        else if (addr == 0x5205) mmc5.mul_a = val;
+        else if (addr == 0x5206) mmc5.mul_b = val;
+        else if (addr >= 0x5C00 && addr < 0x5FF6) nsf_exram[addr - 0x5C00] = val;
+    }
+}
+
+int nsf_chip_read_low(uint16_t addr) {
+    if ((nsf_chips & NSF_N163) && addr >= 0x4800 && addr < 0x5000)
+        return n163_read_low(addr);
+    if (nsf_chips & NSF_MMC5) {
+        if (addr == 0x5015 || addr == 0x5205 || addr == 0x5206 || addr == 0x5010)
+            return mmc5_read_low(addr);
+        if (addr >= 0x5C00 && addr < 0x5FF6) return nsf_exram[addr - 0x5C00];
+    }
+    return -1;
+}
+
 void mapper_init(void) {
     /* Power-on layout for every board: ROM laid out from the start and
        repeated to fill 32 KB (so 16 KB NROM appears twice). Each mapper's
@@ -1617,7 +1716,7 @@ void mapper_init(void) {
         break;
     case 22: mapper.name = "VRC2"; write_reg = vrc_write; vrc_reset(); break;
     case MAPPER_NSF:
-        mapper.name = "NSF"; write_reg = nrom_write;
+        mapper.name = "NSF"; write_reg = nsf_chip_write;
         read_low = nsf_read_low; write_low = nsf_write_low;
         nsf_mapper_reset();
         break;

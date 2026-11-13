@@ -36,7 +36,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from make_mmc1_test import Asm  # noqa: E402
-from make_tone_test import (tone_rom, apu_pulse, pulse_hz, CPU_HZ,  # noqa: E402
+from make_tone_test import (tone_rom, tone_nsf, apu_pulse, pulse_hz, CPU_HZ,  # noqa: E402
                             level)
 
 COUNT = 0x10
@@ -175,6 +175,7 @@ def main():
     notes = tone_notes()
     tone_rom(os.path.join(HERE, "fme7_tones.nes"), [n for n, _ in notes],
              mapper=69)
+    tone_nsf(os.path.join(HERE, "nsf_5b.nsf"), [n for n, _ in notes], chips=32)
     print("expected:", ",".join(e for _, e in notes))
     banking_rom(os.path.join(HERE, "fme7.nes"))
 

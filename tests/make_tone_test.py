@@ -89,6 +89,64 @@ def tone_rom(path, notes, mapper=0, setup=(), prg_kb=32, chr_kb=8,
     print("wrote", path)
 
 
+def tone_nsf(path, notes, chips, setup=()):
+    """Write an NSF at `path` playing `notes` as tone_rom() does, for the
+    expansion chips in `chips` (header byte $7B). Everything runs in
+    init, which never returns, timed by delay loops instead of the PPU's
+    vblank flag (an NSF player needn't have a PPU); a "frame" here is
+    about 29,650 cycles."""
+    a = Asm(0x8000)
+
+    def writes(ws):
+        for addr, val in ws:
+            a.lda(val); a.sta(addr)
+
+    def wait_frames(n):
+        # LDX #n; f: LDA #23; STA $FF; m: LDY #0; i: DEY; BNE i;
+        # DEC $FF; BNE m; DEX; BNE f
+        a.b(0xA2, n, 0xA9, 23, 0x85, 0xFF, 0xA0, 0x00, 0x88, 0xD0, 0xFD,
+            0xC6, 0xFF, 0xD0, 0xF7, 0xCA, 0xD0, 0xEF)
+
+    a.label("init")
+    a.lda(0x40); a.sta(0x4017)                  # no frame IRQ
+    writes(setup)
+    wait_frames(30)
+    for start, stop in notes:
+        if callable(start):
+            start(a)
+        else:
+            writes(start)
+            wait_frames(NOTE_FRAMES)
+        writes(stop)
+        wait_frames(GAP_FRAMES)
+    here = a.pc()
+    a.b(0x4C, here & 0xFF, here >> 8)           # JMP to itself
+    a.label("play")
+    a.rts()
+    a.label("rti")
+    a.b(0x40)
+    code = a.done()
+
+    prg = bytearray(0x8000)
+    prg[:len(code)] = code
+    t = a.labels["rti"]
+    for vec in (0x7FFA, 0x7FFC, 0x7FFE):
+        prg[vec], prg[vec + 1] = t & 0xFF, t >> 8
+    header = bytearray(0x80)
+    header[0:5] = b"NESM\x1a"
+    header[5], header[6], header[7] = 1, 1, 1
+    for at, v in ((8, 0x8000), (10, a.labels["init"]), (12, a.labels["play"]),
+                  (0x6E, 16639)):
+        header[at], header[at + 1] = v & 0xFF, v >> 8
+    name = os.path.basename(path).encode()[:31]
+    header[0x0E:0x0E + len(name)] = name
+    header[0x2E:0x2E + 9] = b"nesrecomp"
+    header[0x7B] = chips
+    with open(path, "wb") as f:
+        f.write(bytes(header) + bytes(prg))
+    print("wrote", path)
+
+
 # The expected loudness of a note: the RMS, after the runtime's output
 # filters, of an ideal waveform built from the chip's documented
 # behaviour. The filters (runtime/apu.c): an average over each 48 kHz
