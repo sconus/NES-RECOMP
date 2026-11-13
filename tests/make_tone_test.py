@@ -13,10 +13,13 @@ length counter halted):
 
   1  pulse 1, period 253 (440.4 Hz), 50% duty, volume 15   reference
   2  pulse 1, period 126 (880.8 Hz)                        pitch only
-  3  pulse 1, 440.4 Hz, volume 7     0.509 as loud (the APU's non-linear
-                                     pulse mix: 7 vs 15 gives 0.0760 / 0.1494)
-  4  pulse 1, 440.4 Hz, 25% duty     0.866 as loud (RMS of a 25% vs a
-                                     50% square: sqrt(0.25 * 0.75) / 0.5)
+  3  pulse 1, 440.4 Hz, volume 7     the APU's non-linear pulse mix: 7
+                                     vs 15 gives 0.0760 / 0.1494 = 0.509
+  4  pulse 1, 440.4 Hz, 25% duty     a narrower pulse; its harmonics pass
+                                     the output filters differently
+
+Expected loudness comes from filtered_rms(): the ideal waveform's RMS
+after the runtime's output filters, computed harmonic by harmonic.
   5  pulse 2, same as note 1         1.0
 """
 import os
@@ -82,6 +85,47 @@ def tone_rom(path, notes, mapper=0, setup=(), prg_kb=32, chr_kb=8,
     print("wrote", path)
 
 
+# The expected loudness of a note: the RMS, after the runtime's output
+# filters, of an ideal waveform built from the chip's documented
+# behaviour. The filters (runtime/apu.c): an average over each 48 kHz
+# sample, first-order high-passes at 90 and 440 Hz, a first-order
+# low-pass at 14 kHz. A waveform repeating at `hz` and made of equal
+# steps (`steps`, one value each, in mix units) is summed harmonic by
+# harmonic up to 24 kHz.
+def filtered_rms(steps, hz):
+    import cmath
+    import math
+    n = len(steps)
+    total = 0.0
+    k = 1
+    while k * hz < 24000:
+        f = k * hz
+        dft = sum(v * cmath.exp(-2j * math.pi * k * i / n)
+                  for i, v in enumerate(steps)) / n
+        hold = abs(math.sin(math.pi * k / n) / (math.pi * k / n))  # step shape
+        avg = abs(math.sin(math.pi * f / 48000) / (math.pi * f / 48000))
+        hp = f / math.hypot(f, 90) * f / math.hypot(f, 440)
+        lp = 1 / math.hypot(1, f / 14000)
+        total += 2 * (abs(dft) * hold * avg * hp * lp) ** 2
+        k += 1
+    return math.sqrt(total)
+
+
+APU_PULSE_MIX = [95.88 / (8128.0 / v + 100.0) if v else 0.0 for v in range(31)]
+APU_DUTY = [[0, 1, 0, 0, 0, 0, 0, 0], [0, 1, 1, 0, 0, 0, 0, 0],
+            [0, 1, 1, 1, 1, 0, 0, 0], [1, 0, 0, 1, 1, 1, 1, 1]]
+
+
+def apu_pulse_wave(duty=2, volume=15):
+    """One period of an APU pulse alone, in mix units."""
+    return [APU_PULSE_MIX[volume] * b for b in APU_DUTY[duty]]
+
+
+def level(wave, hz, ref_wave, ref_hz):
+    """Expected loudness of one note relative to another, as a string."""
+    return "%.3f" % (filtered_rms(wave, hz) / filtered_rms(ref_wave, ref_hz))
+
+
 def apu_pulse(channel, period, duty=2, volume=15):
     """Start and stop writes for an APU pulse note (constant volume,
     length counter halted, no sweep)."""
@@ -97,19 +141,25 @@ def pulse_hz(period):
     return CPU_HZ / (16.0 * (period + 1))
 
 
-APU_NOTES = [
-    (apu_pulse(0, 253), "%.1f@1" % pulse_hz(253)),
-    (apu_pulse(0, 126), "%.1f@-" % pulse_hz(126)),
-    (apu_pulse(0, 253, volume=7), "%.1f@0.509" % pulse_hz(253)),
-    (apu_pulse(0, 253, duty=1), "%.1f@0.866" % pulse_hz(253)),
-    (apu_pulse(1, 253), "%.1f@1" % pulse_hz(253)),
-]
+def apu_notes():
+    p = pulse_hz(253)
+    ref = apu_pulse_wave()
+    return [
+        (apu_pulse(0, 253), "%.1f@1" % p),
+        (apu_pulse(0, 126), "%.1f@-" % pulse_hz(126)),
+        (apu_pulse(0, 253, volume=7),
+         "%.1f@%s" % (p, level(apu_pulse_wave(volume=7), p, ref, p))),
+        (apu_pulse(0, 253, duty=1),
+         "%.1f@%s" % (p, level(apu_pulse_wave(duty=1), p, ref, p))),
+        (apu_pulse(1, 253), "%.1f@1" % p),
+    ]
 
 
 def main():
     here = os.path.dirname(os.path.abspath(__file__))
-    tone_rom(os.path.join(here, "apu_tones.nes"), [n for n, _ in APU_NOTES])
-    print("expected:", ",".join(e for _, e in APU_NOTES))
+    notes = apu_notes()
+    tone_rom(os.path.join(here, "apu_tones.nes"), [n for n, _ in notes])
+    print("expected:", ",".join(e for _, e in notes))
 
 
 if __name__ == "__main__":

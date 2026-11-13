@@ -151,7 +151,7 @@ def silence_ratio(path):
 # pitch and similar waveform; "-" skips it.
 TONE_WINDOW = 480               # 10 ms
 TONE_PITCH_TOLERANCE = 0.0025   # 0.25 % (an off-by-one period at 440 Hz is 0.4 %)
-TONE_LEVEL_TOLERANCE = 0.10     # 10 %
+TONE_LEVEL_TOLERANCE = 0.05     # 5 % (expected levels include the output filters)
 
 
 def tone_segments(x):
@@ -193,23 +193,28 @@ def measure_tone(x, start, end):
 
 
 def check_tones(path, expected):
-    """expected: "440@1,880@-,...": pitch @ loudness relative to note 1."""
+    """expected: "440@1,880@-,440@0.5/2,...": pitch @ loudness relative to
+    note 1, or to note k with "/k"; "-" doesn't check loudness."""
     want = []
     for item in expected.split(","):
         f, lvl = item.split("@")
-        want.append((float(f), None if lvl == "-" else float(lvl)))
+        rel = 1
+        if "/" in lvl:
+            lvl, rel = lvl.split("/")
+            rel = int(rel)
+        want.append((float(f), None if lvl == "-" else float(lvl), rel))
     x = wav_samples(path)
     segs = tone_segments(x)
     if len(segs) != len(want):
         return "fail: heard %d notes, expected %d" % (len(segs), len(want))
     measured = [measure_tone(x, a, b) for a, b in segs]
-    ref = measured[0][1]
-    for i, ((f, lvl), (hz, rms)) in enumerate(zip(want, measured), 1):
+    for i, ((f, lvl, rel), (hz, rms)) in enumerate(zip(want, measured), 1):
         if abs(hz / f - 1) > TONE_PITCH_TOLERANCE:
             return "fail: note %d is %.1f Hz, expected %.1f" % (i, hz, f)
+        ref = measured[rel - 1][1]
         if lvl is not None and abs(rms / ref / lvl - 1) > TONE_LEVEL_TOLERANCE:
-            return "fail: note %d is %.3f as loud as note 1, expected %.3f" % (
-                i, rms / ref, lvl)
+            return "fail: note %d is %.3f as loud as note %d, expected %.3f" % (
+                i, rms / ref, rel, lvl)
     return "pass"
 
 

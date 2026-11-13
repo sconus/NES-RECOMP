@@ -8,6 +8,7 @@
 #include "ppu.h"
 #include "rt.h"
 #include "event.h"
+#include "apu.h"
 
 struct mapper mapper;
 static void (*write_reg)(uint16_t addr, uint8_t val);
@@ -264,6 +265,22 @@ static void vrc_irq_schedule(void) {
     schedule_event(vrc.irq_time + first + (clocks - 1) * per);
 }
 
+/* The VRC IRQ's control and acknowledge registers (VRC4, VRC6, VRC7). */
+static void vrc_irq_control(uint8_t val) {
+    /* Acknowledge, reset the prescaler, and reload if enabled. */
+    vrc.enable_after_ack = val & 1;
+    vrc.enable = (val >> 1) & 1;
+    vrc.cycle_mode = (val >> 2) & 1;
+    vrc.prescaler = 341;
+    if (vrc.enable) vrc.counter = vrc.latch;
+    cpu_set_irq(IRQ_MAPPER, 0);
+}
+
+static void vrc_irq_ack(void) {     /* acknowledge; A is copied to E */
+    vrc.enable = vrc.enable_after_ack;
+    cpu_set_irq(IRQ_MAPPER, 0);
+}
+
 static void vrc_write(uint16_t addr, uint8_t val) {
     int reg = vrc_select(addr);
     switch (addr & 0xF000) {
@@ -287,18 +304,8 @@ static void vrc_write(uint16_t addr, uint8_t val) {
         switch (reg) {
         case 0: vrc.latch = (uint8_t)((vrc.latch & 0xF0) | (val & 0x0F)); break;
         case 1: vrc.latch = (uint8_t)((vrc.latch & 0x0F) | (val & 0x0F) << 4); break;
-        case 2:   /* control: acknowledge, reset the prescaler, maybe reload */
-            vrc.enable_after_ack = val & 1;
-            vrc.enable = (val >> 1) & 1;
-            vrc.cycle_mode = (val >> 2) & 1;
-            vrc.prescaler = 341;
-            if (vrc.enable) vrc.counter = vrc.latch;
-            cpu_set_irq(IRQ_MAPPER, 0);
-            break;
-        case 3:   /* acknowledge; A is copied to E */
-            vrc.enable = vrc.enable_after_ack;
-            cpu_set_irq(IRQ_MAPPER, 0);
-            break;
+        case 2: vrc_irq_control(val); break;
+        case 3: vrc_irq_ack(); break;
         }
         break;
     }
@@ -619,6 +626,124 @@ static void mmc5_reset(void) {
     read_low = mmc5_read_low;
 }
 
+/* ---- 24, 26: Konami VRC6 (nesdev wiki "VRC6", "VRC6 audio"). Mapper 26
+   swaps address lines A0 and A1. Registers (addr & $F003):
+     $8000  16 KB PRG bank at $8000      $C000  8 KB PRG bank at $C000
+            (the last 8 KB is fixed at $E000; 8 KB of PRG RAM at $6000)
+     $B003  banking style: bits 2-3 mirroring (vertical, horizontal,
+            one-screen low, high) in mode 0, the only one Konami's games
+            used; the other modes and CHR-ROM nametables aren't modelled
+     $D000-$E003  eight 1 KB CHR banks
+     $F000  IRQ latch, $F001 control, $F002 acknowledge (the VRC IRQ)
+   Sound, three channels summed on a linear DAC; at full volume the
+   pulses roughly match the APU's pulses, inverted:
+     $9000-2, $A000-2  pulses: MDDD VVVV (mode, duty (D+1)/16, volume),
+            period low, E... FFFF (enable, period high); one 16-step duty
+            cycle per 16 periods: CPU / (16 * (t + 1))
+     $B000-2  sawtooth: ..AA AAAA (rate), period low, E... FFFF. Every
+            other period the rate is added to an 8-bit accumulator; after
+            six adds it resets: CPU / (14 * (t + 1)). Output: its top
+            5 bits.
+     $9003  bit 0 halts all three; bit 1 / bit 2 shift the periods right
+            by 4 / 8 (16x / 256x the pitch)  ---------------------------- */
+
+static struct {
+    uint8_t ctrl[3];                /* $9000, $A000, $B000 */
+    uint16_t period[3];
+    uint8_t enable[3];
+    uint16_t timer[3];
+    uint8_t step[2];                /* pulse duty position, 15 down to 0 */
+    uint8_t saw_clock, saw_acc;     /* sawtooth: 0-13 and the accumulator */
+    uint8_t freq_ctrl;              /* $9003 */
+} vrc6;
+
+static float vrc6_audio_step(void) {
+    if (!(vrc6.freq_ctrl & 1)) {
+        int shift = (vrc6.freq_ctrl & 4) ? 8 : (vrc6.freq_ctrl & 2) ? 4 : 0;
+        for (int c = 0; c < 3; c++) {
+            if (!vrc6.enable[c]) continue;
+            if (vrc6.timer[c] == 0) {
+                vrc6.timer[c] = (uint16_t)(vrc6.period[c] >> shift);
+                if (c < 2) {
+                    vrc6.step[c] = (vrc6.step[c] - 1) & 15;
+                } else {
+                    vrc6.saw_clock = (uint8_t)((vrc6.saw_clock + 1) % 14);
+                    if (vrc6.saw_clock == 0) vrc6.saw_acc = 0;
+                    else if (!(vrc6.saw_clock & 1))
+                        vrc6.saw_acc = (uint8_t)(vrc6.saw_acc + (vrc6.ctrl[2] & 0x3F));
+                }
+            } else {
+                vrc6.timer[c]--;
+            }
+        }
+    }
+    int out = 0;
+    for (int c = 0; c < 2; c++) {
+        uint8_t r = vrc6.ctrl[c];
+        if (vrc6.enable[c] && ((r & 0x80) || vrc6.step[c] <= ((r >> 4) & 7)))
+            out += r & 15;
+    }
+    if (vrc6.enable[2]) out += vrc6.saw_acc >> 3;
+    /* A full-volume pulse (15) matches an APU pulse at 15 (0.1494). */
+    return -(float)out * (0.1494f / 15.0f);
+}
+
+static void vrc6_apply(uint8_t b003) {
+    static const enum mirroring mir[4] = {
+        MIRROR_VERTICAL, MIRROR_HORIZONTAL, MIRROR_SINGLE_LOW, MIRROR_SINGLE_HIGH };
+    cart.mirroring = mir[(b003 >> 2) & 3];
+}
+
+static void vrc6_write(uint16_t addr, uint8_t val) {
+    if (cart.mapper == 26)                       /* A0 and A1 swapped */
+        addr = (uint16_t)((addr & ~3) | (addr & 1) << 1 | (addr >> 1 & 1));
+    addr &= 0xF003;
+    int reg = addr & 3;
+    switch (addr & 0xF000) {
+    case 0x8000: set_prg_16k(0, val & 0x0F); break;
+    case 0xC000: set_prg_8k(2, val & 0x1F); break;
+    case 0x9000: case 0xA000: case 0xB000: {
+        if (addr == 0xB003) { vrc6_apply(val); break; }
+        if (addr == 0x9003) { apu_catch_up(); vrc6.freq_ctrl = val; break; }
+        if (reg == 3) break;
+        int c = ((addr >> 12) & 0xF) - 9;
+        apu_catch_up();             /* the change lands on this cycle */
+        if (reg == 0) vrc6.ctrl[c] = val;
+        else if (reg == 1) vrc6.period[c] = (uint16_t)((vrc6.period[c] & 0xF00) | val);
+        else {
+            vrc6.period[c] = (uint16_t)((vrc6.period[c] & 0xFF) | (val & 0x0F) << 8);
+            vrc6.enable[c] = val >> 7;
+            if (!vrc6.enable[c]) {      /* disabled: duty and saw reset */
+                if (c < 2) vrc6.step[c] = 15;
+                else { vrc6.saw_acc = 0; vrc6.saw_clock = 0; }
+            }
+        }
+        break;
+    }
+    case 0xD000: case 0xE000:
+        set_chr_1k(((addr >> 12) - 0xD) * 4 + reg, val);
+        break;
+    case 0xF000:
+        vrc_irq_catch_up();
+        if (reg == 0) vrc.latch = val;
+        else if (reg == 1) vrc_irq_control(val);
+        else if (reg == 2) vrc_irq_ack();
+        break;
+    }
+}
+
+static void vrc6_reset(void) {
+    memset(&vrc, 0, sizeof vrc);
+    memset(&vrc6, 0, sizeof vrc6);
+    vrc6.step[0] = vrc6.step[1] = 15;
+    vrc.prescaler = 341;
+    vrc.irq_time = cycles;
+    set_prg_16k(0, 0); set_prg_8k(2, -2); set_prg_8k(3, -1);
+    mapper.catch_up = vrc_irq_catch_up;
+    mapper.schedule = vrc_irq_schedule;
+    mapper.audio_step = vrc6_audio_step;
+}
+
 /* ---- 1: MMC1. Registers are loaded one bit at a time. -----------------
 
    Each write to $8000-$FFFF shifts bit 0 into a 5-bit register; the fifth
@@ -800,6 +925,9 @@ void mapper_init(void) {
     case 10: mapper.name = "MMC4"; write_reg = mmc2_write; mmc2_reset(); break;
     case 21: case 23: case 25:
         mapper.name = "VRC4"; write_reg = vrc_write; vrc_reset();
+        break;
+    case 24: case 26:
+        mapper.name = "VRC6"; write_reg = vrc6_write; vrc6_reset();
         break;
     case 22: mapper.name = "VRC2"; write_reg = vrc_write; vrc_reset(); break;
     case 28:

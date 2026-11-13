@@ -74,12 +74,46 @@ Done.
   volume ignored, the 25% duty playing 50%, or pulse 2 silent each fail
   the check.
 
-### 2. VRC6 (24, 26)
+### 2. VRC6 (24, 26) (done)
 Banking (16 KB + 8 KB PRG, eight 1 KB CHR banks, mirroring), the VRC
 IRQ, and its three channels: two pulses with 16-step duty and a
 "digitized" mode, and the sawtooth. Mapper 26 swaps two address lines.
 Check: a generated test ROM of tones (pitch, duty, volume, sawtooth
 rate), and the IRQ through the VRC4 test's method.
+
+Done (`vrc6_*` in `runtime/mapper.c`), from the nesdev wiki's "VRC6" and
+"VRC6 audio" pages:
+- Banking: 16 KB at `$8000`, 8 KB at `$C000`, the last 8 KB fixed;
+  eight 1 KB CHR banks; mirroring from `$B003` in banking mode 0, the
+  only mode Konami's games used (the others, and nametables from CHR,
+  aren't modelled). Mapper 26 swaps A0 and A1.
+- IRQ: the VRC IRQ, shared with VRC4 (its control and acknowledge
+  registers moved into `vrc_irq_control`/`vrc_irq_ack`).
+- Sound (`vrc6_audio_step`): the pulses' 16-step duty counting down,
+  with "ignore duty" mode; the sawtooth adding its rate every other clock
+  and resetting after six adds; `$9003`'s halt and 16x/256x shifts; a
+  linear DAC, inverted, where a full pulse equals a full APU pulse.
+
+Making the tones check exact: the loudness of a narrow pulse depends on
+the output filters (they cut its fundamental more than its harmonics),
+so the first expected values, from unfiltered formulas, were off by up
+to 16% for a 1/16 duty. `make_tone_test.py` now computes every expected
+loudness from the ideal waveform passed through a model of the runtime's
+filters (`filtered_rms`), and the tolerance went from 10% to 5%. The
+model and the measurements agree to within about 3% (25% duty: 0.927
+expected, 0.923 measured; sawtooth: 1.458 and 1.451).
+
+The notes run longer than planned (about 40 frames, not 30): the ROM
+waits for vblank by polling `$2002`, and a read just as vblank begins
+stops the flag for that frame, a race the PPU models as hardware has it.
+The recordings were lengthened to fit.
+
+Checks: `tests/vrc6_24.nes`, `vrc6_26.nes` (banking, mirroring, IRQ) and
+`vrc6_tones_24.nes`, `vrc6_tones_26.nes` (nine notes: pulses at full and
+half volume, 25% and 1/16 duty, pulse 2, a 16x-shifted period, and the
+sawtooth at two rates). Breaking the duty comparison, the sawtooth's
+cycle length or add rhythm, the `$9003` shift, the output level, or
+mapper 26's line swap each fails a check.
 
 ### 3. Sunsoft FME-7 and 5B (69)
 Banking (four 8 KB PRG slots including RAM or ROM at `$6000`, eight

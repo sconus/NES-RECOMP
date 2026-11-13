@@ -273,6 +273,10 @@ MAPPERS = {
     # the last 8 KB.
     5:  dict(name="MMC5", unit=1, fixed={}, power_on={0: -1, 1: -1, 2: -1, 3: -1},
              low_regs=(0x5100, 0x5117)),
+    # Konami VRC6: 16 KB at $8000 and 8 KB at $C000 switch, the last 8 KB
+    # is fixed. Mapper 26 is the same chip with two address lines swapped.
+    24: dict(name="VRC6", unit=1, fixed={3: -1}, power_on={0: 0, 1: 1, 2: -2, 3: -1}),
+    26: dict(name="VRC6", unit=1, fixed={3: -1}, power_on={0: 0, 1: 1, 2: -2, 3: -1}),
     # Action 53 switches 16 or 32 KB with either half fixed, depending on a
     # mode the program sets, so no slot is safe to treat as fixed. It
     # starts in its last 32 KB.

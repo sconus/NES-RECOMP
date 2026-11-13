@@ -104,7 +104,13 @@ text 600 mmc3_irq_tests/6.MMC3_rev_B.nes
 # --- Expansion sound (PLAN-expansion.md). tests/apu_tones.nes (from
 # make_tone_test.py) plays APU pulse notes of known pitch and volume; it
 # proves the tones check itself.
-tones 360 tests/apu_tones.nes 440.4@1,880.8@-,440.4@0.509,440.4@0.866,440.4@1
+tones 420 tests/apu_tones.nes 440.4@1,880.8@-,440.4@0.509,440.4@0.927,440.4@1
+# VRC6 (mappers 24, 26; make_vrc6_test.py): banking and IRQ, and its
+# pulses and sawtooth measured against the wiki's formulas and levels.
+result 60 tests/vrc6_24.nes
+result 60 tests/vrc6_26.nes
+tones 700 tests/vrc6_tones_24.nes 440.4@1,440.4@1.000,440.4@0.467,440.4@0.927,440.4@0.578,440.4@1.000,440.4@1.000,439.3@1.458,439.3@0.717
+tones 700 tests/vrc6_tones_26.nes 440.4@1,440.4@1.000,440.4@0.467,440.4@0.927,440.4@0.578,440.4@1.000,440.4@1.000,439.3@1.458,439.3@0.717
 
 # --- Mapper 66 (GxROM) and 11 (Color Dreams). tests/gxrom_switch.nes (from
 # make_gxrom_test.py) checks PRG and CHR switching and bus conflicts.
