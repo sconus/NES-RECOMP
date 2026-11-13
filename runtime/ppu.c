@@ -69,7 +69,8 @@ uint8_t ppu_mem_read(uint16_t addr) {
 void ppu_mem_write(uint16_t addr, uint8_t val) {
     addr &= 0x3FFF;
     if (addr < 0x2000) {
-        if (cart.chr_is_ram) mapper.chr[addr >> 10][addr & 0x3FF] = val;
+        if (cart.chr_is_ram || (mapper.chr_writable >> (addr >> 10) & 1))
+            mapper.chr[addr >> 10][addr & 0x3FF] = val;
     }
     else if (addr < 0x3F00) {
         if (mapper.nt_write) mapper.nt_write(addr, val);

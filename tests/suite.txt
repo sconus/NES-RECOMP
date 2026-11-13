@@ -116,6 +116,11 @@ tones 700 tests/vrc6_tones_26.nes 440.4@1,440.4@1.000,440.4@0.467,440.4@0.927,44
 # its level against the APU isn't documented).
 result 60 tests/fme7.nes
 tones 700 tests/fme7_tones.nes 440.4@1,440.4@-,440.4@0.501/2,440.4@0.178/2,440.4@1/2,440.4@1/2,437.0@0.570/2,437.0@0.548/2
+# Namco 163 (mapper 19; make_n163_test.py): banking, nametable RAM as CHR
+# and nametables, sound RAM, IRQ; and wavetable notes, including the level
+# against the APU (16.5 dB, from the wiki's measurements).
+result 60 tests/n163.nes
+tones 700 tests/n163_tones.nes 440.4@1,440.0@6.682,440.0@0.467/2,440.0@0.500/2,440.0@0.500/2,440.0@0.649/2,440.0@0.927/2
 
 # --- Mapper 66 (GxROM) and 11 (Color Dreams). tests/gxrom_switch.nes (from
 # make_gxrom_test.py) checks PRG and CHR switching and bus conflicts.

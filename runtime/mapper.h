@@ -14,6 +14,8 @@ struct mapper {
     uint8_t *prg[4];        /* what the CPU reads at $8000/$A000/$C000/$E000 */
     int prg_bank[4];        /* which 8 KB bank each PRG slot holds */
     uint8_t *chr[8];        /* what the PPU reads at $0000, $0400, ... */
+    uint8_t chr_writable;   /* bit per slot: writable though CHR is ROM
+                               (Namco 163 mapping nametable RAM there) */
     int bank_changed;       /* set when a PRG slot changes (for the CPU) */
     int power_on_bank[4];   /* prg_bank[] after reset (old .missed files) */
     int prg_ram_disabled;   /* $6000-$7FFF switched off by the mapper */

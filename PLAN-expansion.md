@@ -148,12 +148,46 @@ expected, pitches exact). Breaking the log DAC, the tone or envelope
 rate, the envelope's alternate bit, the tone-off constant output, the
 `$6000` ROM select or the IRQ counter each fails a check.
 
-### 4. Namco 163 (19)
+### 4. Namco 163 (19) (done)
 Banking (8 KB PRG, 1 KB CHR including the nametable RAM choices) and its
 15-bit IRQ counter; then the wavetable channels, stepped one at a time
 as the chip does (one channel every 15 CPU cycles), with the number of
 enabled channels affecting each one's rate. Check: tones from a known
 waveform in sound RAM.
+
+Done (`n163_*` in `runtime/mapper.c`), from the nesdev wiki's "INES
+Mapper 019" and "Namco 163 audio":
+- Banking: three 8 KB PRG banks, eight 1 KB CHR banks and four
+  nametables, where values `$E0` and up select the console's nametable
+  RAM (for CHR only if `$E800` allows it). CHR slots pointing at that RAM
+  are writable through a new per-slot `chr_writable` mask.
+- `$F800` is both the sound RAM address and the PRG RAM write protect
+  (writable only with `$4x`; the per-2 KB protect bits aren't modelled).
+- The IRQ: a 15-bit counter counting up every cycle, firing at `$7FFF`
+  and stopping; `$5000`/`$5800` writes acknowledge, reads return it.
+- Sound (`n163_audio_step`): one channel updated every 15 cycles, from
+  channel 8 down through the enabled ones, following the wiki's
+  pseudo-code (phase, frequency, length, wave address, 4-bit samples low
+  nibble first, (sample - 8) * volume); outputs averaged over the
+  enabled channels, as the wiki recommends for emulation.
+- Level: the wiki gives measurements, 11 to 19.5 dB between a full APU
+  square and a full one-channel N163 square, varying by game. This uses
+  16.5 dB, the middle of the 16-17 dB measured on boards like Rolling
+  Thunder (NES 2.0 submapper 4); other games are quieter or louder.
+
+Two runtime gaps showed up through the test ROM: writes to `$4020-$5FFF`
+didn't ask the mapper to schedule its next event (so an IRQ set up there
+never woke the CPU); and the test itself had to restore `$F800` before
+writing its result, since setting the sound RAM address also
+write-protects `$6000`, on hardware too.
+
+Checks: `tests/n163.nes` (PRG and CHR banks, nametable RAM as CHR and as
+nametables, sound RAM through the port, IRQ timing, the counter
+stopping at `$7FFF`) and `tests/n163_tones.nes` (a square against the
+APU: 6.673 measured, 6.682 expected; volume; two-channel averaging;
+channel 7; a ramp and a 25% square from other wave addresses). Breaking
+the averaging, the 15-cycle update, the wave address or length, the
+level, channel 7, nametable RAM as CHR, or the IRQ each fails a check.
 
 ### 5. MMC5's sound
 Two pulses (the APU's, without sweep, with length counters and

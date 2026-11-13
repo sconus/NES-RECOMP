@@ -921,6 +921,180 @@ static void fme_reset(void) {
     mapper.audio_step = fme_audio_step;
 }
 
+/* ---- 19: Namco 163 (nesdev wiki "INES Mapper 019", "Namco 163 audio").
+     $4800      sound RAM data port (128 bytes, address from $F800)
+     $5000/$5800  IRQ counter low / high 7 bits, bit 7 = enable: a 15-bit
+                counter counting up every CPU cycle, firing at $7FFF and
+                stopping there; writes acknowledge, reads return it
+     $8000-$B800  1 KB CHR banks; $E0 and up select nametable RAM (page
+                by bit 0) unless $E800 bit 6 (low table) / 7 (high) is set
+     $C000-$D800  nametables: $E0 and up nametable RAM, else a CHR ROM bank
+     $E000      8 KB PRG at $8000; bit 6 turns the sound off
+     $E800      8 KB PRG at $A000; bits 6-7 as above
+     $F000      8 KB PRG at $C000 ($E000 holds the last 8 KB)
+     $F800      sound RAM address (bit 7 auto-increment, stopping at $7F),
+                and PRG RAM write protect: writable only with $4x (the
+                per-2 KB protect bits aren't modelled; $4F protects all)
+   Sound: channel n's registers are bytes $40 + 8 (n - 1) of sound RAM:
+   frequency (18 bits), phase (24 bits), wave length 256 - 4L, wave
+   address (in 4-bit samples, low nibble first), volume; $7F bits 4-6 =
+   enabled channels - 1, counting down from channel 8. The chip updates
+   one channel every 15 CPU cycles, adding the frequency to the phase and
+   outputting (sample - 8) * volume; the outputs are averaged, as the wiki
+   recommends for emulation. A full one-channel square is set 16.5 dB above
+   a full APU square: the middle of the 16-17 dB measured on boards like
+   Rolling Thunder (the wiki's measurements run from 11 to 19.5 dB). ---- */
+
+static struct {
+    uint8_t ram[128], addr, sound_off, e800, nt[4], chr[8];
+    uint16_t irq_counter;
+    uint8_t irq_enable;
+    uint64_t irq_time;
+    int timer, channel;             /* 15-cycle update, channel 7..0 */
+    int out[8];
+} n163;
+
+static void n163_apply_chr(void) {
+    mapper.chr_writable = 0;
+    for (int i = 0; i < 8; i++) {
+        uint8_t v = n163.chr[i];
+        int ram_ok = !(n163.e800 >> (i < 4 ? 6 : 7) & 1);
+        if (v >= 0xE0 && ram_ok) {
+            mapper.chr[i] = ppu.nametables + (v & 1) * 0x400;
+            mapper.chr_writable |= (uint8_t)(1 << i);
+        } else {
+            set_chr_1k(i, v);
+        }
+    }
+}
+
+static uint8_t n163_nt_read(uint16_t addr) {
+    uint8_t v = n163.nt[(addr >> 10) & 3];
+    uint16_t off = addr & 0x3FF;
+    if (v >= 0xE0) return ppu.nametables[(v & 1) * 0x400 + off];
+    return cart.chr[((size_t)v * 0x400 + off) % cart.chr_size];
+}
+
+static void n163_nt_write(uint16_t addr, uint8_t val) {
+    uint8_t v = n163.nt[(addr >> 10) & 3];
+    if (v >= 0xE0) ppu.nametables[(v & 1) * 0x400 + (addr & 0x3FF)] = val;
+}
+
+static void n163_irq_catch_up(void) {
+    uint64_t now = cycles;
+    if (n163.irq_enable && n163.irq_counter < 0x7FFF) {
+        uint64_t left = 0x7FFFu - n163.irq_counter;
+        if (now - n163.irq_time >= left) {
+            n163.irq_counter = 0x7FFF;
+            cpu_set_irq_at(IRQ_MAPPER, 1, (n163.irq_time + left) * 3);
+        } else {
+            n163.irq_counter = (uint16_t)(n163.irq_counter + (now - n163.irq_time));
+        }
+    }
+    n163.irq_time = now;
+}
+
+static void n163_irq_schedule(void) {
+    if (n163.irq_enable && n163.irq_counter < 0x7FFF)
+        schedule_event(n163.irq_time + (0x7FFFu - n163.irq_counter));
+}
+
+static float n163_audio_step(void) {
+    uint8_t *w = n163.ram;
+    int count = ((w[0x7F] >> 4) & 7) + 1;
+    if (!n163.sound_off && --n163.timer <= 0) {
+        n163.timer = 15;
+        /* Channels 8, 7, ... down to the number enabled. */
+        if (n163.channel < 8 - count) n163.channel = 7;
+        uint8_t *r = &w[0x40 + 8 * n163.channel];
+        uint32_t phase = (uint32_t)(r[5] << 16 | r[3] << 8 | r[1]);
+        uint32_t freq = (uint32_t)((r[4] & 3) << 16 | r[2] << 8 | r[0]);
+        uint32_t length = 256 - (r[4] & 0xFC);
+        phase = (phase + freq) % (length << 16);
+        r[5] = (uint8_t)(phase >> 16); r[3] = (uint8_t)(phase >> 8); r[1] = (uint8_t)phase;
+        int x = ((phase >> 16) + r[6]) & 0xFF;
+        int sample = (w[x >> 1] >> ((x & 1) * 4)) & 0x0F;
+        n163.out[n163.channel] = (sample - 8) * (r[7] & 0x0F);
+        n163.channel--;
+    }
+    if (n163.sound_off) return 0;
+    int sum = 0;
+    for (int c = 8 - count; c < 8; c++) sum += n163.out[c];
+    /* 15 * 15 from top to bottom of a full square = 16.5 dB over an APU
+       square at 0.1494. */
+    return (float)sum / (float)count * (0.1494f * 6.683f / 225.0f);
+}
+
+static void n163_write_low(uint16_t addr, uint8_t val) {
+    if (addr >= 0x4800 && addr < 0x5000) {
+        apu_catch_up();
+        n163.ram[n163.addr & 0x7F] = val;
+        if ((n163.addr & 0x80) && (n163.addr & 0x7F) < 0x7F) n163.addr++;
+    } else if (addr >= 0x5000) {
+        n163_irq_catch_up();
+        if (addr < 0x5800) n163.irq_counter = (uint16_t)((n163.irq_counter & 0x7F00) | val);
+        else {
+            n163.irq_counter = (uint16_t)((n163.irq_counter & 0xFF) | (val & 0x7F) << 8);
+            n163.irq_enable = val >> 7;
+        }
+        cpu_set_irq(IRQ_MAPPER, 0);
+    }
+}
+
+static int n163_read_low(uint16_t addr) {
+    if (addr >= 0x4800 && addr < 0x5000) {
+        uint8_t v = n163.ram[n163.addr & 0x7F];
+        if ((n163.addr & 0x80) && (n163.addr & 0x7F) < 0x7F) n163.addr++;
+        return v;
+    }
+    if (addr >= 0x5000) {
+        n163_irq_catch_up();
+        if (addr < 0x5800) return n163.irq_counter & 0xFF;
+        return (n163.irq_counter >> 8) | n163.irq_enable << 7;
+    }
+    return -1;
+}
+
+static void n163_write(uint16_t addr, uint8_t val) {
+    switch (addr & 0xF800) {
+    case 0xC000: case 0xC800: case 0xD000: case 0xD800:
+        n163.nt[(addr >> 11) & 3] = val;
+        break;
+    case 0xE000:
+        set_prg_8k(0, val & 0x3F);
+        apu_catch_up();
+        n163.sound_off = (val >> 6) & 1;
+        break;
+    case 0xE800: set_prg_8k(1, val & 0x3F); n163.e800 = val; n163_apply_chr(); break;
+    case 0xF000: set_prg_8k(2, val & 0x3F); break;
+    case 0xF800:
+        n163.addr = val;
+        mapper.prg_ram_readonly = (val & 0xF0) != 0x40 || (val & 0x0F) == 0x0F;
+        break;
+    default:                                    /* $8000-$BFFF: CHR */
+        n163.chr[(addr >> 11) & 7] = val;
+        n163_apply_chr();
+        break;
+    }
+}
+
+static void n163_reset(void) {
+    memset(&n163, 0, sizeof n163);
+    n163.irq_time = cycles;
+    n163.channel = 7;
+    for (int i = 0; i < 4; i++) n163.nt[i] = 0xE0 | (i & 1);   /* vertical */
+    for (int i = 0; i < 8; i++) n163.chr[i] = (uint8_t)i;
+    n163_apply_chr();
+    set_prg_8k(0, 0); set_prg_8k(1, 1); set_prg_8k(2, 2); set_prg_8k(3, -1);
+    mapper.nt_read = n163_nt_read;
+    mapper.nt_write = n163_nt_write;
+    mapper.catch_up = n163_irq_catch_up;
+    mapper.schedule = n163_irq_schedule;
+    mapper.audio_step = n163_audio_step;
+    write_low = n163_write_low;
+    read_low = n163_read_low;
+}
+
 /* ---- 1: MMC1. Registers are loaded one bit at a time. -----------------
 
    Each write to $8000-$FFFF shifts bit 0 into a 5-bit register; the fifth
@@ -1103,6 +1277,7 @@ void mapper_init(void) {
     case 21: case 23: case 25:
         mapper.name = "VRC4"; write_reg = vrc_write; vrc_reset();
         break;
+    case 19: mapper.name = "Namco 163"; write_reg = n163_write; n163_reset(); break;
     case 69: mapper.name = "FME-7"; write_reg = fme_write; fme_reset(); break;
     case 24: case 26:
         mapper.name = "VRC6"; write_reg = vrc6_write; vrc6_reset();
@@ -1135,6 +1310,7 @@ void mapper_write_low(uint16_t addr, uint8_t val) {
     ppu_catch_up();
     write_low(addr, val);
     ppu_schedule();
+    if (mapper.schedule) mapper.schedule();     /* Namco 163's IRQ counter */
 }
 
 void mapper_write(uint16_t addr, uint8_t val) {
