@@ -268,9 +268,58 @@ built-in instrument (Flute) was also played by hand: 440 Hz by zero
 crossings and by autocorrelation; it isn't in the suite, since its
 timbre is approximate.
 
-### 7. Suite, README, notes
+### 7. Suite, README, notes (done)
 Accept the new checks, update the README's mapper list and status, and
 write where the stage ended.
+
+Done: the suite gained entries at each step; the README's mapper list,
+APU notes, test generators, results and status are current.
+
+## Where the stage ended
+
+All five expansion sound chips are in, with five new mapper numbers (19,
+24, 26, 69, 85; MMC5 already existed). The groundwork that made them
+checkable: a mixing hook in the APU (`audio_step(cycle)`), a `tones`
+check that measures pitch and loudness from a recording, and a filter
+model (`filtered_rms`) so expected loudness accounts for the console's
+output filters.
+
+| Chip | Pitch, volume, shapes | Level against the APU |
+|---|---|---|
+| VRC6 | exact, checked | documented ("roughly equal"), checked |
+| Sunsoft 5B | exact, checked (log volume, envelope shapes) | not documented; chosen, unchecked |
+| Namco 163 | exact, checked (wavetables, averaging) | documented (11-19.5 dB by game); 16.5 dB, checked |
+| MMC5 | exact, checked (pulses, PCM, 240 Hz lengths) | documented ("equivalent"), checked |
+| VRC7 | pitch, volume steps, multipliers, waveforms exact and checked | not documented; chosen, unchecked |
+
+Each chip's banking and IRQ (where it has one) has its own test ROM, and
+every check was confirmed by breaking the feature it covers: 39 breaks
+across the stage, all caught.
+
+Results: 142 of 143 graded tests (from 130 of 131), 23 pictures, nestest
+exact.
+
+Speed, 600 frames (10 s of console time) of each tone ROM: 0.35-0.37 s
+with sound off, the same as an APU-only ROM; with sound on, 0.50 s for
+the APU alone and 0.52-0.61 s with a chip, the 5B the costliest.
+
+Approximate or chosen, and why:
+- The 5B's and VRC7's loudness against the APU: not documented.
+- VRC7's envelope rates and modulation depth: the wiki points to outside
+  notes on the OPLL's tables rather than giving them; key scaling,
+  tremolo and vibrato aren't modelled. Its built-in instruments have the
+  right pitch but not their exact timbre.
+- Namco 163's level varies by game (the wiki's NES 2.0 submappers 3-5
+  say which); the runtime reads iNES 1.0 headers, so it uses 16.5 dB.
+- MMC5's PCM read mode, VRC6's other banking modes, the 5B's
+  non-linear output amplifier, Namco 163's per-2 KB RAM protect and the
+  VRC7 `$E000` bit 7 (the wiki contradicts itself) aren't modelled.
+
+No commercial ROMs were used: every chip was checked with ROMs this
+project generated, against the nesdev wiki's documentation. A natural
+next step is NSF support (playing music files, which often use these
+chips), and reading NES 2.0 headers so per-board details (submappers)
+can be honoured.
 
 ## Not in this stage
 - The Famicom Disk System's sound (it comes with the disk drive, not a
@@ -279,7 +328,7 @@ write where the stage ended.
   the music code, a natural follow-up once the chips exist.
 - MMC5's vertical split (left from the last stage).
 
-## Risks
+## Risks (as planned)
 - No reference recordings: the checks prove the code follows the
   documentation. Where the wiki gives a range (mixing levels vary between
   cartridges), the tolerance has to cover it.

@@ -84,9 +84,12 @@ mapper a ROM uses.
   channels (two pulses, triangle, noise, DMC) and the DMC's sample DMA,
   which pauses the CPU on the cycle the hardware would (only on a read,
   3 or 4 cycles, depending on get/put alignment) and can repeat a
-  `$2007` or `$4016` read it lands on. When sound is wanted, the channels are mixed with the console's
-  non-linear formulas, averaged down to 48 kHz and filtered like its
-  output stage. Headless test runs skip the mixing, so they stay fast.
+  `$2007` or `$4016` read it lands on. When sound is wanted, the
+  channels are mixed with the console's non-linear formulas, averaged
+  down to 48 kHz and filtered like its output stage. Cartridges with
+  their own sound chips (VRC6, VRC7, Sunsoft 5B, Namco 163, MMC5) add
+  their channels to that mix cycle by cycle (`mapper.c`). Headless test
+  runs skip the mixing, so they stay fast.
 - **Window and speakers** (`video_sdl.c`). SDL2, 3x size, sharp pixels,
   paced to the NES's 60.1 frames a second. The video keeps the beat: the
   APU's sample clock is nudged by at most 0.5% to keep SDL's audio queue
@@ -290,7 +293,8 @@ or display-only `read_joy3` tests are left out of the suite.
 - [ ] Controller 2 and game controllers
 
 `PLAN.md`, `PLAN-mappers.md`, `PLAN-sound.md`, `PLAN-cycles.md`,
-`PLAN-render.md` and `PLAN-mappers2.md` have the step-by-step notes for
-the graphics, mapper, sound, per-cycle timing, rendering and
-more-mappers stages, including how each timing value was tuned and what
-was tried for what still fails.
+`PLAN-render.md`, `PLAN-mappers2.md` and `PLAN-expansion.md` have the
+step-by-step notes for each stage (graphics, mappers, sound, per-cycle
+timing, rendering, more mappers, expansion sound), including how each
+timing value was tuned, what was tried for what still fails, and where
+the documentation left a choice to make.
