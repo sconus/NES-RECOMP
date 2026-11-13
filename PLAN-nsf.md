@@ -224,9 +224,45 @@ Done.
 - Results: 164 of 165 graded tests (test28 the only failure), nestest
   exact.
 
-### 5. Suite, README, notes
+### 5. Suite, README, notes (done)
 Accept the new checks, document the NSF options and keys, and write
 where the stage ended.
+
+Done: the README has a "Play music (NSF files)" section (how the player
+works, the keys, `--song`, what's supported and not), the new test
+generator, the updated results, and the status list (NSF ticked; FDS
+and NSF2/NSFe added as open items). `LINUS.NSF` is listed as left out.
+
+## Where the stage ended
+
+- NSF files recompile into a player: a window with the title, artist,
+  song number and time; Left/Right change song, R restarts it. Headless
+  runs take `--song N`, `--wav` and input scripts, as ROMs do.
+- The player is a small 6502 driver at `$4100` that calls init, then
+  waits for the play timer and calls play. Because it waits by polling,
+  control comes back after every RTS with no special mechanism, and
+  play can't interrupt init or itself.
+- Bank switching in 4 KB slots: the recompiler's slot size became part
+  of its ROM model (8 KB for every iNES ROM, 4 KB for banked NSFs).
+- The play rate from the header (NTSC, or PAL for PAL-only NSFs).
+- Expansion sound: VRC6, VRC7, MMC5, Namco 163 and 5B, alone or together,
+  using the same sound code as the cartridges.
+- Checks: the 11 blargg instruction tests built as NSFs; generated NSFs
+  for bank switching, the play rate (NTSC and PAL), each sound chip
+  (matching its tone ROM exactly) and two chips together; recordings of
+  the engine test's songs and of changing songs. Every new check was
+  confirmed by a break (16 in all); two breaks needed redoing, one
+  because two places set the same thing, one because my break didn't
+  actually break anything for that pair of chips.
+- Every program without NSF features still recompiles to byte-identical
+  C, checked at each step.
+- Results: 164 of 165 graded tests (from 144 of 145), 23 pictures and 8
+  sounds checked (from 2), nestest exact.
+
+Not done: the FDS sound chip, NSF2 and NSFe, songs ending by
+themselves, and NSFs loading below $8000. Two things were only checked
+indirectly: that sound chips start fresh on a song change, and the exact
+cycle chip writes land on.
 
 ## Not in this stage
 - The FDS (Famicom Disk System) sound chip: a new chip, not yet built

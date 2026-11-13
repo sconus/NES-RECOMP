@@ -5,7 +5,8 @@ the 6502 machine code in a `.nes` file into C, which a normal compiler turns
 into a native program for your Mac, with graphics in a window, sound
 (including the Famicom cartridges' extra sound chips), two players on the
 keyboard or game controllers, bank switching for the common cartridge
-types, and battery saves.
+types, and battery saves. It also recompiles NSF music files (the music
+program from a game or a homebrew album) into a player.
 
 ## How it works
 
@@ -22,7 +23,8 @@ types, and battery saves.
    interpreter, generated from the same opcode table, runs it until
    execution reaches translated code again.
 4. **Learn.** Each spot the interpreter had to handle is saved to
-   `<rom>.missed` as `BB:AAAA` (8 KB bank, address). Recompiling with
+   `<rom>.missed` as `BB:AAAA` (8 KB bank, or 4 KB for an NSF that
+   switches banks, and address). Recompiling with
    `--missed` translates those natively. Repeat until no new spots show up.
    `make game` does this for you.
 
@@ -184,7 +186,8 @@ The built program takes options after the ROM path:
     --input FILE       scripted button presses (below)
     --scale N          window size, N times 256x240 (default 3)
     --mmc3-rev A|B     which MMC3 chip to act like (default B)
-    --info             print the cartridge header and exit
+    --song N           NSF: start on song N (from 1)
+    --info             print the cartridge or NSF header and exit
     --trace            print CPU state before every instruction
     --check-cycles     with --trace: check each instruction's length
                        against its cycle map
@@ -198,6 +201,42 @@ controller 2). A frame number on its own releases everything.
     120 start      # press Start at frame 120
     126            # release it
     200 a 2:start  # A on controller 1, Start on controller 2
+
+## Play music (NSF files)
+
+An NSF file holds a music program without a picture: a routine that
+sets up a song (init) and one that moves it on (play, normally called
+60 times a second). The same commands build and play one:
+
+    make run ROM=tests/roms/nes-test-roms/other/dnsf2_enginetest3.nsf
+
+The recompiler starts from init and play instead of the reset vector.
+The runtime plays the part of an NSF player with a small 6502 program at
+`$4100` (an address no NSF uses): it resets the sound registers, sets
+the starting banks, calls init, then waits for the play timer and calls
+play, over and over. It waits by checking the timer, not by being
+interrupted, so play never cuts into init or into itself.
+
+The window shows the title, artist, copyright, song number and time.
+
+| Key | Does |
+|---|---|
+| Left / Right | Previous / next song (arrow keys, a game controller's D-pad, or an input script) |
+| R | Restart the song |
+| M | Mute / unmute |
+| Escape | Quit |
+
+`--song N` starts on song N (from 1; the default is the file's own
+choice), and `--info` prints the header: title, songs, play rate, bank
+switching and sound chips.
+
+Supported: bank switching (4 KB banks at `$5FF8-$5FFF`); the header's
+play rate (its PAL rate for NSFs made only for PAL consoles, which play
+at PAL speed but about 7% sharp, since the console is an NTSC one); and
+the VRC6, VRC7, MMC5, Namco 163 and Sunsoft 5B sound chips, alone or
+together. Not supported: the Famicom Disk System's sound chip (silent,
+with a message), NSFs that load below `$8000`, and the newer NSF2 and
+NSFe formats.
 
 ## Tests
 
@@ -269,25 +308,34 @@ own. Each `tests/make_*.py` writes a small ROM into `tests/`:
 - `make_vrc4_test.py`: one ROM per VRC4 mapper number (21, 23, 25):
   banking, swap mode, mirroring and the IRQ in both modes, through both
   address wirings each number covers.
+- `make_nsf_test.py`: NSFs for bank switching (12 tagged banks, code
+  switching its own slot), the play rate (each play call flips the DMC
+  level, so the pitch shows the rate; NTSC and PAL-only headers), and
+  two sound chips in one file. The chip generators above also write
+  NSF versions of their tone ROMs (`tone_nsf`), which must sound the
+  same as the ROMs.
 
 Each check in these was confirmed by breaking that part of the runtime or
 recompiler on purpose and seeing the test report it.
 
-Current results: 144 of 145 graded tests pass, and the 23 pictures and 2
-sound recordings match. That includes all 16 `instr_test-v5` CPU tests,
+Current results: 164 of 165 graded tests pass, and the 23 pictures and 8
+sound recordings match. That includes all 16 `instr_test-v5` CPU tests
+and the 11 built as NSFs (`nes_instr_test/nsf_singles`),
 all of `ppu_vbl_nmi`, `vbl_nmi_timing`, the sprite 0 hit and sprite
 overflow suites, blargg's 2005 PPU tests, all 8 `apu_test` and 11 blargg
 APU tests, the three `apu_mixer` silence checks, all 8 reset tests, both
 CNROM tests, all 12 MMC3 tests (the two for the older chip run with
 `--mmc3-rev=A`), all of `cpu_interrupts_v2`, all of
-`dmc_dma_during_read4`, both `sprdma_and_dmc_dma` tests and
-`ppu_open_bus`. The one failure is `other/test28`, a 2012 Action 53 test
-whose expectations contradict the nesdev wiki's reference
+`dmc_dma_during_read4`, both `sprdma_and_dmc_dma` tests,
+`ppu_open_bus`, and recordings of "The Amazing Engine Test" NSF's songs.
+The one failure is `other/test28`, a 2012 Action 53 test whose
+expectations contradict the nesdev wiki's reference
 implementation; the Action 53 collection it was written for (Streemerz)
 works.
 
 `dmc_tests` (no readme, source or on-screen result) and the interactive
-or display-only `read_joy3` tests are left out of the suite.
+or display-only `read_joy3` tests are left out of the suite, and so is
+`other/LINUS.NSF`, which is music from a commercial game.
 
 ## Status
 
@@ -316,15 +364,19 @@ or display-only `read_joy3` tests are left out of the suite.
 - [x] Expansion sound: VRC6, Sunsoft 5B, Namco 163, MMC5 and VRC7
       (mappers 5, 19, 24, 26, 69, 85; VRC7's envelope timing and
       modulation depth approximate)
-- [ ] NSF music files (playing them through a small player program)
+- [x] NSF music files: a player screen, song changes, bank switching,
+      the header's play rate, and the expansion sound chips (not FDS)
 - [ ] NES 2.0 headers, so board variants (submappers) can be told apart
 - [ ] Other input devices: Zapper, Arkanoid paddle, Four Score
 - [ ] MMC5's vertical split screen
+- [ ] The Famicom Disk System: its sound chip (for NSFs too) and disks
+- [ ] NSF2 and NSFe music files (track names and lengths, songs that end
+      by themselves)
 
 `PLAN.md`, `PLAN-mappers.md`, `PLAN-sound.md`, `PLAN-cycles.md`,
-`PLAN-render.md`, `PLAN-mappers2.md`, `PLAN-expansion.md` and
-`PLAN-input.md` have the step-by-step notes for each stage (graphics,
-mappers, sound, per-cycle timing, rendering, more mappers, expansion
-sound, controllers), including how each timing value was tuned, what
+`PLAN-render.md`, `PLAN-mappers2.md`, `PLAN-expansion.md`,
+`PLAN-input.md` and `PLAN-nsf.md` have the step-by-step notes for each
+stage (graphics, mappers, sound, per-cycle timing, rendering, more
+mappers, expansion sound, controllers, NSF music), including how each timing value was tuned, what
 was tried for what still fails, and where the documentation left a
 choice to make.
