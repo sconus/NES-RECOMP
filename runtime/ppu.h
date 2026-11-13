@@ -42,6 +42,12 @@ struct ppu {
     /* Sprite pixels for the line being drawn: 0x10 | palette << 2 | pixel
        (0 = none), whether in front of the background, whether sprite 0. */
     uint8_t sp[NES_WIDTH], sp_front[NES_WIDTH], sp_zero[NES_WIDTH];
+    /* The same for the next line, filled during this one's dots 257-320:
+       the OAM indices the search found, then each one's pattern fetched
+       at its own dot. */
+    uint8_t next_sp[NES_WIDTH], next_front[NES_WIDTH], next_zero[NES_WIDTH];
+    uint8_t next_sprites[8];
+    int next_count, next_line;
 
     /* One finished picture, 256 x 240. Per pixel: colour (bits 0-5) and the $2001 emphasis bits in effect
        (bits 6-8: red, green, blue). nes_rgb (palette.h) turns it into RGB. */

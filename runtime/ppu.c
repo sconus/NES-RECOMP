@@ -134,41 +134,49 @@ static void fetch_background(int dot) {
     }
 }
 
-/* sp[px] = 0x10 | palette << 2 | pixel, or 0 for no sprite pixel.
-   Sprites drawn on this line were found by the search on the line above,
-   hence the "- 1". */
-static void draw_sprites(int line) {
-    uint8_t *sp = ppu.sp, *front = ppu.sp_front, *zero = ppu.sp_zero;
-    memset(sp, 0, NES_WIDTH);
-    memset(zero, 0, NES_WIDTH);
+/* Sprites for the next line, prepared during this one as the PPU does:
+   at dot 257 the (up to 8) sprites the search found, then from dot 261,
+   every 8 dots, one sprite's pattern bytes, read with $2000 and the CHR
+   banks as they are at that dot. So a CHR switch during hblank changes
+   the sprites from the right sprite on.
+   next_sp[px] = 0x10 | palette << 2 | pixel, or 0 for no sprite pixel. */
+static void sprite_search(int line) {
+    memset(ppu.next_sp, 0, NES_WIDTH);
+    memset(ppu.next_zero, 0, NES_WIDTH);
+    ppu.next_count = 0;
+    ppu.next_line = line;
     int height = (ppu.ctrl & 0x20) ? 16 : 8;
-    int found = 0;
-    for (int i = 0; i < 64; i++) {
-        const uint8_t *s = &ppu.oam[i * 4];
-        int row = line - 1 - s[0];       /* OAM Y is the line above the top */
-        if (row < 0 || row >= height) continue;
-        if (++found > 8) break;          /* only 8 per line are drawn */
+    for (int i = 0; i < 64 && ppu.next_count < 8; i++) {
+        int row = line - 1 - ppu.oam[i * 4];   /* OAM Y is the line above the top */
+        if (row >= 0 && row < height) ppu.next_sprites[ppu.next_count++] = (uint8_t)i;
+    }
+}
 
-        uint8_t tile = s[1], attr = s[2];
-        if (attr & 0x80) row = height - 1 - row;      /* vertical flip */
-        uint16_t addr;
-        if (height == 16) {
-            addr = (uint16_t)((tile & 1) * 0x1000 + (tile & 0xFE) * 16);
-            if (row >= 8) { addr += 16; row -= 8; }
-        } else {
-            addr = (uint16_t)(((ppu.ctrl & 0x08) ? 0x1000 : 0) + tile * 16);
-        }
-        uint8_t lo = ppu_mem_read(addr + row), hi = ppu_mem_read(addr + row + 8);
-        for (int b = 0; b < 8; b++) {
-            int px = s[3] + b;
-            if (px >= NES_WIDTH) break;
-            int bit = (attr & 0x40) ? b : 7 - b;      /* horizontal flip */
-            int p = ((lo >> bit) & 1) | ((hi >> bit) & 1) << 1;
-            if (!p || sp[px]) continue;  /* lower OAM index wins */
-            sp[px] = (uint8_t)(0x10 | (attr & 3) << 2 | p);
-            front[px] = !(attr & 0x20);
-            zero[px] = i == 0;
-        }
+static void sprite_fetch(int n) {
+    int i = ppu.next_sprites[n];
+    const uint8_t *s = &ppu.oam[i * 4];
+    int height = (ppu.ctrl & 0x20) ? 16 : 8;
+    int row = ppu.next_line - 1 - s[0];
+    if (row < 0 || row >= height) return;
+    uint8_t tile = s[1], attr = s[2];
+    if (attr & 0x80) row = height - 1 - row;          /* vertical flip */
+    uint16_t addr;
+    if (height == 16) {
+        addr = (uint16_t)((tile & 1) * 0x1000 + (tile & 0xFE) * 16);
+        if (row >= 8) { addr += 16; row -= 8; }
+    } else {
+        addr = (uint16_t)(((ppu.ctrl & 0x08) ? 0x1000 : 0) + tile * 16);
+    }
+    uint8_t lo = ppu_mem_read(addr + row), hi = ppu_mem_read(addr + row + 8);
+    for (int b = 0; b < 8; b++) {
+        int px = s[3] + b;
+        if (px >= NES_WIDTH) break;
+        int bit = (attr & 0x40) ? b : 7 - b;          /* horizontal flip */
+        int p = ((lo >> bit) & 1) | ((hi >> bit) & 1) << 1;
+        if (!p || ppu.next_sp[px]) continue;          /* lower OAM index wins */
+        ppu.next_sp[px] = (uint8_t)(0x10 | (attr & 3) << 2 | p);
+        ppu.next_front[px] = !(attr & 0x20);
+        ppu.next_zero[px] = i == 0;
     }
 }
 
@@ -278,10 +286,21 @@ static void step_dot(void) {
     }
 
     int fetching = rendering && ((dot >= 1 && dot <= 256) || (dot >= 321 && dot <= 336));
+    if (line < NES_HEIGHT || line == PRERENDER_LINE) {
+        if (dot == 257) {
+            int next = line == PRERENDER_LINE ? 0 : line + 1;
+            if (rendering) sprite_search(next);
+            else { memset(ppu.next_sp, 0, NES_WIDTH); ppu.next_count = 0; }
+        } else if (rendering && dot >= 261 && dot <= 317 && ((dot - 261) & 7) == 0 &&
+                   (dot - 261) / 8 < ppu.next_count) {
+            sprite_fetch((dot - 261) / 8);
+        }
+    }
     if (line < NES_HEIGHT) {
-        if (dot == 1) {
-            if (rendering) draw_sprites(line);
-            else memset(ppu.sp, 0, NES_WIDTH);
+        if (dot == 1) {                     /* the sprites prepared last line */
+            memcpy(ppu.sp, ppu.next_sp, NES_WIDTH);
+            memcpy(ppu.sp_front, ppu.next_front, NES_WIDTH);
+            memcpy(ppu.sp_zero, ppu.next_zero, NES_WIDTH);
         }
         if (fetching) fetch_background(dot);
         if (rendering && dot >= 1 && dot <= NES_WIDTH) output_pixel(line, dot - 1);

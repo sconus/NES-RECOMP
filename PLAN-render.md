@@ -98,9 +98,23 @@ First look at a mid-line effect: `nmi_sync`'s demo now draws its middle
 line (greyscale turned on mid-line), but it starts at x = 84 where the
 reference lines start at 80: about one CPU cycle late. For step 4.
 
-### 3. Sprites fetched at the real dots, sprite 0 hit per pixel
+### 3. Sprites fetched at the real dots, sprite 0 hit per pixel (done)
 Sprite patterns fetched at dots 257-320, merged per pixel; sprite 0 hit
 and the per-pixel `$2001` bits from the pipeline. Same checks as step 2.
+
+Done (`sprite_search` and `sprite_fetch` in `runtime/ppu.c`). Sprite 0
+hit and the per-pixel `$2001` bits already came with step 2. Now the
+next line's sprites are prepared during this one: at dot 257 the search
+picks the first 8 in range, then from dot 261, every 8 dots, one
+sprite's pattern bytes are read with `$2000` (sprite table, 8x16) and
+the CHR banks as they are at that dot. They become the line's sprites at
+its dot 1. The pre-render line prepares line 0 (which never has
+sprites, since OAM Y is the line above a sprite's top).
+
+All 123 tests pass; pictures and sounds identical; nestest exact.
+Speed: nes15 6000 frames 4.4-4.5 s, spritecans 4.5-4.7 s. With step 2
+that's about 25% slower than before this stage, still about 23 times
+faster than a real console.
 
 ### 4. Mid-line writes everywhere
 Make sure every write that changes the picture brings the PPU up to date
