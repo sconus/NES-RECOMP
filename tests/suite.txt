@@ -126,6 +126,12 @@ tones 700 tests/n163_tones.nes 440.4@1,440.0@6.682,440.0@0.467/2,440.0@0.500/2,4
 # are ignored, so its last note must be silent).
 result 60 tests/mmc5_sound.nes
 tones 600 tests/mmc5_tones.nes 440.4@1,440.4@1.000,440.4@1.000,440.4@0.509,439.6@3.993
+# Konami VRC7 (mapper 85; make_vrc7_test.py): banking through both board
+# variants' addresses, IRQ; and a near-sine FM instrument's pitch, volume,
+# multiplier, channel 5 and half-sine waveform (loudness only between VRC7
+# notes: its level against the APU isn't documented).
+result 60 tests/vrc7.nes
+tones 600 tests/vrc7_tones.nes 440.4@1,440.0@-,440.0@0.251/2,880.0@1.282/2,440.0@1/2,440.0@0.573/2
 
 # --- Mapper 66 (GxROM) and 11 (Color Dreams). tests/gxrom_switch.nes (from
 # make_gxrom_test.py) checks PRG and CHR switching and bus conflicts.

@@ -224,7 +224,7 @@ off the APU's frame IRQ, which its IRQ handler didn't acknowledge. Breaking
 the 240 Hz rate, the ignored zero writes, the PCM IRQ, `$5015`, the pulse
 timer rate or the PCM level each fails a check.
 
-### 6. VRC7 (85)
+### 6. VRC7 (85) (done)
 Banking and the VRC IRQ, then FM synthesis: six channels, each a
 modulator and a carrier, with the chip's 15 built-in instruments and one
 custom instrument, following the nesdev wiki's description of the chip.
@@ -232,6 +232,41 @@ This is the largest piece; if exact OPLL behaviour (envelope rates,
 log-sine tables) turns out too large, the step lands with pitch and
 volume right and the finer timbre noted as approximate. Check: tones
 (pitch and level of a pure-sine instrument).
+
+Done (`vrc7_*` in `runtime/mapper.c`), from the nesdev wiki's "VRC7" and
+"VRC7 audio":
+- Banking: three 8 KB PRG banks, eight 1 KB CHR banks, mirroring, with
+  the VRC7a (A4) and VRC7b (A3) addresses both decoded; the VRC IRQ
+  (shared with VRC4 and VRC6); `$E000` bit 6 silences the sound. The two
+  wiki pages disagree about `$E000` bit 7 (WRAM enable or sound reset),
+  so it's ignored.
+- FM synthesis, six channels of a modulator phase-modulating a carrier,
+  each computed at the chip's 49716 Hz and held for 36 CPU cycles.
+  Exact, from the wiki: the registers and their bits, the 15 built-in
+  instruments (as dumped from the chip), the frequency (49716 Hz * F /
+  2^(19 - octave)), the multiplier and feedback tables, volume (3 dB a
+  step), modulator total level (0.75 dB), sustain level (3 dB), the
+  half-sine waveforms, key on/off, and the sustain and envelope-type
+  bits.
+- Approximate, because the wiki doesn't give them (it points to outside
+  notes on the OPLL's log-sin and exponent tables): the envelope rates
+  (attack 2.83 s and decay/release 19.6 s through 48 dB at rate 1, twice
+  as fast per step, from YM-family timing ratios), the modulation depth
+  (a full modulator shifts the carrier by 4 pi), and the output level
+  (one full sine spans what a full APU pulse does). Not modelled: key
+  scaling (rate and level), tremolo and vibrato. So the built-in
+  instruments have the right pitch and the right broad character, but
+  not their exact timbre and attack.
+
+Checks: `tests/vrc7.nes` (PRG through both variants' addresses, CHR,
+mirroring, IRQ) and `tests/vrc7_tones.nes` (a near-sine custom
+instrument: 439.99 Hz for 440.0, the multiplier at 879.98 for 880.0, a
+volume step at 0.251, channel 5, the half-sine at 0.571 for 0.573).
+Breaking the frequency formula, the volume step, the carrier multiplier,
+the half-sine, key off, or the VRC7b address each fails a check. A
+built-in instrument (Flute) was also played by hand: 440 Hz by zero
+crossings and by autocorrelation; it isn't in the suite, since its
+timbre is approximate.
 
 ### 7. Suite, README, notes
 Accept the new checks, update the README's mapper list and status, and

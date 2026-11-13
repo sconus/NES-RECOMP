@@ -51,7 +51,8 @@ scanline IRQ), 5 MMC5 (with its sound, without its split screen), 7 AxROM,
 9 MMC2, 10 MMC4, 11 Color Dreams, 19 Namco 163 (with its sound),
 21/22/23/25 Konami VRC2 and VRC4 (with VRC4's IRQ), 24/26 Konami VRC6
 (with its sound), 28 Action 53, 34 BNROM, 66 GxROM, 69 Sunsoft FME-7
-(with the 5B's sound). `python3 tests/romlist.py <folder>` shows which
+(with the 5B's sound), 85 Konami VRC7 (with its FM sound, partly
+approximate). `python3 tests/romlist.py <folder>` shows which
 mapper a ROM uses.
 
 ### The rest of the console (`runtime/`)
@@ -233,6 +234,8 @@ own. Each `tests/make_*.py` writes a small ROM into `tests/`:
   channels.
 - `make_mmc5_sound_test.py`: MMC5's pulses and PCM channel, its 240 Hz
   length counters and PCM IRQ.
+- `make_vrc7_test.py`: VRC7 banking (both board variants) and IRQ, and a
+  tone ROM for its FM channels with a near-sine instrument.
 - `make_mmc2_test.py`: MMC2 and MMC4's tile-triggered CHR latches,
   driven through `$2007` reads.
 - `make_vrc4_test.py`: one ROM per VRC4 mapper number (21, 23, 25):
@@ -242,7 +245,7 @@ own. Each `tests/make_*.py` writes a small ROM into `tests/`:
 Each check in these was confirmed by breaking that part of the runtime or
 recompiler on purpose and seeing the test report it.
 
-Current results: 140 of 141 graded tests pass, and the 23 pictures and 2
+Current results: 142 of 143 graded tests pass, and the 23 pictures and 2
 sound recordings match. That includes all 16 `instr_test-v5` CPU tests,
 all of `ppu_vbl_nmi`, `vbl_nmi_timing`, the sprite 0 hit and sprite
 overflow suites, blargg's 2005 PPU tests, all 8 `apu_test` and 11 blargg
@@ -281,9 +284,9 @@ or display-only `read_joy3` tests are left out of the suite.
 - [x] PPU open-bus decay
 - [x] Colour emphasis
 - [x] Mid-line scroll, `$2000`, `$2001` and CHR bank changes
-- [x] VRC6, Sunsoft 5B, Namco 163 and MMC5 expansion sound (mappers 5,
-      19, 24, 26, 69)
-- [ ] VRC7 and its FM sound
+- [x] Expansion sound: VRC6, Sunsoft 5B, Namco 163, MMC5 and VRC7
+      (mappers 5, 19, 24, 26, 69, 85; VRC7's envelope timing and
+      modulation depth approximate)
 - [ ] Controller 2 and game controllers
 
 `PLAN.md`, `PLAN-mappers.md`, `PLAN-sound.md`, `PLAN-cycles.md`,

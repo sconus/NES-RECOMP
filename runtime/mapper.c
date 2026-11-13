@@ -1212,6 +1212,220 @@ static void n163_reset(void) {
     read_low = n163_read_low;
 }
 
+/* ---- 85: Konami VRC7 (nesdev wiki "VRC7", "VRC7 audio"). VRC7a (Lagrange
+   Point) decodes A4 for its second registers, VRC7b (Tiny Toon Adventures
+   2) A3; both are decoded at once.
+     $8000, $8010/$8008, $9000  8 KB PRG at $8000, $A000, $C000 ($E000:
+                the last bank)
+     $A000-$D010  eight 1 KB CHR banks
+     $E000      bits 0-1 mirroring (vertical, horizontal, one-screen low,
+                high), bit 6 silences the sound; bit 7 is WRAM enable on
+                the mapper page and "reset sound" on the audio page (the
+                wiki disagrees with itself), so it's ignored here
+     $E010/$E008 IRQ latch, $F000 control, $F010/$F008 acknowledge
+     $9010      sound register select, $9030 sound data
+   The sound is a cut-down Yamaha OPLL: six FM channels, each a modulator
+   operator phase-modulating a carrier. Exact here, from the wiki: the
+   registers, the 15 built-in instruments (dumped from the chip), the
+   frequency (49716 Hz * F / 2^(19 - octave), times the multiplier), the
+   multiplier and feedback tables, volume (3 dB a step), modulator total
+   level (0.75 dB), sustain level (3 dB), the half-sine waveforms, key on
+   and off, the sustain and envelope-type bits. Approximate (the wiki
+   points elsewhere for these): the envelope rates (from YM-family timing
+   ratios), the modulation depth, and the output level (one channel's
+   full sine spans what a full APU pulse does; undocumented). Not
+   modelled: key scaling, tremolo and vibrato. Each channel is computed
+   at the chip's 49716 Hz (every 36 CPU cycles) and the result held. --- */
+
+static const uint8_t vrc7_patches[16][8] = {
+    { 0 },
+    { 0x03, 0x21, 0x05, 0x06, 0xE8, 0x81, 0x42, 0x27 },  /* Buzzy Bell */
+    { 0x13, 0x41, 0x14, 0x0D, 0xD8, 0xF6, 0x23, 0x12 },  /* Guitar */
+    { 0x11, 0x11, 0x08, 0x08, 0xFA, 0xB2, 0x20, 0x12 },  /* Wurly */
+    { 0x31, 0x61, 0x0C, 0x07, 0xA8, 0x64, 0x61, 0x27 },  /* Flute */
+    { 0x32, 0x21, 0x1E, 0x06, 0xE1, 0x76, 0x01, 0x28 },  /* Clarinet */
+    { 0x02, 0x01, 0x06, 0x00, 0xA3, 0xE2, 0xF4, 0xF4 },  /* Synth */
+    { 0x21, 0x61, 0x1D, 0x07, 0x82, 0x81, 0x11, 0x07 },  /* Trumpet */
+    { 0x23, 0x21, 0x22, 0x17, 0xA2, 0x72, 0x01, 0x17 },  /* Organ */
+    { 0x35, 0x11, 0x25, 0x00, 0x40, 0x73, 0x72, 0x01 },  /* Bells */
+    { 0xB5, 0x01, 0x0F, 0x0F, 0xA8, 0xA5, 0x51, 0x02 },  /* Vibes */
+    { 0x17, 0xC1, 0x24, 0x07, 0xF8, 0xF8, 0x22, 0x12 },  /* Vibraphone */
+    { 0x71, 0x23, 0x11, 0x06, 0x65, 0x74, 0x18, 0x16 },  /* Tutti */
+    { 0x01, 0x02, 0xD3, 0x05, 0xC9, 0x95, 0x03, 0x02 },  /* Fretless */
+    { 0x61, 0x63, 0x0C, 0x00, 0x94, 0xC0, 0x33, 0xF6 },  /* Synth Bass */
+    { 0x21, 0x72, 0x0D, 0x00, 0xC1, 0xD5, 0x56, 0x06 },  /* Sweep */
+};
+static const double vrc7_multiplier[16] = {
+    0.5, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 10, 12, 12, 15, 15 };
+
+enum { EG_ATTACK, EG_DECAY, EG_SUSTAIN, EG_RELEASE, EG_OFF };
+
+struct vrc7_op {
+    double phase;                   /* in cycles */
+    double att;                     /* envelope attenuation, dB (48 = off) */
+    int stage;
+};
+
+static struct {
+    uint8_t select, regs[0x40], silent;
+    uint8_t key[6];
+    struct vrc7_op op[6][2];        /* [channel][0 modulator, 1 carrier] */
+    double fb[6][2];                /* the modulator's last two outputs */
+    int timer;
+    float out;
+} vrc7;
+
+#define VRC7_RATE 49716.0
+/* Approximate envelope speeds (dB per sample) for a rate 1-15: attack
+   from silence to full in 2.83 s at rate 1, decay or release through
+   48 dB in 19.6 s at rate 1, each twice as fast per step. */
+static double vrc7_attack_step(int r)  { return r ? 48.0 / (2.83 / (1 << (r - 1)) * VRC7_RATE) : 0; }
+static double vrc7_decay_step(int r)   { return r ? 48.0 / (19.6 / (1 << (r - 1)) * VRC7_RATE) : 0; }
+
+static const uint8_t *vrc7_patch(int ch) {
+    int inst = vrc7.regs[0x30 + ch] >> 4;
+    return inst ? vrc7_patches[inst] : vrc7.regs;
+}
+
+static void vrc7_envelope(int ch, int o, const uint8_t *p) {
+    struct vrc7_op *op = &vrc7.op[ch][o];
+    int ar = p[4 + o] >> 4, dr = p[4 + o] & 15;
+    int sl = p[6 + o] >> 4, rr = p[6 + o] & 15;
+    int sustained = (p[o] >> 5) & 1;            /* EG type */
+    if ((vrc7.regs[0x20 + ch] >> 5) & 1) rr = 5;  /* channel sustain */
+    switch (op->stage) {
+    case EG_ATTACK:
+        if (ar == 15) op->att = 0;
+        else op->att -= vrc7_attack_step(ar);
+        if (op->att <= 0) { op->att = 0; op->stage = EG_DECAY; }
+        break;
+    case EG_DECAY:
+        op->att += vrc7_decay_step(dr);
+        if (op->att >= sl * 3.0) {
+            op->att = sl * 3.0;
+            op->stage = sustained ? EG_SUSTAIN : EG_RELEASE;
+        }
+        break;
+    case EG_SUSTAIN:
+        break;
+    case EG_RELEASE:
+        op->att += vrc7_decay_step(rr);
+        if (op->att >= 48) { op->att = 48; op->stage = EG_OFF; }
+        break;
+    default:
+        break;
+    }
+}
+
+static double vrc7_wave(double phase, int half) {
+    double s = sin(2 * 3.14159265358979 * phase);
+    return (half && s < 0) ? 0 : s;
+}
+
+static float vrc7_sample(void) {
+    static const double feedback[8] = {
+        0, 3.14159265358979 / 16, 3.14159265358979 / 8, 3.14159265358979 / 4,
+        3.14159265358979 / 2, 3.14159265358979, 2 * 3.14159265358979,
+        4 * 3.14159265358979 };
+    double sum = 0;
+    for (int ch = 0; ch < 6; ch++) {
+        const uint8_t *p = vrc7_patch(ch);
+        int fnum = vrc7.regs[0x10 + ch] | (vrc7.regs[0x20 + ch] & 1) << 8;
+        int octave = (vrc7.regs[0x20 + ch] >> 1) & 7;
+        double base = fnum * pow(2.0, octave - 19);  /* cycles per sample */
+        struct vrc7_op *m = &vrc7.op[ch][0], *c = &vrc7.op[ch][1];
+        vrc7_envelope(ch, 0, p);
+        vrc7_envelope(ch, 1, p);
+        m->phase += base * vrc7_multiplier[p[0] & 15];
+        c->phase += base * vrc7_multiplier[p[1] & 15];
+        m->phase -= floor(m->phase);
+        c->phase -= floor(c->phase);
+        if (c->stage == EG_OFF) continue;
+        double fb = feedback[p[3] & 7] * (vrc7.fb[ch][0] + vrc7.fb[ch][1]) / 2;
+        double m_att = (p[2] & 0x3F) * 0.75 + m->att;
+        double mod = vrc7_wave(m->phase + fb / (2 * 3.14159265358979), (p[3] >> 3) & 1) *
+                     pow(10.0, -m_att / 20);
+        vrc7.fb[ch][1] = vrc7.fb[ch][0];
+        vrc7.fb[ch][0] = mod;
+        /* Approximate: a full modulator shifts the carrier by 4 pi. */
+        double c_att = (vrc7.regs[0x30 + ch] & 15) * 3.0 + c->att;
+        sum += vrc7_wave(c->phase + mod * 2.0, (p[3] >> 4) & 1) * pow(10.0, -c_att / 20);
+    }
+    return (float)(sum * 0.0747);
+}
+
+static float vrc7_audio_step(uint64_t cycle) {
+    (void)cycle;
+    if (--vrc7.timer <= 0) {        /* the chip's 49716 Hz: ~36 cycles */
+        vrc7.timer = 36;
+        vrc7.out = vrc7.silent ? 0.0f : vrc7_sample();
+    }
+    return vrc7.out;
+}
+
+static void vrc7_sound_write(uint8_t reg, uint8_t val) {
+    apu_catch_up();                 /* the change lands on this cycle */
+    if (reg >= 0x40) return;
+    if (reg >= 0x20 && reg <= 0x25) {
+        int ch = reg - 0x20, on = (val >> 4) & 1;
+        if (on && !vrc7.key[ch]) {                  /* key on */
+            for (int o = 0; o < 2; o++) {
+                vrc7.op[ch][o].stage = EG_ATTACK;
+                vrc7.op[ch][o].phase = 0;
+            }
+            vrc7.fb[ch][0] = vrc7.fb[ch][1] = 0;
+        } else if (!on && vrc7.key[ch]) {           /* key off */
+            vrc7.op[ch][1].stage = EG_RELEASE;
+            if (!((vrc7_patch(ch)[0] >> 5) & 1)) vrc7.op[ch][0].stage = EG_RELEASE;
+        }
+        vrc7.key[ch] = (uint8_t)on;
+    }
+    vrc7.regs[reg] = val;
+}
+
+static void vrc7_write(uint16_t addr, uint8_t val) {
+    int second = ((addr >> 4) | (addr >> 3)) & 1;   /* A4 (7a) or A3 (7b) */
+    switch (addr & 0xF000) {
+    case 0x8000: set_prg_8k(second, val & 0x3F); break;
+    case 0x9000:
+        if ((addr & 0x30) == 0x10) vrc7.select = val;
+        else if ((addr & 0x30) == 0x30) vrc7_sound_write(vrc7.select, val);
+        else if (!second) set_prg_8k(2, val & 0x3F);
+        break;
+    case 0xA000: case 0xB000: case 0xC000: case 0xD000:
+        set_chr_1k(((addr >> 12) - 0xA) * 2 + second, val);
+        break;
+    case 0xE000:
+        if (second) { vrc_irq_catch_up(); vrc.latch = val; break; }
+        {
+            static const enum mirroring mir[4] = {
+                MIRROR_VERTICAL, MIRROR_HORIZONTAL, MIRROR_SINGLE_LOW, MIRROR_SINGLE_HIGH };
+            cart.mirroring = mir[val & 3];
+            apu_catch_up();
+            vrc7.silent = (val >> 6) & 1;
+        }
+        break;
+    case 0xF000:
+        vrc_irq_catch_up();
+        if (second) vrc_irq_ack();
+        else vrc_irq_control(val);
+        break;
+    }
+}
+
+static void vrc7_reset(void) {
+    memset(&vrc, 0, sizeof vrc);
+    memset(&vrc7, 0, sizeof vrc7);
+    for (int ch = 0; ch < 6; ch++)
+        for (int o = 0; o < 2; o++) { vrc7.op[ch][o].att = 48; vrc7.op[ch][o].stage = EG_OFF; }
+    vrc.prescaler = 341;
+    vrc.irq_time = cycles;
+    set_prg_8k(0, 0); set_prg_8k(1, 1); set_prg_8k(2, 2); set_prg_8k(3, -1);
+    mapper.catch_up = vrc_irq_catch_up;
+    mapper.schedule = vrc_irq_schedule;
+    mapper.audio_step = vrc7_audio_step;
+}
+
 /* ---- 1: MMC1. Registers are loaded one bit at a time. -----------------
 
    Each write to $8000-$FFFF shifts bit 0 into a 5-bit register; the fifth
@@ -1395,6 +1609,7 @@ void mapper_init(void) {
         mapper.name = "VRC4"; write_reg = vrc_write; vrc_reset();
         break;
     case 19: mapper.name = "Namco 163"; write_reg = n163_write; n163_reset(); break;
+    case 85: mapper.name = "VRC7"; write_reg = vrc7_write; vrc7_reset(); break;
     case 69: mapper.name = "FME-7"; write_reg = fme_write; fme_reset(); break;
     case 24: case 26:
         mapper.name = "VRC6"; write_reg = vrc6_write; vrc6_reset();
