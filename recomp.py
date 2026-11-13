@@ -315,7 +315,8 @@ class Rom:
         trainer = 512 if data[6] & 4 else 0
         start = 16 + trainer
         self.prg = data[start:start + self.prg_banks * 0x4000]
-        self.banks = len(self.prg) // 0x2000         # 8 KB banks
+        self.slot_bits = 13                          # 8 KB slots and banks
+        self.banks = len(self.prg) // 0x2000
 
         if self.mapper not in MAPPERS:
             sys.exit("mapper %d is not supported (supported: %s)" % (
@@ -337,30 +338,54 @@ class Rom:
                 self.power_on.update({2: 30, 3: 31})
 
     def load_nsf(self, data):
-        """An NSF: the program at its load address in 32 KB at $8000, and
-        the init and play routines as entry points (see runtime/nsf.h)."""
+        """An NSF: the init and play routines are the entry points (see
+        runtime/nsf.h). Without bank switching, the program sits at its
+        load address in 32 KB at $8000 that never moves. With it, the
+        program is cut into 4 KB banks (the first starting at the load
+        address's offset within 4 KB), $8000-$FFFF is eight 4 KB slots
+        that each switch alone ($5FF8-$5FFF), and the header gives the
+        starting bank of each."""
         h = data[:0x80]
         load, init, play = (h[i] | h[i + 1] << 8 for i in (8, 10, 12))
-        if any(h[0x70:0x78]):
-            sys.exit("NSF bank switching isn't supported yet")
+        self.nsf = dict(load=load, init=init, play=play)
+        self.mapper = NSF_MAPPER
+        self.mapper_name = "NSF"
+        start = list(h[0x70:0x78])
+        body = data[0x80:]
+        if any(start):
+            off = load & 0xFFF
+            size = (off + len(body) + 0xFFF) & ~0xFFF
+            prg = bytearray(size)
+            prg[off:off + len(body)] = body
+            self.prg = bytes(prg)
+            self.slot_bits = 12
+            self.banks = size // 0x1000
+            self.unit = 1
+            self.fixed = {}
+            self.power_on = {s: b % self.banks for s, b in enumerate(start)}
+            self.low_regs = (0x5FF8, 0x5FFF)
+            return
         if load < 0x8000:
             sys.exit("NSF loads below $8000")
         prg = bytearray(0x8000)
-        body = data[0x80:0x80 + 0x10000 - load]
+        body = body[:0x10000 - load]
         prg[load - 0x8000:load - 0x8000 + len(body)] = body
-        self.nsf = dict(load=load, init=init, play=play)
         self.prg = bytes(prg)
+        self.slot_bits = 13
         self.banks = 4
-        self.mapper = NSF_MAPPER
-        self.mapper_name = "NSF"
         self.unit = None
         self.low_regs = None
         self.power_on = {s: s for s in range(4)}
         self.fixed = dict(self.power_on)
 
+    def slot(self, addr):
+        """Which program slot ($8000 up) holds CPU address addr."""
+        return (addr >> self.slot_bits) & ((0x8000 >> self.slot_bits) - 1)
+
     def read(self, bank, addr):
         """A program ROM byte, with `bank` in the slot that holds addr."""
-        return self.prg[bank * 0x2000 + (addr & 0x1FFF)]
+        size = 1 << self.slot_bits
+        return self.prg[bank * size + (addr & (size - 1))]
 
     def resolve(self, frm, addr):
         """The bank that code at location frm = (bank, address) will find at
@@ -369,7 +394,7 @@ class Rom:
         if addr < 0x8000:
             return None                      # RAM: not translated ahead
         fbank, faddr = frm
-        s_from, s_to = (faddr >> 13) & 3, (addr >> 13) & 3
+        s_from, s_to = self.slot(faddr), self.slot(addr)
         if s_to in self.fixed:
             return self.fixed[s_to]
         if s_from == s_to:
@@ -380,14 +405,14 @@ class Rom:
         return None
 
     def power_on_loc(self, addr):
-        return (self.power_on[(addr >> 13) & 3], addr)
+        return (self.power_on[self.slot(addr)], addr)
 
     def switches(self, addr):
         """Can the slot holding addr change banks?"""
-        return self.unit is not None and ((addr >> 13) & 3) not in self.fixed
+        return self.unit is not None and self.slot(addr) not in self.fixed
 
     def read16(self, addr):
-        b = self.power_on[(addr >> 13) & 3]
+        b = self.power_on[self.slot(addr)]
         return self.read(b, addr) | (self.read(b, addr + 1) << 8)
 
 
@@ -809,7 +834,9 @@ def generate(rom, insns, unknown, src_name):
         "dispatch:",
         "    INTERRUPT_CHECK();",
         "    /* Look up the bank mapped at pc right now, as well as pc. */",
-        "    switch ((uint32_t)mapper.prg_bank[(pc >> 13) & 3] << 16 | pc) {",
+        "    switch ((uint32_t)%s << 16 | pc) {" % (
+            "mapper.prg_bank[(pc >> 13) & 3]" if rom.slot_bits == 13
+            else "mapper.prg_bank_4k[(pc >> 12) & 7]"),
     ]
     for loc in sorted(insns):
         lines.append("    case %s: in_interp = 0; goto %s;" % (key(loc), lbl(loc)))

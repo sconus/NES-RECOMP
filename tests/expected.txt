@@ -26,6 +26,7 @@ nes_instr_test/nsf_singles/08-ind_y.nsf	pass
 nes_instr_test/nsf_singles/09-branches.nsf	pass
 nes_instr_test/nsf_singles/10-stack.nsf	pass
 nes_instr_test/nsf_singles/11-special.nsf	pass
+tests/nsf_banks.nsf	pass
 ppu_vbl_nmi/rom_singles/01-vbl_basics.nes	pass
 ppu_vbl_nmi/rom_singles/02-vbl_set_time.nes	pass
 ppu_vbl_nmi/rom_singles/03-vbl_clear_time.nes	pass

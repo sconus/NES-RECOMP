@@ -94,13 +94,44 @@ Done (`runtime/nsf.c`, `recomp.py`).
   Streemerz checked). Results: 155 of 156 graded tests (test28 the only
   failure, as before), nestest exact.
 
-### 2. Bank switching
+### 2. Bank switching (done)
 - 4 KB slots at $5FF8-$5FFF, the starting banks from the header, the
   load address's offset into the first bank. The recompiler's banks are
   8 KB today, so NSFs get a 4 KB unit (the change stays in the `Rom`
   model; generated code keeps switching on bank and address).
 - Check: a generated NSF that switches banks under code that's running
   and checks what it sees, through the $6000 protocol.
+
+Done.
+- `recomp.py`: the slot size is now part of the `Rom` model
+  (`slot_bits`: 13 for every iNES ROM, 12 for a bank-switched NSF), and
+  every place that worked out a slot from an address goes through it.
+  A banked NSF has eight 4 KB slots that each switch alone, none fixed,
+  the header's banks at power-on, and `$5FF8-$5FFF` as mapper registers
+  (`low_regs`), so stores there get the existing "did my own bank just
+  change?" check. Its dispatch switches on `mapper.prg_bank_4k`, the
+  4 KB bank under pc; every other program's generated C is unchanged.
+- Runtime (`nsf.c`): the file is cut into 4 KB banks from the load
+  address's offset; `$5FF8-$5FFF` switch slots. The CPU still reads
+  through four 8 KB slots, so a banked NSF is read through a 32 KB copy,
+  refreshed 4 KB at a time on each bank write. The driver writes the
+  header's starting banks to `$5FF8-$5FFF` before init, as a hardware
+  player does. `.missed` files count 4 KB banks for these NSFs.
+- `tests/nsf_banks.nsf` (`make_nsf_test.py`): 12 banks, each tagged;
+  checks the starting banks, that switching `$9000` leaves `$8000` (the
+  other half of the same 8 KB) alone, the same address running different
+  code in two banks, code switching its own slot and carrying on in the
+  new bank, and the load offset. Passes through the interpreter on the
+  first pass and fully translated by the third.
+- Breaks, each failing it: no `bank_changed` on a switch (status 5,
+  once translated), the load offset ignored (2), writes going to the
+  wrong slot, the driver not setting the starting banks. That last one
+  passed at first, because the runtime's reset also set them; reset now
+  leaves the banks in order and only the driver sets them, so the check
+  covers it.
+- nestest, VRC7, MMC1, Streemerz and both step-1 NSFs recompile to
+  byte-identical C. Results: 156 of 157 graded tests (test28 the only
+  failure), nestest exact.
 
 ### 3. Playing music
 - A window showing the title, artist, copyright and song number;

@@ -1619,6 +1619,7 @@ void mapper_init(void) {
     case MAPPER_NSF:
         mapper.name = "NSF"; write_reg = nrom_write;
         read_low = nsf_read_low; write_low = nsf_write_low;
+        nsf_mapper_reset();
         break;
     case 28:
         mapper.name = "Action 53"; write_reg = a53_write; write_low = a53_select;

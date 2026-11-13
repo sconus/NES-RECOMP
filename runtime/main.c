@@ -92,8 +92,18 @@ void untranslated(uint16_t a) {
 static uint8_t *missed;             /* one byte per bank * 32 KB of addresses */
 static int missed_count;
 
+/* Banks as the recompiler counts them: 8 KB, or 4 KB for a bank-switched
+   NSF (mapper.code_4k). */
+static int code_banks(void) {
+    return (int)(cart.prg_size / (mapper.code_4k ? 0x1000 : 0x2000));
+}
+static int code_bank_at(uint16_t a) {
+    return mapper.code_4k ? mapper.prg_bank_4k[(a >> 12) & 7]
+                          : mapper.prg_bank[(a >> 13) & 3];
+}
+
 static uint8_t *missed_slot(int bank, uint16_t a) {
-    if (!missed) missed = calloc((cart.prg_size / 0x2000) * 0x8000, 1);
+    if (!missed) missed = calloc((size_t)code_banks() * 0x8000, 1);
     return &missed[(size_t)bank * 0x8000 + (a - 0x8000)];
 }
 
@@ -101,7 +111,7 @@ void note_missed(uint16_t a) {
     /* The NSF driver (nsf.h) is always interpreted: not worth counting. */
     if (cart.mapper == MAPPER_NSF && a >= NSF_DRIVER && a < 0x4200) return;
     if (a < 0x8000) { missed_count++; return; }
-    uint8_t *m = missed_slot(mapper.prg_bank[(a >> 13) & 3], a);
+    uint8_t *m = missed_slot(code_bank_at(a), a);
     if (!*m) { *m = 1; missed_count++; }
 }
 
@@ -110,7 +120,7 @@ static const char *rom_path;
 static void save_missed(void) {
     char path[1024], line[64];
     snprintf(path, sizeof path, "%s.missed", rom_path);
-    int banks = (int)(cart.prg_size / 0x2000);
+    int banks = code_banks();
     /* Merge with earlier runs so discoveries accumulate across passes.
        Plain "AAAA" lines (the old format) mean the power-on bank. */
     FILE *f = fopen(path, "r");
@@ -118,7 +128,7 @@ static void save_missed(void) {
         while (fgets(line, sizeof line, f)) {
             unsigned b, a;
             if (sscanf(line, "%x:%x", &b, &a) == 2) { /* BB:AAAA */ }
-            else if (sscanf(line, "%x", &a) == 1)
+            else if (sscanf(line, "%x", &a) == 1 && !mapper.code_4k)
                 b = (unsigned)mapper.power_on_bank[(a >> 13) & 3];
             else continue;
             if (a >= 0x8000 && a <= 0xFFFF) *missed_slot((int)(b % banks), (uint16_t)a) = 1;

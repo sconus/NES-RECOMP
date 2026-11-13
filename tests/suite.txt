@@ -53,6 +53,9 @@ result 3000 nes_instr_test/nsf_singles/08-ind_y.nsf
 result 3000 nes_instr_test/nsf_singles/09-branches.nsf
 result 3000 nes_instr_test/nsf_singles/10-stack.nsf
 result 3000 nes_instr_test/nsf_singles/11-special.nsf
+# tests/nsf_banks.nsf (make_nsf_test.py): 4 KB bank switching at
+# $5FF8-$5FFF, the header's starting banks and the load offset.
+result 300 tests/nsf_banks.nsf
 
 # --- PPU, $6000 harness
 result 3000 ppu_vbl_nmi/rom_singles/01-vbl_basics.nes

@@ -13,6 +13,11 @@
 struct mapper {
     uint8_t *prg[4];        /* what the CPU reads at $8000/$A000/$C000/$E000 */
     int prg_bank[4];        /* which 8 KB bank each PRG slot holds */
+    /* NSFs with bank switching switch 4 KB at a time: which 4 KB bank
+       each 4 KB slot holds ($8000, $9000, ...). Their recompiled code
+       is keyed by these instead of prg_bank (code_4k is set). */
+    int prg_bank_4k[8];
+    int code_4k;
     uint8_t *chr[8];        /* what the PPU reads at $0000, $0400, ... */
     uint8_t chr_writable;   /* bit per slot: writable though CHR is ROM
                                (Namco 163 mapping nametable RAM there) */

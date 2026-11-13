@@ -3,6 +3,7 @@
 #include <string.h>
 #include "nsf.h"
 #include "cart.h"
+#include "mapper.h"
 #include "rt.h"
 
 struct nsf nsf;
@@ -37,16 +38,29 @@ void nsf_load(const char *path, FILE *f) {
     nsf.pal_flags = h[0x7A];
     nsf.chips = h[0x7B];
 
-    int banked = 0;
-    for (int i = 0; i < 8; i++) banked |= nsf.banks[i];
-    if (banked) fail(path, "NSF bank switching isn't supported yet");
-    if (nsf.load < 0x8000) fail(path, "NSF loads below $8000");
-
-    cart.prg_size = 0x8000;
-    cart.prg = calloc(1, cart.prg_size);
-    size_t room = 0x10000 - nsf.load;
-    size_t n = fread(cart.prg + (nsf.load - 0x8000), 1, room, f);
-    if (n == 0) fail(path, "NSF has no program data");
+    nsf.banked = 0;
+    for (int i = 0; i < 8; i++) nsf.banked |= nsf.banks[i] != 0;
+    if (nsf.banked) {
+        /* The whole file, cut into 4 KB banks; the first bank starts at
+           the load address's offset within 4 KB. */
+        long here = ftell(f);
+        fseek(f, 0, SEEK_END);
+        long len = ftell(f) - here;
+        fseek(f, here, SEEK_SET);
+        if (len <= 0) fail(path, "NSF has no program data");
+        size_t off = nsf.load & 0xFFF;
+        cart.prg_size = (off + (size_t)len + 0xFFF) & ~(size_t)0xFFF;
+        cart.prg = calloc(1, cart.prg_size);
+        if (fread(cart.prg + off, 1, (size_t)len, f) != (size_t)len)
+            fail(path, "truncated NSF data");
+    } else {
+        if (nsf.load < 0x8000) fail(path, "NSF loads below $8000");
+        cart.prg_size = 0x8000;
+        cart.prg = calloc(1, cart.prg_size);
+        size_t room = 0x10000 - nsf.load;
+        size_t n = fread(cart.prg + (nsf.load - 0x8000), 1, room, f);
+        if (n == 0) fail(path, "NSF has no program data");
+    }
     cart.chr_size = 0x2000;
     cart.chr_is_ram = 1;
     cart.chr = calloc(1, cart.chr_size);
@@ -58,12 +72,13 @@ void nsf_load(const char *path, FILE *f) {
 void nsf_print_info(const char *path) {
     printf("%s\n  NSF: \"%s\" by %s (%s)\n"
            "  %d song(s), starting at %d; load $%04X, init $%04X, play $%04X\n"
-           "  play every %u us%s%s%s\n",
+           "  play every %u us%s%s%s%s\n",
            path, nsf.title, nsf.artist, nsf.copyright, nsf.songs,
            nsf.start_song, nsf.load, nsf.init, nsf.play,
            nsf.speed_ntsc ? nsf.speed_ntsc : 16639,
            nsf.speed_ntsc ? "" : " (the header says 0: using 60 Hz)",
            nsf.pal_flags & 1 ? ", PAL" : "",
+           nsf.banked ? ", bank switched" : "",
            nsf.chips ? ", uses expansion sound" : "");
 }
 
@@ -89,6 +104,12 @@ uint16_t nsf_start(int song) {
         0xA9, 0x40, 0x8D, 0x17, 0x40, /* LDA #$40; STA $4017            */
     };
     p = put(p, clear, sizeof clear);
+    if (nsf.banked)                 /* the header's starting banks */
+        for (int i = 0; i < 8; i++) {
+            const uint8_t set[] = { 0xA9, nsf.banks[i],     /* LDA #bank */
+                                    0x8D, (uint8_t)(0xF8 + i), 0x5F };
+            p = put(p, set, sizeof set);                    /* STA $5FF8+i */
+        }
     const uint8_t call_init[] = {
         0xA9, (uint8_t)(song - 1),  /* LDA #song (from 0)               */
         0xA2, 0x00,                 /* LDX #0 (NTSC)                    */
@@ -110,6 +131,34 @@ uint16_t nsf_start(int song) {
     return NSF_DRIVER;
 }
 
+/* Bank switching. The CPU reads $8000-$FFFF through four 8 KB slots
+   (mapper.prg), but here each 4 KB half can hold any bank, so the
+   program is read through a 32 KB copy, refreshed 4 KB at a time. */
+static uint8_t window[0x8000];
+
+static void set_slot_4k(int slot, int bank) {
+    int count = (int)(cart.prg_size / 0x1000);
+    bank %= count;
+    if (mapper.prg_bank_4k[slot] != bank) mapper.bank_changed = 1;
+    mapper.prg_bank_4k[slot] = bank;
+    memcpy(window + slot * 0x1000, cart.prg + (size_t)bank * 0x1000, 0x1000);
+}
+
+void nsf_mapper_reset(void) {
+    if (!nsf.banked) return;
+    mapper.code_4k = 1;
+    for (int s = 0; s < 4; s++) {
+        mapper.prg[s] = window + s * 0x2000;
+        mapper.prg_bank[s] = s;
+    }
+    /* Banks in order until the driver writes the header's starting
+       banks to $5FF8-$5FFF, before init, as a hardware player does. */
+    for (int s = 0; s < 8; s++) {
+        mapper.prg_bank_4k[s] = -1;
+        set_slot_4k(s, s);
+    }
+}
+
 int nsf_read_low(uint16_t addr) {
     if (addr == PLAY_DUE) {
         /* The play timer ticks on a fixed grid; ticks missed while play
@@ -124,5 +173,5 @@ int nsf_read_low(uint16_t addr) {
 }
 
 void nsf_write_low(uint16_t addr, uint8_t val) {
-    (void)addr; (void)val;
+    if (nsf.banked && addr >= 0x5FF8) set_slot_4k(addr - 0x5FF8, val);
 }
