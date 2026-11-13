@@ -611,22 +611,27 @@ void apu_write(uint16_t addr, uint8_t val) {
     apu_schedule();
 }
 
-/* A DMC fetch that falls inside sprite DMA ($4014) costs fewer cycles:
-   the CPU is already halted. 2 is the documented value; the
-   sprdma_and_dmc_dma tests don't pass with any value yet. */
-#define DMA_DURING_OAM_STALL 2
-static int during_oam;
-
-void apu_dma_during_oam(void) {
-    during_oam = 1;
-    apu_dma_point(0);
-    during_oam = 0;
-}
-
 /* The first cycle at or after c that is a get (parity GET_PARITY) or a
    put (the other). */
 static uint64_t at_parity(uint64_t c, int parity) {
     return c + ((int)(c & 1) != parity);
+}
+
+/* The first cycle at or after `from` where the pending DMA tries to halt
+   the CPU: a put cycle for a reload, a get cycle for a load. */
+static uint64_t dmc_first_halt(uint64_t from) {
+    uint64_t first = dmc_dma_request_at - DMA_READ_AT;  /* as a CPU cycle */
+    if (first < from) first = from;
+    return at_parity(first, dmc_dma_load ? GET_PARITY : !GET_PARITY);
+}
+
+/* The sample fetch itself, on cycle `at`. */
+static void dmc_do_fetch(uint64_t at) {
+    if (at > apu.now) run_until(at);
+    dmc_dma_requested = 0;
+    clock_now = at;
+    dmc_fetch();
+    dmc_update_due();
 }
 
 /* Called on every CPU read of $2000-$401F at or after dmc_dma_due (with
@@ -647,26 +652,24 @@ void apu_dma_point(uint16_t read_addr) {
         dmc_update_due();
         return;
     }
-    uint64_t stall;
-    int repeat = 0;
-    if (during_oam) {
-        stall = DMA_DURING_OAM_STALL;
-    } else {
-        /* The request, as a CPU cycle; not before this instruction (a
-           boundary event can't come earlier than its start). */
-        uint64_t first = dmc_dma_request_at - DMA_READ_AT;
-        if (first < insn_start) first = insn_start;
-        uint64_t halt = at_parity(first, dmc_dma_load ? GET_PARITY : !GET_PARITY);
-        /* At a boundary the instruction is over, so its write cycles are
-           known; during a register read, every earlier cycle was a read. */
-        while (!read_addr && halt < cycles && insn_writes_at(halt, cycles)) halt++;
-        if (read_addr && halt > cycles) {
-            dmc_update_due();               /* lands after this read */
-            return;
-        }
-        repeat = read_addr && halt == cycles;
-        stall = at_parity(halt + 2, GET_PARITY) - halt + 1;
+    /* Not before this instruction: a boundary event can't come earlier
+       than its start. */
+    uint64_t halt = dmc_first_halt(insn_start);
+    /* At a boundary the instruction is over, so its write cycles are
+       known; during a register read, every earlier cycle was a read. */
+    while (!read_addr && halt < cycles && insn_writes_at(halt, cycles)) halt++;
+    if (read_addr && halt > cycles) {
+        dmc_update_due();                   /* lands after this read */
+        return;
     }
+    int repeat = read_addr && halt == cycles;
+    uint64_t stall = at_parity(halt + 2, GET_PARITY) - halt + 1;
+    /* Halting the instruction's last cycle (a register read that ends a
+       load, or at a boundary the last cycle or the next opcode fetch)
+       comes after its interrupt decision. */
+    const char *m = cycle_map[peek(insn_pc)];
+    if (read_addr ? (repeat && m && m[strlen(m) - 1] == 'r') : halt + 1 >= cycles)
+        cpu_late_stall(stall);
     dmc_dma_requested = 0;
     dmc_dma_due = UINT64_MAX;       /* no DMA inside the extra reads below */
     if (repeat) {
@@ -681,6 +684,53 @@ void apu_dma_point(uint16_t read_addr) {
     dmc_fetch();
     dmc_update_due();
     apu_schedule();
+}
+
+/* Sprite DMA: a write to $4014 at `cycles` (the write's own cycle).
+   Returns the cycle the CPU carries on from. Cycle by cycle:
+   - The CPU halts on the cycle after the write, waits for a get cycle,
+     then 256 times reads a byte (get) and writes it to OAM (put): 513
+     or 514 cycles in all.
+   - A DMC fetch whose halt would land on an earlier read cycle of the
+     same instruction happens first, as a normal DMC DMA (3 or 4 cycles).
+   - Otherwise the CPU is already halted, so the DMC only needs its fetch
+     on a get cycle at least two cycles after it tries to halt. Inside the
+     copy it takes over one of the copy's gets, which then waits for the
+     next one: 2 more cycles. Right at the end it adds 1 or 3.
+   blargg's sprdma_and_dmc_dma tests check each case; the copy itself is
+   done by the caller. */
+uint64_t apu_oam_dma(void) {
+    uint64_t w = cycles;
+    uint64_t now = w + DMA_READ_AT;
+    if (now > apu.now) run_until(now);
+    if (dmc_dma_requested && dmc_dma_request_at <= now) {
+        uint64_t halt = dmc_first_halt(insn_start);
+        if (halt < w) {                     /* a read before the write */
+            uint64_t stall = at_parity(halt + 2, GET_PARITY) - halt + 1;
+            w += stall;
+            dmc_do_fetch(halt + stall - 1);
+        }
+    }
+    uint64_t end = at_parity(w + 2, GET_PARITY) + 512;  /* first cycle after */
+    for (;;) {
+        if (!dmc_dma_requested) {
+            /* The output unit may ask for a byte during the copy. */
+            if (dmc_dma_due >= end + DMA_READ_AT) break;
+            if (dmc_dma_due > apu.now) run_until(dmc_dma_due);
+            if (!dmc_dma_requested) break;
+        }
+        uint64_t halt = dmc_first_halt(w + 1);
+        if (halt >= end) break;             /* after the copy: the CPU's again */
+        uint64_t get = at_parity(halt + 2, GET_PARITY);
+        if (get < end) end += 2;            /* takes one of the copy's gets */
+        else end = get + 1;                 /* runs past the end */
+        dmc_do_fetch(get);
+    }
+    cpu_late_stall(end - (w + 1));          /* all of it after the write */
+    clock_now = end;
+    dmc_update_due();
+    apu_schedule();
+    return end;
 }
 
 /* The reset button. $4015 is cleared (silencing everything and stopping

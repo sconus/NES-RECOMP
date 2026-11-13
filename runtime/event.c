@@ -52,12 +52,22 @@ void cpu_request_reset(void) {
    last one, so an interrupt in that cycle waits one more instruction
    (cpu_interrupts_v2 5-branch_delays_irq). Found from the instruction's
    cycle map and how long it really took (cycles.c). */
+static uint64_t late_stall_insn = UINT64_MAX, late_stall;
+
+void cpu_late_stall(uint64_t n) {
+    if (late_stall_insn != insn_start) { late_stall_insn = insn_start; late_stall = 0; }
+    late_stall += n;
+}
+
 static uint64_t poll_end(void) {
     const char *m = cycle_map[peek(insn_pc)];
-    uint64_t took = cycles - insn_start;
+    /* A DMA stall after the decision (cpu_late_stall) doesn't move it. */
+    uint64_t end = cycles;
+    if (late_stall_insn == insn_start) end -= late_stall;
+    uint64_t took = end - insn_start;
     if (m && m[2] == 't' && took == 3)      /* branch, taken, same page */
-        return cycles - 1;
-    return cycles;
+        return end - 1;
+    return end;
 }
 
 void cpu_request_nmi(uint64_t at_dot) {

@@ -24,7 +24,9 @@ void apu_schedule(void);
 extern uint64_t dmc_dma_due;
 #define DMA_CHECK_AHEAD 1               /* = DMA_READ_AT in apu.c */
 void apu_dma_point(uint16_t read_addr);
-void apu_dma_during_oam(void);          /* a fetch that lands in $4014 DMA */
+/* Sprite DMA from a $4014 write at `cycles`, with any DMC fetches that
+   land in it: returns the cycle the CPU resumes on. */
+uint64_t apu_oam_dma(void);
 
 /* Sound output. Off unless enabled (headless tests don't need it). */
 void apu_enable_sound(void);

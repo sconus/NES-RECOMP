@@ -21,6 +21,13 @@ void cpu_set_irq_at(unsigned source, int active, uint64_t at_dot);
 /* Press the reset button: taken at the next instruction boundary. */
 void cpu_request_reset(void);
 
+/* A DMA just halted the CPU for n cycles after the running instruction
+   decided whether to take an interrupt (sprite DMA after its $4014
+   write, a DMC fetch on the last cycle or the next opcode fetch). The
+   decision stays where it was: an interrupt raised during the stall
+   waits for the next instruction (cpu_interrupts_v2 4-irq_and_dma). */
+void cpu_late_stall(uint64_t n);
+
 /* Ask for runtime_event to be called once cycles reaches `when`.
    Earlier requests win until the next event runs. */
 void schedule_event(uint64_t when);

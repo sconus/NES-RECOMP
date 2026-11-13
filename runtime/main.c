@@ -26,14 +26,14 @@ uint64_t insn_start;
 static uint8_t ram[0x800];    /* 2 KB of console RAM, mirrored to $1FFF */
 
 /* OAM DMA: writing page number P to $4014 copies $P00-$PFF into sprite
-   memory. The CPU stalls for 513 cycles, plus one if it started on an
-   odd cycle. */
+   memory, while the CPU is halted for 513 or 514 cycles (more if the DMC
+   fetches a sample byte meanwhile; apu_oam_dma has the timing). */
 static void oam_dma(uint8_t page) {
     ppu_catch_up();
     for (int i = 0; i < 256; i++)
         ppu.oam[(uint8_t)(ppu.oam_addr + i)] = rd((uint16_t)(page << 8 | i));
-    cycles += 513 + (cycles & 1);
-    if (cycles >= dmc_dma_due) apu_dma_during_oam();
+    /* The caller adds the write's own cycle afterwards. */
+    cycles = apu_oam_dma() - 1;
 }
 
 uint8_t rd(uint16_t a) {

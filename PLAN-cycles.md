@@ -199,11 +199,39 @@ Constants still there: `DMA_READ_AT` (1) and `DMA_START_DELAY` (2), the
 offset between the CPU's cycle count and the APU's clock, which the
 other APU tests were tuned with. `DMA_DURING_OAM_STALL` is for step 6.
 
-### 6. Sprite DMA and DMC DMA together
+### 6. Sprite DMA and DMC DMA together (done)
 Model `$4014` DMA cycle by cycle (read/write alternation, the
 alignment cycle) and how a DMC fetch slots into it; also the IRQ check
 around sprite DMA.
 Target: both `sprdma_and_dmc_dma` and `cpu_interrupts_v2` 4.
+
+Done; all three pass, and so does the combined `cpu_interrupts` ROM
+(120 of 123). The expected tables came from blargg's nesdev forum thread
+(topic 6100) and another emulator's notes; both tests' output matches
+them row for row.
+
+- **Sprite DMA cycle by cycle** (`apu_oam_dma` in `runtime/apu.c`). The CPU
+  halts on the cycle after the `$4014` write, waits for a get cycle, then
+  makes 256 get/put pairs: 513 or 514 cycles, as before.
+- **A DMC fetch around it**, from blargg's annotated table:
+  - Its halt would land on a read before the write (the STA's own
+    opcode or operand fetch): a normal DMC DMA first, +4.
+  - It lands on the write or inside the copy: the CPU is already halted,
+    so the DMC only needs its fetch on a get cycle two or more cycles
+    after it tries to halt. It takes over one of the copy's gets, which
+    waits for the next: +2.
+  - Its fetch falls just after the copy (it tried on the next-to-last
+    put): +1. It tried on the last put: +3.
+- **The interrupt decision stays before the stall** (`cpu_late_stall` in
+  `event.c`). The STA decided on its usual cycle, before the DMA, so an
+  IRQ raised during the 513 halted cycles waits one instruction
+  (`4-irq_and_dma`). The same goes for a DMC fetch that halts an
+  instruction's last cycle or the next opcode fetch.
+
+Each was checked by breaking it on purpose: dropping the pre-write case
+fails `sprdma_and_dmc_dma`, the +2 case fails both, the end case fails
+`_512`, and moving the decision back fails `cpu_interrupts` 4 and the
+combined ROM. `DMA_DURING_OAM_STALL` (a constant 2) is gone.
 
 ### 7. Suite, README, notes
 Accept the new baseline, update the README's results and status, and

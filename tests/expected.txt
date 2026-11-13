@@ -40,7 +40,7 @@ instr_test-v5/all_instrs.nes	pass
 instr_test-v5/official_only.nes	pass
 ppu_vbl_nmi/ppu_vbl_nmi.nes	pass
 instr_misc/instr_misc.nes	pass
-cpu_interrupts_v2/cpu_interrupts.nes	fail: $01 While running test 4 of 5
+cpu_interrupts_v2/cpu_interrupts.nes	pass
 MMC1_A12/mmc1_a12.nes	frame:54e4f7be
 scrolltest/scroll.nes	frame:08e9aed6
 tests/irq_timing.nes	pass
@@ -109,7 +109,7 @@ blargg_apu_2005.07.30/10.len_halt_timing.nes	pass
 blargg_apu_2005.07.30/11.len_reload_timing.nes	pass
 cpu_interrupts_v2/rom_singles/1-cli_latency.nes	pass
 cpu_interrupts_v2/rom_singles/3-nmi_and_irq.nes	pass
-cpu_interrupts_v2/rom_singles/4-irq_and_dma.nes	fail: $01 4-irq_and_dma / Failed
+cpu_interrupts_v2/rom_singles/4-irq_and_dma.nes	pass
 cpu_interrupts_v2/rom_singles/5-branch_delays_irq.nes	pass
 instr_misc/rom_singles/04-dummy_reads_apu.nes	pass
 instr_timing/rom_singles/1-instr_timing.nes	pass
@@ -124,8 +124,8 @@ dmc_dma_during_read4/dma_2007_write.nes	pass
 dmc_dma_during_read4/dma_4016_read.nes	pass
 dmc_dma_during_read4/double_2007_read.nes	pass
 dmc_dma_during_read4/read_write_2007.nes	pass
-sprdma_and_dmc_dma/sprdma_and_dmc_dma.nes	fail: $01 SPRDMA and DMC DMA / Failed
-sprdma_and_dmc_dma/sprdma_and_dmc_dma_512.nes	fail: $01 SPRDMA and DMC DMA / Failed
+sprdma_and_dmc_dma/sprdma_and_dmc_dma.nes	pass
+sprdma_and_dmc_dma/sprdma_and_dmc_dma_512.nes	pass
 read_joy3/thorough_test.nes	pass
 apu_reset/4015_cleared.nes	pass
 apu_reset/4017_timing.nes	pass
