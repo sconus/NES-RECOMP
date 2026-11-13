@@ -78,6 +78,27 @@ static void bnrom_write(uint16_t addr, uint8_t val) {
     set_prg_32k(bus_conflict(addr, val));
 }
 
+/* ---- 11: Color Dreams. One register: CCCC LLPP, a 32 KB PRG bank in bits
+   0-1 and an 8 KB CHR bank in bits 4-7 (bits 2-3 drove the lockout-chip
+   defeat). Released games had bus conflicts, but some prototypes break
+   with them, and the nesdev wiki says to assume none unless the header
+   says otherwise; this runtime reads iNES 1.0 headers, so: none. ---- */
+
+static void color_dreams_write(uint16_t addr, uint8_t val) {
+    (void)addr;
+    set_prg_32k(val & 3);
+    set_chr_8k(val >> 4);
+}
+
+/* ---- 66: GxROM. One register: xxPP xxCC, a 32 KB PRG bank in bits 4-5
+   and an 8 KB CHR bank in bits 0-1, with bus conflicts. ------------- */
+
+static void gxrom_write(uint16_t addr, uint8_t val) {
+    val = bus_conflict(addr, val);
+    set_prg_32k((val >> 4) & 3);
+    set_chr_8k(val & 3);
+}
+
 /* ---- 1: MMC1. Registers are loaded one bit at a time. -----------------
 
    Each write to $8000-$FFFF shifts bit 0 into a 5-bit register; the fifth
@@ -248,6 +269,11 @@ void mapper_init(void) {
         cart.mirroring = MIRROR_SINGLE_LOW;
         break;
     case 34: mapper.name = "BNROM"; write_reg = bnrom_write; set_prg_32k(0); break;
+    case 11:
+        mapper.name = "Color Dreams"; write_reg = color_dreams_write;
+        set_prg_32k(0);
+        break;
+    case 66: mapper.name = "GxROM"; write_reg = gxrom_write; set_prg_32k(0); break;
     default:
         fprintf(stderr, "mapper %d is not supported yet; running it as NROM, "
                         "which will probably go wrong\n", cart.mapper);

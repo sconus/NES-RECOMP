@@ -250,6 +250,8 @@ MAPPERS = {
              power_on={0: 0, 1: 1, 2: -2, 3: -1}),
     7:  dict(name="AxROM", unit=4, fixed={}, power_on={0: 0, 1: 1, 2: 2, 3: 3}),
     34: dict(name="BNROM", unit=4, fixed={}, power_on={0: 0, 1: 1, 2: 2, 3: 3}),
+    11: dict(name="Color Dreams", unit=4, fixed={}, power_on={0: 0, 1: 1, 2: 2, 3: 3}),
+    66: dict(name="GxROM", unit=4, fixed={}, power_on={0: 0, 1: 1, 2: 2, 3: 3}),
 }
 
 

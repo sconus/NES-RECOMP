@@ -82,8 +82,8 @@ frame 300 scrolltest/scroll.nes
 # --- Mapper 4 (MMC3), and IRQs. tests/irq_timing.nes (from
 # make_irq_test.py) checks when the CPU takes an IRQ (I flag, CLI/PLP/RTI
 # timing, acknowledge). 6-MMC3_alt and 5.MMC3_rev_A test the behaviour of
-# some older MMC3 chips, which differs from the one modelled (the chip in
-# Super Mario Bros. 3), so they are expected to fail.
+# some older MMC3 chips (Crystalis), so they run with --mmc3-rev=A; the
+# default is the chip in Super Mario Bros. 3.
 result 120 tests/irq_timing.nes
 result 3000 mmc3_test_2/rom_singles/1-clocking.nes
 result 3000 mmc3_test_2/rom_singles/2-details.nes
@@ -97,6 +97,13 @@ text 600 mmc3_irq_tests/3.A12_clocking.nes
 text 600 mmc3_irq_tests/4.Scanline_timing.nes
 text 600 mmc3_irq_tests/5.MMC3_rev_A.nes --mmc3-rev=A
 text 600 mmc3_irq_tests/6.MMC3_rev_B.nes
+
+# --- Mapper 66 (GxROM) and 11 (Color Dreams). tests/gxrom_switch.nes (from
+# make_gxrom_test.py) checks PRG and CHR switching and bus conflicts.
+# The Color Dreams ROM switches CHR banks mid-frame every frame; nothing
+# says what it should look like, so its picture is a regression check only.
+result 60 tests/gxrom_switch.nes
+frame 300 other/test001.nes
 
 # --- PPU, result on screen only (power_up_palette is left out: it checks
 #     values unique to its author's console)
