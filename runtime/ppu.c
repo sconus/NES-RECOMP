@@ -208,9 +208,16 @@ static void evaluate_overflow(int line) {
     }
 }
 
-/* Pixel x of a rendering line, output at dot x + 1 with $2001 as it is
-   then: background from the fetched tiles and fine X, sprites from this
-   line's sprite pixels, the left-edge clips, greyscale and emphasis. */
+/* A pixel is worked out at dot x + 1 (which is when sprite 0 hit
+   happens), but its colour leaves the PPU this many dots later, and
+   greyscale and emphasis apply there. The nesdev wiki puts the first
+   pixel's output at dot 4; nmi_sync's demo, which turns greyscale on
+   mid-line, lines up with its reference sprites with 3. */
+#define PIXEL_OUTPUT_DELAY 3
+
+/* Pixel x of a rendering line, at dot x + 1 with $2001 as it is then:
+   background from the fetched tiles and fine X, sprites from this line's
+   sprite pixels, and the left-edge clips. finish_pixel colours it. */
 static void output_pixel(int line, int x) {
     uint8_t mask = ppu.mask;
     int bg = 0, sp = 0;
@@ -223,8 +230,15 @@ static void output_pixel(int line, int x) {
     /* Sprite 0 hit: an opaque sprite 0 pixel over an opaque background
        pixel, never at x = 255. */
     if (sp && bg && ppu.sp_zero[x] && x != 255) ppu.status |= STATUS_SPRITE0;
-    int entry = (sp && (ppu.sp_front[x] || !bg)) ? sp : bg;
-    uint8_t grey = (mask & 0x01) ? 0x30 : 0x3F;
+    (void)line;
+    ppu.line_entry[x] = (uint8_t)((sp && (ppu.sp_front[x] || !bg)) ? sp : bg);
+}
+
+/* Pixel x leaves the PPU: palette, greyscale and emphasis as they are now. */
+static void finish_pixel(int line, int x) {
+    uint8_t entry = ppu.line_entry[x];
+    if (entry == 0xFF) return;          /* drawn with rendering off */
+    uint8_t grey = (ppu.mask & 0x01) ? 0x30 : 0x3F;
     ppu.framebuffer[line * NES_WIDTH + x] =
         (ppu.palette[pal_offset(0x3F00 | entry)] & grey) | emphasis_bits();
 }
@@ -301,9 +315,12 @@ static void step_dot(void) {
             memcpy(ppu.sp, ppu.next_sp, NES_WIDTH);
             memcpy(ppu.sp_front, ppu.next_front, NES_WIDTH);
             memcpy(ppu.sp_zero, ppu.next_zero, NES_WIDTH);
+            memset(ppu.line_entry, 0xFF, NES_WIDTH);
         }
         if (fetching) fetch_background(dot);
         if (rendering && dot >= 1 && dot <= NES_WIDTH) output_pixel(line, dot - 1);
+        if (dot > PIXEL_OUTPUT_DELAY && dot <= NES_WIDTH + PIXEL_OUTPUT_DELAY)
+            finish_pixel(line, dot - 1 - PIXEL_OUTPUT_DELAY);
         if (!rendering && dot >= 1 && dot <= NES_WIDTH) {
             /* Rendering off: the PPU outputs the backdrop colour, or the
                palette entry v points at when v is inside the palette.

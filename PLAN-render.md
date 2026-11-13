@@ -116,13 +116,42 @@ Speed: nes15 6000 frames 4.4-4.5 s, spritecans 4.5-4.7 s. With step 2
 that's about 25% slower than before this stage, still about 23 times
 faster than a real console.
 
-### 4. Mid-line writes everywhere
+### 4. Mid-line writes everywhere (done)
 Make sure every write that changes the picture brings the PPU up to date
 first: `$2000`-`$2007` already do; check mapper CHR switches and
 mirroring changes. Check visually with the demos: `nmi_sync`'s demo
 (greyscale turned on mid-line, with reference lines showing where the
 edge belongs), `window5/colorwin`, `scanline`, `scrolltest`,
 `tvpassfail`. Add picture checks for those that look right.
+
+Done.
+
+- Every write that can change the picture already brought the PPU up to
+  date first: `$2000`-`$2007`, `$4014`, and all mapper writes
+  (`mapper_write` calls `ppu_catch_up`).
+- `nmi_sync`'s middle line was 4 pixels late. The CPU side was right (its
+  `$2001` write lands at dot 84 or 85 on alternate frames), but pixels left
+  the PPU at dot x + 1, where the nesdev wiki puts the first pixel's output
+  at dot 4. Now a pixel's palette index is still worked out at dot x + 1
+  (so sprite 0 hit timing is unchanged), and its colour, greyscale and
+  emphasis are applied `PIXEL_OUTPUT_DELAY` = 3 dots later. The middle line
+  now starts at x = 80 or 81 on alternate frames, level with the
+  reference sprites, with the flickering left pixel the readme describes.
+- `scanline` ("a test for proper mid-scanline PPU write emulation; stars
+  denote errors") shows no stars. Built against the renderer from before
+  this stage, it shows stars in all three of its areas (`$2001`, `$2000`,
+  `$2005`/`$2006` mid-line).
+- `window5/colorwin` differs from the old renderer in one row: the
+  window's bottom row switches at x = 76, where the program's untimed
+  `$2006` write for the next part of the screen lands mid-line. Believed
+  right (a `$2006` write changes the fetch address at once on hardware)
+  but not verified.
+- `tvpassfail` tests composite-video artifacts and pixel shape, which
+  aren't modelled; left out. `scrolltest`'s picture is unchanged.
+
+Added picture checks for `scanline`, `nmi_sync`'s demo and `colorwin`
+(with the caveat above in `tests/suite.txt`). 123 of 123 tests pass, 14
+pictures and 2 sounds match, nestest exact.
 
 ### 5. Suite, README, notes
 Accept the new pictures, update the README (the status list, the PPU

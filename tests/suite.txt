@@ -139,6 +139,18 @@ frame 300 spritecans-2011/spritecans.nes
 # would on a real NES.
 frame 300 full_palette/full_palette.nes
 
+# --- Mid-line PPU writes (PLAN-render.md step 4). Pictures, checked by eye:
+# scanline shows a star wherever a mid-line $2001, $2000 or $2005/$2006
+# write lands wrongly (none now; the old line-at-a-time renderer showed
+# them in all three areas). nmi_sync's demo turns greyscale on mid-line:
+# its middle line must start level with the reference sprites (x = 80).
+# colorwin is a regression check only: the window's bottom row changes at
+# x = 76 from an untimed $2006 write, which is believed but not verified
+# to match hardware.
+frame 300 scanline/scanline.nes
+frame 120 nmi_sync/demo_ntsc.nes
+frame 300 window5/colorwin_ntsc.nes
+
 # --- APU (sound). Step 1 of PLAN-sound.md: what the CPU can see.
 # (dmc_tests is left out: no readme, no source, no text on screen.)
 result 3000 apu_test/rom_singles/1-len_ctr.nes
