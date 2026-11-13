@@ -240,9 +240,59 @@ it was left there.
 
 Suite: 129 of 130 (test28 still the one failure), 23 pictures.
 
-### 6. Suite, README, notes
+### 6. Suite, README, notes (done)
 Add the new ROMs to the suite, update the README's mapper list and
 status, and write where the stage ended.
+
+Done: the suite gained entries at each step; the README's mapper list,
+runtime notes, test generators, results and status are current.
+
+## Where the stage ended
+
+Ten mapper numbers added, for 17 in all: 5 (MMC5), 9 (MMC2), 10 (MMC4),
+11 (Color Dreams), 21/22/23/25 (Konami VRC2/VRC4), 28 (Action 53), 66
+(GxROM). Each is an entry in `recomp.py`'s `MAPPERS` table plus its
+registers in `runtime/mapper.c`; the recompiler itself needed one new
+idea, `low_regs`, for MMC5's bank registers below `$8000`.
+
+| Mapper | Checked with |
+|---|---|
+| 11 Color Dreams | a raster ROM from the collection (regression picture) |
+| 66 GxROM | `make_gxrom_test.py` (switching, bus conflicts) |
+| 28 Action 53 | the Streemerz collection launching a game; `test28` fails (below) |
+| 22 VRC2a | `m22chrbankingtest`, matching its source frame by frame |
+| 21/23/25 VRC4 | `make_vrc4_test.py`, one ROM per number, both wirings each |
+| 9/10 MMC2/MMC4 | `make_mmc2_test.py`, latches driven through `$2007` |
+| 5 MMC5 | four free ROMs, six pictures, checked against their sources |
+
+Every self-made test was confirmed by breaking each feature it covers
+and seeing it fail with its own status code; every picture check was
+confirmed the same way where it could be.
+
+New runtime hooks, so each board touches only what it needs:
+`mapper_write_low`/`mapper_read_low` (`$4020-$5FFF`), `catch_up`/
+`schedule` (mappers with their own clock), `chr_fetched` (pattern reads),
+`ppu_phase`, `nt_read`/`nt_write`, `scanline`, `bg_tile` and a movable
+`$6000` window (MMC5).
+
+Results: 129 of 130 graded tests and 23 pictures (from 123, 0 failures
+and 14 pictures before the stage). The one failure is `test28`, a 2012
+Action 53 test whose expectations contradict the nesdev wiki's
+reference implementation; the collection it was written for works.
+
+Speed: nes15 (an NROM game) went from about 4.6 to 5.1 s for 6000
+headless frames, mostly from MMC5's hooks being checked by everything;
+still about 20 times faster than a real console.
+
+Left for later:
+- Expansion sound, and the boards that mainly bring it (VRC6, VRC7,
+  FME-7, Namco 163).
+- MMC5's vertical split, its sound and the MMC5A extras.
+- VRC4's PRG RAM enable bit and VRC2's 1-bit latch (plain RAM covers
+  them); MMC2/MMC4's latch flips from empty 8x16 sprite slots.
+- Telling board variants apart from NES 2.0 headers (submappers): the
+  runtime reads iNES 1.0 headers, so Color Dreams assumes no bus
+  conflicts and each VRC number decodes both of its wirings.
 
 ## Not in this stage
 - Expansion sound (VRC6, VRC7, MMC5's pulse channels, Namco 163, Sunsoft
@@ -251,7 +301,7 @@ status, and write where the stage ended.
 - Boards whose interesting part is sound (VRC6 24/26, FME-7 69, Namco
   163 19). They can come with the expansion sound stage.
 
-## Risks
+## Risks (as planned)
 - Recompiling banked code depends on the `MAPPERS` table describing
   which slots move together. Boards with modes (Action 53, VRC4's swap
   mode, MMC5) are treated like MMC1: no slot is assumed fixed, so more

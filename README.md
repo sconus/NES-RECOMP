@@ -95,7 +95,11 @@ uses.
   reports. Two MMC3 revisions differ in when that counter raises its IRQ;
   the newer one (B) is the default, and `--mmc3-rev A` selects the older
   one, which a few boards (Crystalis) have. A cartridge doesn't say which
-  it has.
+  it has. Other boards hook in where they need to: VRC4's IRQ counter
+  keeps its own time (`catch_up`/`schedule`), MMC2 and MMC4 watch which
+  tiles the PPU reads, and MMC5 also maps nametables, sees whether the
+  PPU is fetching sprites or background, detects scanlines, and has
+  registers and RAM at `$5000-$5FFF`.
 - **Interrupts** (`event.c`). NMI and IRQ timing, decided on the cycle
   the real CPU checks (from each opcode's cycle map, `cycles.c`),
   including the one-instruction delay after CLI/PLP and taken branches,
@@ -248,6 +252,8 @@ or display-only `read_joy3` tests are left out of the suite.
 - [x] Controller 1 on the keyboard, and scripted input for tests
 - [x] Test ROM runner with a recorded baseline
 - [x] Mappers 0, 1, 2, 3, 4, 7, 34, with banked recompilation
+- [x] Mappers 5, 9, 10, 11, 21, 22, 23, 25, 28, 66 (MMC5 without its
+      split screen)
 - [x] IRQs (MMC3 scanline counter) and battery saves
 - [x] APU: sound through the speakers or a WAV file, frame and DMC IRQs
 - [x] The reset button
@@ -257,10 +263,12 @@ or display-only `read_joy3` tests are left out of the suite.
 - [x] PPU open-bus decay
 - [x] Colour emphasis
 - [x] Mid-line scroll, `$2000`, `$2001` and CHR bank changes
-- [ ] Other mappers (MMC5, VRC, ...) and Famicom expansion sound
+- [ ] Famicom expansion sound (VRC6, VRC7, MMC5, Namco 163, Sunsoft 5B),
+      and the boards that come with it
 - [ ] Controller 2 and game controllers
 
-`PLAN.md`, `PLAN-mappers.md`, `PLAN-sound.md`, `PLAN-cycles.md` and
-`PLAN-render.md` have the step-by-step notes for the graphics, mapper,
-sound, per-cycle timing and rendering stages, including how each timing value was tuned and what was
-tried for what still fails.
+`PLAN.md`, `PLAN-mappers.md`, `PLAN-sound.md`, `PLAN-cycles.md`,
+`PLAN-render.md` and `PLAN-mappers2.md` have the step-by-step notes for
+the graphics, mapper, sound, per-cycle timing, rendering and
+more-mappers stages, including how each timing value was tuned and what
+was tried for what still fails.
