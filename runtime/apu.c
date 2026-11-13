@@ -22,6 +22,7 @@
 #include <string.h>
 #include "apu.h"
 #include "event.h"
+#include "cycles.h"
 #include "rt.h"
 
 /* Note lengths, indexed by the top 5 bits of the 4th channel register. */
@@ -247,12 +248,15 @@ static void frame_counter_reset(void) {
 uint64_t dmc_dma_due = UINT64_MAX;
 static int dmc_dma_requested;
 static uint64_t dmc_dma_request_at;
+/* A "load" (a $4015 write starting a sample into an empty buffer) or a
+   "reload" (the output unit took the buffered byte). They first try to
+   halt the CPU on different kinds of cycle, below. */
+static int dmc_dma_load;
 
-/* Cycles a DMC DMA takes, before the halted read finally completes: a
-   halt cycle, a dummy cycle, maybe an alignment cycle, and the fetch. On
-   hardware it's 3 or 4 depending on alignment, but every alignment rule
-   tried did worse on the tests than a constant 4 (see PLAN-sound.md). */
-#define DMA_STALL(c) 4
+/* CPU cycles alternate between "get" and "put", following the APU's clock.
+   This says which are gets: (cycles & 1) == GET_PARITY. On hardware it's
+   one of two at random from power-on; tests that care accept either. */
+#define GET_PARITY 0
 /* A $4015 write that starts a sample asks for its first byte this many
    cycles later. Tuned with apu_test 7 and 8 (1 and 2 both pass). */
 #define DMA_START_DELAY 2
@@ -277,9 +281,10 @@ static void dmc_update_due(void) {
     if (dmc_dma_due != UINT64_MAX) schedule_event(dmc_dma_due);
 }
 
-static void dmc_request(uint64_t at) {
+static void dmc_request(uint64_t at, int load) {
     if (apu.dmc_buffer_full || !apu.dmc_remaining || dmc_dma_requested) return;
     dmc_dma_requested = 1;
+    dmc_dma_load = load;
     dmc_dma_request_at = at;
     dmc_update_due();
 }
@@ -306,7 +311,7 @@ static void dmc_tick(void) {
             apu.dmc_silence = 0;
             apu.dmc_shift = apu.dmc_buffer;
             apu.dmc_buffer_full = 0;
-            dmc_request(apu.dmc_next_bit);
+            dmc_request(apu.dmc_next_bit, 0);
         } else {
             apu.dmc_silence = 1;
         }
@@ -587,7 +592,7 @@ void apu_write(uint16_t addr, uint8_t val) {
         if (!(val & 0x10)) { apu.dmc_remaining = 0; dmc_dma_requested = 0; }
         else if (!apu.dmc_remaining) {
             dmc_restart();
-            dmc_request(when + DMA_START_DELAY);
+            dmc_request(when + DMA_START_DELAY, 1);
         }
         update_irq_line();
         break;
@@ -618,6 +623,23 @@ void apu_dma_during_oam(void) {
     during_oam = 0;
 }
 
+/* The first cycle at or after c that is a get (parity GET_PARITY) or a
+   put (the other). */
+static uint64_t at_parity(uint64_t c, int parity) {
+    return c + ((int)(c & 1) != parity);
+}
+
+/* Called on every CPU read of $2000-$401F at or after dmc_dma_due (with
+   the address), and at instruction boundaries (with 0). The DMA follows
+   the hardware's rules:
+   - It first tries to halt the CPU on a put cycle (reload) or a get
+     cycle (load), at or after the request.
+   - The CPU can only be halted on a read cycle; on a write cycle it tries
+     again on the next cycle. Which cycles of the instruction are writes
+     comes from its cycle map (cycles.c).
+   - Then: the halt cycle, a dummy cycle, an alignment cycle if needed,
+     and the fetch on a get cycle. 3 or 4 cycles in all.
+   - The halted CPU keeps repeating its read, which a register sees. */
 void apu_dma_point(uint16_t read_addr) {
     uint64_t now = cycles + DMA_READ_AT;
     if (now > apu.now) run_until(now);  /* the output unit may only now ask */
@@ -625,20 +647,36 @@ void apu_dma_point(uint16_t read_addr) {
         dmc_update_due();
         return;
     }
-    /* The CPU halts on the first read cycle after the request. If that
-       was an earlier cycle of this instruction (its opcode or operand
-       fetch), this read isn't the one repeated. */
-    if (dmc_dma_request_at < now) read_addr = 0;
+    uint64_t stall;
+    int repeat = 0;
+    if (during_oam) {
+        stall = DMA_DURING_OAM_STALL;
+    } else {
+        /* The request, as a CPU cycle; not before this instruction (a
+           boundary event can't come earlier than its start). */
+        uint64_t first = dmc_dma_request_at - DMA_READ_AT;
+        if (first < insn_start) first = insn_start;
+        uint64_t halt = at_parity(first, dmc_dma_load ? GET_PARITY : !GET_PARITY);
+        /* At a boundary the instruction is over, so its write cycles are
+           known; during a register read, every earlier cycle was a read. */
+        while (!read_addr && halt < cycles && insn_writes_at(halt, cycles)) halt++;
+        if (read_addr && halt > cycles) {
+            dmc_update_due();               /* lands after this read */
+            return;
+        }
+        repeat = read_addr && halt == cycles;
+        stall = at_parity(halt + 2, GET_PARITY) - halt + 1;
+    }
     dmc_dma_requested = 0;
     dmc_dma_due = UINT64_MAX;       /* no DMA inside the extra reads below */
-    int stall = during_oam ? DMA_DURING_OAM_STALL : DMA_STALL(cycles);
-    if (read_addr) {
-        /* The halted CPU keeps reading its address. A controller only
-           shifts once for back-to-back reads; $2007 sees each one. */
-        int extra = (read_addr == 0x4016 || read_addr == 0x4017) ? 1 : stall - 1;
+    if (repeat) {
+        /* The halted CPU keeps reading its address, until the fetch. A
+           controller only shifts once for back-to-back reads; $2007 sees
+           each one. */
+        int extra = (read_addr == 0x4016 || read_addr == 0x4017) ? 1 : (int)stall - 1;
         for (int i = 0; i < extra; i++) (void)rd(read_addr);
     }
-    cycles += (uint64_t)stall;
+    cycles += stall;
     clock_now = cycles;
     dmc_fetch();
     dmc_update_due();

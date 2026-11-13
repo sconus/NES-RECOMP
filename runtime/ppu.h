@@ -18,6 +18,8 @@ struct ppu {
     uint16_t v, t;
     uint8_t x, w;
     uint8_t read_buffer;            /* $2007 reads lag one byte behind */
+    uint8_t prev_read_buffer;       /* the buffer before the last refill */
+    uint64_t last_2007_read;        /* dot of the last $2007 read */
     uint8_t io_bus;                 /* last value on the PPU's data lines */
 
     /* Timing. A frame is 262 scanlines of 341 dots; 3 dots per CPU cycle.

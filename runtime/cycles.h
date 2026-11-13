@@ -11,6 +11,11 @@ extern const char *const cycle_map[256];
    without side effects. -1 for an opcode with no map. */
 int cycle_len(uint16_t a);
 
+/* Whether cycle c of the instruction that started at insn_start and
+   ended at `end` was a write (a store, a read-modify-write's two writes,
+   or a push). */
+int insn_writes_at(uint64_t c, uint64_t end);
+
 /* --check-cycles: compare every instruction's length from its map with
    the cycles it really took (called from trace_step). */
 extern int check_cycles;

@@ -380,6 +380,10 @@ void ppu_schedule(void) {
    CPU-visible registers
    --------------------------------------------------------------------- */
 
+/* $2007 reads at most this many dots apart count as back to back (one
+   CPU cycle is 3 dots). */
+#define READ_2007_REPEAT_DOTS 3
+
 static void advance_v(void) {
     ppu.v = (ppu.v + ((ppu.ctrl & 0x04) ? 32 : 1)) & 0x7FFF;
 }
@@ -410,9 +414,19 @@ uint8_t ppu_reg_read(uint16_t addr) {
             ppu.io_bus = (ppu_mem_read(ppu.v) & 0x3F) | (ppu.io_bus & 0xC0);
             ppu.read_buffer = ppu_mem_read(ppu.v - 0x1000);
         } else {
-            ppu.io_bus = ppu.read_buffer;
+            /* The buffer is refilled a moment after a read. A second read
+               on the very next CPU cycle (an indexed read's dummy read,
+               or DMC DMA repeating a read) still gets the value from
+               before that refill, but its own refill and increment
+               happen. Real consoles give one of several results here
+               depending on CPU-PPU alignment; this is one of them
+               (dmc_dma_during_read4/double_2007_read). */
+            int back_to_back = ppu.dots - ppu.last_2007_read <= READ_2007_REPEAT_DOTS;
+            ppu.io_bus = back_to_back ? ppu.prev_read_buffer : ppu.read_buffer;
+            if (!back_to_back) ppu.prev_read_buffer = ppu.read_buffer;
             ppu.read_buffer = ppu_mem_read(ppu.v);
         }
+        ppu.last_2007_read = ppu.dots;
         advance_v();
         a12_from_v();
         break;

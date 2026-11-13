@@ -69,8 +69,9 @@ shows which mapper a ROM uses.
 - **APU** (`apu.c`). The sound chip, also catching up on demand: length
   counters, the frame counter and its IRQ, envelopes, sweeps, the five
   channels (two pulses, triangle, noise, DMC) and the DMC's sample DMA,
-  which pauses the CPU and can repeat a `$2007` or `$4016` read it lands
-  on. When sound is wanted, the channels are mixed with the console's
+  which pauses the CPU on the cycle the hardware would (only on a read,
+  3 or 4 cycles, depending on get/put alignment) and can repeat a
+  `$2007` or `$4016` read it lands on. When sound is wanted, the channels are mixed with the console's
   non-linear formulas, averaged down to 48 kHz and filtered like its
   output stage. Headless test runs skip the mixing, so they stay fast.
 - **Window and speakers** (`video_sdl.c`). SDL2, 3x size, sharp pixels,
@@ -196,23 +197,20 @@ own. Each `tests/make_*.py` writes a small ROM into `tests/`:
 Each check in these was confirmed by breaking that part of the runtime or
 recompiler on purpose and seeing the test report it.
 
-Current results: 113 of 123 graded tests pass, and the 11 pictures and 2
+Current results: 116 of 123 graded tests pass, and the 11 pictures and 2
 sound recordings match. That includes all 16 `instr_test-v5` CPU tests,
 all of `ppu_vbl_nmi`, `vbl_nmi_timing`, the sprite 0 hit and sprite
 overflow suites, blargg's 2005 PPU tests, all 8 `apu_test` and 11 blargg
 APU tests, the three `apu_mixer` silence checks, all 8 reset tests, both
 CNROM tests, 10 of 12 MMC3 tests and 4 of 5 `cpu_interrupts_v2`
-tests. The 10 failures:
+tests, and the three `dmc_dma_during_read4` read tests. The 7
+failures:
 
 - `ppu_open_bus` #3: PPU open-bus decay isn't modelled.
 - `mmc3_test_2/6-MMC3_alt` and `mmc3_irq_tests/5.MMC3_rev_A` test some
   older MMC3 chips, which behave differently from the one modelled.
 - `cpu_interrupts_v2` 4 (and the combined ROM, which stops there): an
   IRQ around sprite DMA.
-- `dmc_dma_during_read4` `dma_2007_read`, `dma_4016_read` and
-  `double_2007_read`: the repeated read lands one cycle off. The tests
-  sync to the DMC through the same DMA pauses, so no single timing value
-  fixes it; it probably needs each instruction's individual bus cycles.
 - `sprdma_and_dmc_dma` (both): a DMC fetch during sprite DMA, not
   understood yet.
 
@@ -235,8 +233,8 @@ or display-only `read_joy3` tests are left out of the suite.
 - [x] APU: sound through the speakers or a WAV file, frame and DMC IRQs
 - [x] The reset button
 - [x] Interrupt polling on the exact cycle, from per-opcode cycle maps
-- [ ] DMC DMA landing on reads and during sprite DMA, cycle-exact
-      (5 tests, see above), and `cpu_interrupts_v2` 4
+- [x] DMC DMA halting on the exact cycle, 3 or 4 cycles long
+- [ ] DMC DMA during sprite DMA (2 tests), and `cpu_interrupts_v2` 4
 - [ ] PPU open-bus decay (`ppu_open_bus` #3)
 - [ ] Colour emphasis bits, and mid-line scroll changes (the renderer
       draws a line at a time)

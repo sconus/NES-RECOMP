@@ -1,10 +1,12 @@
 /* nesrecomp runtime: reading the per-opcode cycle maps. */
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include "cycles.h"
 #include "rt.h"
 
 int check_cycles;
+#define OPTIONAL "xytc"     /* = OPTIONAL_CYCLES in recomp.py */
 
 /* Whether the branch opcode `opc` is taken with the current flags: bits
    7-6 pick the flag (N, V, C, Z), bit 5 the value that takes it. */
@@ -37,6 +39,25 @@ int cycle_len(uint16_t a) {
         }
     }
     return n;
+}
+
+int insn_writes_at(uint64_t c, uint64_t end) {
+    const char *m = cycle_map[peek(insn_pc)];
+    if (!m || c < insn_start) return 0;
+    /* Lay out the cycles that really happened: the optional ones (page
+       cross, branch taken) in order, as many as the length says. */
+    int fixed = 0;
+    for (const char *p = m; *p; p++) fixed += !strchr(OPTIONAL, *p);
+    int extra = (int)(end - insn_start) - fixed;
+    uint64_t k = c - insn_start;
+    for (const char *p = m; *p; p++) {
+        if (strchr(OPTIONAL, *p)) {
+            if (extra <= 0) continue;
+            extra--;
+        }
+        if (k-- == 0) return strchr("wmU", *p) != NULL;
+    }
+    return 0;                       /* past the end: the next opcode fetch */
 }
 
 static int started;

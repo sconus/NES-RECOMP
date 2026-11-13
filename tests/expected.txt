@@ -119,10 +119,10 @@ apu_mixer/triangle.nes	pass
 apu_mixer/dmc.nes	pass
 apu_mixer/noise.nes (sound)	audio:99aebf64
 nes15-1.0.0/nes15-NTSC.nes +nes15_solver.txt (sound)	audio:7dad67a5
-dmc_dma_during_read4/dma_2007_read.nes	fail: checksum E4E1DD1A
+dmc_dma_during_read4/dma_2007_read.nes	pass
 dmc_dma_during_read4/dma_2007_write.nes	pass
-dmc_dma_during_read4/dma_4016_read.nes	fail: Failed
-dmc_dma_during_read4/double_2007_read.nes	fail: checksum D84F6815
+dmc_dma_during_read4/dma_4016_read.nes	pass
+dmc_dma_during_read4/double_2007_read.nes	pass
 dmc_dma_during_read4/read_write_2007.nes	pass
 sprdma_and_dmc_dma/sprdma_and_dmc_dma.nes	fail: $01 SPRDMA and DMC DMA / Failed
 sprdma_and_dmc_dma/sprdma_and_dmc_dma_512.nes	fail: $01 SPRDMA and DMC DMA / Failed

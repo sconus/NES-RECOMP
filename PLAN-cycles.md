@@ -158,11 +158,46 @@ one instruction later, which moves some register writes by a few cycles
 (RMS difference about 1% of the signal, no shift in time). Accepted as
 the new baseline.
 
-### 5. Exact DMC DMA
+### 5. Exact DMC DMA (done)
 Halt on the first read cycle at or after the request, using the maps;
 then the alignment wait and the fetch. Repeat the halted read if it hits
 a hardware register. Remove the `DMA_*` guesses that this replaces.
 Target: the three `dmc_dma_during_read4` read tests.
+
+Done; all three pass (116 of 123), from the rules on the nesdev wiki's
+DMA page (`apu_dma_point` in `runtime/apu.c`):
+
+- CPU cycles alternate get and put. `GET_PARITY` says which are gets; on
+  hardware it's one of two at random from power-on, and the tests pass
+  with either.
+- A reload (the output unit took the buffered byte) first tries to halt
+  on a put cycle, a load (a `$4015` write) on a get cycle.
+- The CPU can only be halted on a read cycle. At an instruction boundary
+  the instruction's write cycles are known from its cycle map and how
+  long it took (`insn_writes_at` in `cycles.c`), and the halt moves past
+  them one cycle at a time.
+- Then the halt cycle, a dummy cycle, an alignment cycle if needed, and
+  the fetch on a get cycle: 3 or 4 cycles, replacing the constant 4.
+  When the halt lands on a register read, that read is repeated on each
+  wasted cycle, as before ($4016 still only shifts once).
+
+Breaking the rules one at a time: giving loads and reloads the same
+starting cycle type, or a constant 4 cycles again, fails `dma_2007_read`
+and `dma_4016_read`. Flipping `GET_PARITY` changes nothing, as on
+hardware. Skipping write cycles isn't checked by any test in the suite
+yet; it's there because the wiki says so.
+
+`double_2007_read` turned out not to involve the DMC at all: an indexed
+read makes two `$2007` reads on back-to-back cycles. Now a `$2007` read
+within one CPU cycle of the last one returns the buffer from before the
+last refill, while its own refill and increment still happen
+(`READ_2007_REPEAT_DOTS` in `ppu.c`). That gives "22 44 55 66 77", one of
+the four results the test lists for real consoles. The DMC's repeated
+reads throw their values away, so `dma_2007_read` isn't affected.
+
+Constants still there: `DMA_READ_AT` (1) and `DMA_START_DELAY` (2), the
+offset between the CPU's cycle count and the APU's clock, which the
+other APU tests were tuned with. `DMA_DURING_OAM_STALL` is for step 6.
 
 ### 6. Sprite DMA and DMC DMA together
 Model `$4014` DMA cycle by cycle (read/write alternation, the
