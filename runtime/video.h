@@ -17,7 +17,7 @@ int video_audio_queued(void);           /* samples waiting, or -1 */
 
 /* Controller 1 buttons from the keyboard, as of the last video_present:
    arrows, X = A, Z = B, Return = Start, Right Shift = Select. */
-uint8_t video_buttons(void);
+uint8_t video_buttons(int player);    /* 0 or 1 */
 
 /* Save a frame as a PNG file. Returns 0 on success. */
 int video_save_png(const uint16_t *framebuffer, const char *path);

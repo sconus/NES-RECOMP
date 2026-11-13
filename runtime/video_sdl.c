@@ -122,19 +122,24 @@ static void handle_events(void) {
     }
 }
 
-/* Keyboard layout for controller 1. */
-static const struct { SDL_Scancode key; uint8_t button; } keymap[] = {
-    { SDL_SCANCODE_UP,     BTN_UP },     { SDL_SCANCODE_DOWN,  BTN_DOWN },
-    { SDL_SCANCODE_LEFT,   BTN_LEFT },   { SDL_SCANCODE_RIGHT, BTN_RIGHT },
-    { SDL_SCANCODE_X,      BTN_A },      { SDL_SCANCODE_Z,     BTN_B },
-    { SDL_SCANCODE_RETURN, BTN_START },  { SDL_SCANCODE_RSHIFT, BTN_SELECT },
+/* Keyboard layout: controller 1 on the arrows and the keys around the
+   right hand, controller 2 on WASD and the keys around the left. */
+static const struct { SDL_Scancode key; uint8_t button; } keymap[2][8] = {
+    { { SDL_SCANCODE_UP,     BTN_UP },     { SDL_SCANCODE_DOWN,  BTN_DOWN },
+      { SDL_SCANCODE_LEFT,   BTN_LEFT },   { SDL_SCANCODE_RIGHT, BTN_RIGHT },
+      { SDL_SCANCODE_X,      BTN_A },      { SDL_SCANCODE_Z,     BTN_B },
+      { SDL_SCANCODE_RETURN, BTN_START },  { SDL_SCANCODE_RSHIFT, BTN_SELECT } },
+    { { SDL_SCANCODE_W,      BTN_UP },     { SDL_SCANCODE_S,     BTN_DOWN },
+      { SDL_SCANCODE_A,      BTN_LEFT },   { SDL_SCANCODE_D,     BTN_RIGHT },
+      { SDL_SCANCODE_G,      BTN_A },      { SDL_SCANCODE_F,     BTN_B },
+      { SDL_SCANCODE_E,      BTN_START },  { SDL_SCANCODE_Q,     BTN_SELECT } },
 };
 
-uint8_t video_buttons(void) {
+uint8_t video_buttons(int player) {
     const Uint8 *keys = SDL_GetKeyboardState(NULL);
     uint8_t b = 0;
-    for (size_t i = 0; i < sizeof keymap / sizeof keymap[0]; i++)
-        if (keys[keymap[i].key]) b |= keymap[i].button;
+    for (int i = 0; i < 8; i++)
+        if (keys[keymap[player][i].key]) b |= keymap[player][i].button;
     /* A real D-pad can't press opposite directions at once, and some
        games misbehave if they see it; cancel both instead. */
     if ((b & (BTN_UP | BTN_DOWN)) == (BTN_UP | BTN_DOWN))

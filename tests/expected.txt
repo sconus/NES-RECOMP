@@ -159,6 +159,8 @@ dmc_dma_during_read4/read_write_2007.nes	pass
 sprdma_and_dmc_dma/sprdma_and_dmc_dma.nes	pass
 sprdma_and_dmc_dma/sprdma_and_dmc_dma_512.nes	pass
 read_joy3/thorough_test.nes	pass
+read_joy3/test_buttons.nes +read_joy3_buttons.txt	pass
+tests/joy2.nes +joy2.txt	pass
 apu_reset/4015_cleared.nes	pass
 apu_reset/4017_timing.nes	pass
 apu_reset/4017_written.nes	pass

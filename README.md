@@ -141,13 +141,16 @@ next to the ROM: it's loaded at start and written on exit.
 Sound plays through the speakers unless you pass `--mute` (or press M).
 `--wav FILE` also writes it to a file, with or without a window.
 
-| Key | NES button |
+| NES button | Controller 1 | Controller 2 |
+|---|---|---|
+| D-pad | Arrow keys | W A S D |
+| A | X | G |
+| B | Z | F |
+| Start | Return | E |
+| Select | Right Shift | Q |
+
+| Key | Does |
 |---|---|
-| Arrow keys | D-pad |
-| X | A |
-| Z | B |
-| Return | Start |
-| Right Shift | Select |
 | M | Mute / unmute |
 | R | Reset button |
 | Escape | Quit |
@@ -172,11 +175,13 @@ The built program takes options after the ROM path:
     --start HEX        start here instead of the reset vector
 
 An input script holds one change per line: from frame N on, hold these
-buttons (`a b select start up down left right`). A frame number on its
-own releases everything. `tests/inputs/` has examples.
+buttons (`a b select start up down left right`, with `2:` in front for
+controller 2). A frame number on its own releases everything.
+`tests/inputs/` has examples.
 
     120 start      # press Start at frame 120
     126            # release it
+    200 a 2:start  # A on controller 1, Start on controller 2
 
 ## Tests
 
@@ -239,6 +244,8 @@ own. Each `tests/make_*.py` writes a small ROM into `tests/`:
   length counters and PCM IRQ.
 - `make_vrc7_test.py`: VRC7 banking (both board variants) and IRQ, and a
   tone ROM for its FM channels with a near-sine instrument.
+- `make_joy_test.py`: both controllers read at set frames against a
+  matching input script, the 9th-read and held-strobe behaviour.
 - `make_mmc2_test.py`: MMC2 and MMC4's tile-triggered CHR latches,
   driven through `$2007` reads.
 - `make_vrc4_test.py`: one ROM per VRC4 mapper number (21, 23, 25):
@@ -248,7 +255,7 @@ own. Each `tests/make_*.py` writes a small ROM into `tests/`:
 Each check in these was confirmed by breaking that part of the runtime or
 recompiler on purpose and seeing the test report it.
 
-Current results: 142 of 143 graded tests pass, and the 23 pictures and 2
+Current results: 144 of 145 graded tests pass, and the 23 pictures and 2
 sound recordings match. That includes all 16 `instr_test-v5` CPU tests,
 all of `ppu_vbl_nmi`, `vbl_nmi_timing`, the sprite 0 hit and sprite
 overflow suites, blargg's 2005 PPU tests, all 8 `apu_test` and 11 blargg
@@ -273,7 +280,7 @@ or display-only `read_joy3` tests are left out of the suite.
 - [x] nestest passes in full
 - [x] PPU (graphics) and an SDL window
 - [x] NMI delivery at vblank, cycle-exact
-- [x] Controller 1 on the keyboard, and scripted input for tests
+- [x] Controllers 1 and 2 on the keyboard, and scripted input for both
 - [x] Test ROM runner with a recorded baseline
 - [x] Mappers 0, 1, 2, 3, 4, 7, 34, with banked recompilation
 - [x] Mappers 5, 9, 10, 11, 21, 22, 23, 25, 28, 66 (MMC5 without its

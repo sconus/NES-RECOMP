@@ -274,9 +274,10 @@ audio 1500 apu_mixer/noise.nes
 audio 900 nes15-1.0.0/nes15-NTSC.nes tests/inputs/nes15_solver.txt
 
 # --- DMC DMA (step 4 of PLAN-sound.md): a DMC sample fetch pauses the CPU,
-# and repeats a $2007/$4016 read it lands on. read_joy3/test_buttons is
-# left out: it asks for each button to be pressed; count_errors and
-# count_errors_fast just draw an X per conflict, with no pass/fail.
+# and repeats a $2007/$4016 read it lands on. read_joy3/test_buttons asks
+# for each button in turn (with the DMC running); a script presses them.
+# count_errors and count_errors_fast just draw an X per conflict, with no
+# pass/fail, so they're left out.
 #   crc  the screen must show one of the listed checksums (4th column);
 #        some tests allow several, depending on CPU/PPU alignment.
 crc 1500 dmc_dma_during_read4/dma_2007_read.nes 159A7A8F,5E3DF9C4
@@ -287,6 +288,11 @@ text 1500 dmc_dma_during_read4/read_write_2007.nes
 result 3000 sprdma_and_dmc_dma/sprdma_and_dmc_dma.nes
 result 3000 sprdma_and_dmc_dma/sprdma_and_dmc_dma_512.nes
 text 6000 read_joy3/thorough_test.nes
+text 600 read_joy3/test_buttons.nes tests/inputs/read_joy3_buttons.txt
+
+# --- Controllers (PLAN-input.md). tests/joy2.nes (make_joy_test.py) reads
+# both controllers at set frames and compares them with its script.
+result 200 tests/joy2.nes tests/inputs/joy2.txt
 
 # --- The reset button (step 5 of PLAN-sound.md). These ask for reset
 # (status $81); the runtime presses it 10 frames later when headless.

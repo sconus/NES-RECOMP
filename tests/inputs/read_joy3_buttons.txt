@@ -1,0 +1,18 @@
+# read_joy3/test_buttons asks for each controller-1 button in turn (A, B,
+# Select, Start, Up, Down, Left, Right) and checks each arrives alone.
+120 a
+126
+160 b
+166
+200 select
+206
+240 start
+246
+280 up
+286
+320 down
+326
+360 left
+366
+400 right
+406

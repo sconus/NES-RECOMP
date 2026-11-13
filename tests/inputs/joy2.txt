@@ -1,0 +1,7 @@
+# For tests/joy2.nes (make_joy_test.py): buttons on both
+# controllers, changed 10 frames before each of the ROM's checks.
+20 a 2:b
+40 up start 2:left 2:select
+60 2:a 2:b 2:select 2:start 2:up 2:down 2:left 2:right
+80 a b select start up down left right
+100

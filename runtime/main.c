@@ -164,15 +164,16 @@ static void at_exit(void) {
     if (use_save_file) cart_write_save(rom_path);
 }
 
-/* Scripted input: from frame N on, controller 1 holds these buttons.
+/* Scripted input: from frame N on, the controllers hold these buttons.
    File format, one change per line ('#' starts a comment):
-       120 start        press Start at frame 120
+       120 start        press Start on controller 1 at frame 120
        126              release everything at frame 126
-       200 a right      hold A and Right from frame 200 */
+       200 a right      hold A and Right from frame 200
+       300 a 2:start    A on controller 1 and Start on controller 2 */
 #define MAX_SCRIPT 4096
-static struct { long frame; uint8_t buttons; } script[MAX_SCRIPT];
+static struct { long frame; uint8_t buttons[2]; } script[MAX_SCRIPT];
 static int script_len, script_pos;
-static uint8_t script_buttons;
+static uint8_t script_buttons[2];
 
 static void load_input_script(const char *path) {
     static const char *names[8] =
@@ -193,18 +194,22 @@ static void load_input_script(const char *path) {
             fprintf(stderr, "%s:%d: frames must go up\n", path, lineno);
             exit(1);
         }
-        uint8_t b = 0;
+        uint8_t b[2] = { 0, 0 };
         while ((tok = strtok(NULL, " \t\r\n"))) {
+            int pad = 0;
+            const char *name = tok;
+            if (!strncmp(tok, "2:", 2)) { pad = 1; name = tok + 2; }
             int k = 0;
-            while (k < 8 && strcmp(tok, names[k])) k++;
+            while (k < 8 && strcmp(name, names[k])) k++;
             if (k == 8) {
                 fprintf(stderr, "%s:%d: unknown button '%s'\n", path, lineno, tok);
                 exit(1);
             }
-            b |= (uint8_t)(1 << k);
+            b[pad] |= (uint8_t)(1 << k);
         }
         script[script_len].frame = frame;
-        script[script_len++].buttons = b;
+        script[script_len].buttons[0] = b[0];
+        script[script_len++].buttons[1] = b[1];
     }
     fclose(f);
 }
@@ -252,9 +257,12 @@ static void frame_done(const uint16_t *fb) {
                 (unsigned long long)ppu.frame, video_audio_queued());
     if (!headless) video_present(fb);
     /* Buttons for the next frame: the script, plus the keyboard. */
-    while (script_pos < script_len && script[script_pos].frame <= (long)ppu.frame)
-        script_buttons = script[script_pos++].buttons;
-    pad_buttons[0] = script_buttons | (headless ? 0 : video_buttons());
+    while (script_pos < script_len && script[script_pos].frame <= (long)ppu.frame) {
+        script_buttons[0] = script[script_pos].buttons[0];
+        script_buttons[1] = script[script_pos++].buttons[1];
+    }
+    for (int p = 0; p < 2; p++)
+        pad_buttons[p] = script_buttons[p] | (headless ? 0 : video_buttons(p));
     if (stop_after_frames && (long)ppu.frame >= stop_after_frames)
         finish_run(fb);
     /* Headless runs stop as soon as a $6000 test reports its result. */
