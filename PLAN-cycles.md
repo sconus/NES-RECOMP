@@ -233,14 +233,55 @@ fails `sprdma_and_dmc_dma`, the +2 case fails both, the end case fails
 `_512`, and moving the decision back fails `cpu_interrupts` 4 and the
 combined ROM. `DMA_DURING_OAM_STALL` (a constant 2) is gone.
 
-### 7. Suite, README, notes
+### 7. Suite, README, notes (done)
 Accept the new baseline, update the README's results and status, and
 record what each removed constant became.
 
-## Risks
+Done: baselines were accepted at each step; the README's results, status
+list and runtime notes are current; the summary is below.
+
+## Where the stage ended
+
+All 8 target tests pass, plus the combined `cpu_interrupts` ROM: the
+suite went from 111 to 120 of 123, nestest is still cycle-exact, and the
+pictures and sounds match (nes15's sound recording was re-accepted once,
+in step 4). Speed is unchanged: nes15 runs 6000 headless frames in about
+3.5 s, as before the stage.
+
+What the timing constants became:
+
+| Before | Now |
+|---|---|
+| `NMI_LATENCY`, `IRQ_LATENCY` (6 dots before the end of the instruction) | Still 6 dots, but counted from the polling cycle the cycle map gives (`poll_end`), which moves for taken branches and for DMA stalls after the decision (`cpu_late_stall`). They now only cover where in a CPU cycle the PPU and APU raise their lines. |
+| `DMA_STALL` (always 4 cycles) | Gone: 3 or 4 from get/put alignment, with loads and reloads trying to halt on different cycle types and write cycles postponing the halt. |
+| `DMA_DURING_OAM_STALL` (2) | Gone: `apu_oam_dma` works sprite DMA out cycle by cycle (+2 inside the copy, +1 or +3 at its end, +4 before the write). |
+| `DMA_READ_AT`, `DMA_START_DELAY` | Unchanged: the offset between the CPU's cycle count and the APU's clock, which the other APU tests were tuned with. |
+| (new) `GET_PARITY` | Which cycles are gets; either value passes, as on hardware. |
+| (new) `READ_2007_REPEAT_DOTS` | `$2007` reads one CPU cycle apart count as back to back. |
+
+Why earlier attempts failed (`PLAN-sound.md` step 4): a 3-or-4 stall by
+alignment had been tried and did worse. What was missing was the
+difference between load and reload DMA (they first try to halt on
+different kinds of cycle), and knowing which cycles of an instruction
+are writes, which the cycle maps now provide.
+
+Two bugs found on the way had nothing to do with exact cycles: an NMI
+that was too late for a boundary stopped the IRQ check, and reading
+`$4015` didn't reschedule the next frame IRQ.
+
+Not covered by any test in the suite: write cycles postponing a DMC
+halt, and a load DMA landing inside sprite DMA. Both follow the nesdev
+wiki's DMA page.
+
+Still failing, outside this stage: `ppu_open_bus` #3 (open-bus decay),
+`mmc3_test_2/6-MMC3_alt` and `mmc3_irq_tests/5.MMC3_rev_A` (older MMC3
+revisions).
+
+## Risks (as planned)
 - Every timing value tuned so far was tuned against the old model. Steps
   4 and 5 may break tests that pass today before they fix the failing
   ones; each step only lands once the suite is no worse than before.
+  (In the end, nothing that passed broke.)
 - Some of the 8 may need more than exact cycles (for example the PPU's
   own reaction to repeated `$2007` reads in `double_2007_read`). Those
-  will be noted rather than forced.
+  will be noted rather than forced. (That one did: see step 5.)

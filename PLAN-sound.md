@@ -165,7 +165,7 @@ SDL audio queue, the rate nudging described above, a mute option
 the mixer tests against their recordings. This is the one step where
 you'll need to listen.
 
-### 4. DMC DMA timing (partly done)
+### 4. DMC DMA timing (partly done; finished in `PLAN-cycles.md`)
 Done (`runtime/apu.c`, `runtime/main.c`, `runtime/event.c`):
 - A DMC sample fetch is now a DMA request that pauses the CPU 4 cycles.
   `dmc_dma_due` holds the cycle it is due (a pending request, or the

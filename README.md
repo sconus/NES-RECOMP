@@ -237,6 +237,7 @@ or display-only `read_joy3` tests are left out of the suite.
 - [ ] Other mappers (MMC5, VRC, ...) and Famicom expansion sound
 - [ ] Controller 2 and game controllers
 
-`PLAN.md`, `PLAN-mappers.md` and `PLAN-sound.md` have the step-by-step
-notes for the graphics, mapper and sound stages, including how each
-timing value was tuned and what was tried for what still fails.
+`PLAN.md`, `PLAN-mappers.md`, `PLAN-sound.md` and `PLAN-cycles.md` have
+the step-by-step notes for the graphics, mapper, sound and per-cycle
+timing stages, including how each timing value was tuned and what was
+tried for what still fails.
