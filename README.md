@@ -316,10 +316,15 @@ or display-only `read_joy3` tests are left out of the suite.
 - [x] Expansion sound: VRC6, Sunsoft 5B, Namco 163, MMC5 and VRC7
       (mappers 5, 19, 24, 26, 69, 85; VRC7's envelope timing and
       modulation depth approximate)
+- [ ] NSF music files (playing them through a small player program)
+- [ ] NES 2.0 headers, so board variants (submappers) can be told apart
+- [ ] Other input devices: Zapper, Arkanoid paddle, Four Score
+- [ ] MMC5's vertical split screen
 
 `PLAN.md`, `PLAN-mappers.md`, `PLAN-sound.md`, `PLAN-cycles.md`,
-`PLAN-render.md`, `PLAN-mappers2.md` and `PLAN-expansion.md` have the
-step-by-step notes for each stage (graphics, mappers, sound, per-cycle
-timing, rendering, more mappers, expansion sound), including how each
-timing value was tuned, what was tried for what still fails, and where
-the documentation left a choice to make.
+`PLAN-render.md`, `PLAN-mappers2.md`, `PLAN-expansion.md` and
+`PLAN-input.md` have the step-by-step notes for each stage (graphics,
+mappers, sound, per-cycle timing, rendering, more mappers, expansion
+sound, controllers), including how each timing value was tuned, what
+was tried for what still fails, and where the documentation left a
+choice to make.

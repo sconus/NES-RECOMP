@@ -22,9 +22,11 @@
 #define STICK_THRESHOLD 16384           /* half way, of 32767 */
 
 static SDL_GameController *slot[2];
+static int virtual_only;        /* the self-test ignores real controllers */
 
 static void open_device(int index) {
     if (!SDL_IsGameController(index)) return;
+    if (virtual_only && !SDL_JoystickIsVirtual(index)) return;
     for (int s = 0; s < 2; s++) {
         if (slot[s]) continue;
         slot[s] = SDL_GameControllerOpen(index);
@@ -128,14 +130,14 @@ static void tilt(int player, SDL_GameControllerAxis a, int v) {
 }
 
 int gamepad_self_test(void) {
+    /* Real controllers connected to the Mac (or plugged in meanwhile)
+       mustn't take the slots the test is checking. */
+    virtual_only = 1;
     SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
     if (gamepad_init() != 0) {
         printf("FAIL: SDL game controller support: %s\n", SDL_GetError());
         return 1;
     }
-    for (int s = 0; s < 2; s++)         /* only our virtual controllers */
-        if (slot[s]) { SDL_GameControllerClose(slot[s]); slot[s] = NULL; }
-
     int first = attach();
     if (first < 0 || !slot[0]) {
         printf("FAIL: couldn't attach a virtual controller: %s\n", SDL_GetError());

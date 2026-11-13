@@ -90,9 +90,40 @@ Done (`runtime/gamepad.c`).
   failed when a different button was pressed than the one on screen,
   which is what that test is for.
 
-### 3. Suite, README, notes
+### 3. Suite, README, notes (done)
 Accept the new checks, document the keys and the controller mapping, and
 write where the stage ended.
+
+Done: the README has the key tables for both controllers, the game
+controller mapping, the `2:` script syntax and the self-test; its status
+list now names the open ideas left from all the stages.
+
+## Where the stage ended
+
+- Two players, each on the keyboard (arrows / WASD blocks) or a game
+  controller, or both at once; game controllers can come and go while a
+  game runs.
+- Input scripts drive both controllers (`2:`), so two-player behaviour
+  can be tested headless.
+- Checks: `tests/joy2.nes` (both ports, each alone and together, the 9th
+  read, the held strobe), `read_joy3/test_buttons` from a script, and the
+  virtual-controller self-test in `make test`. Every one was confirmed by
+  breaking what it covers (10 breaks; one gap found and closed: nothing
+  checked the held strobe until a break showed it).
+- Confirmed on real hardware: an Xbox Series X controller over Bluetooth
+  passed `test_buttons`, the first hands-on check of any part of this
+  project against a physical device.
+- Results: 144 of 145 graded tests (from 142 of 143), nestest exact, the
+  game controller self-test passing.
+- Found during the final run: with the Xbox controller still connected,
+  the self-test failed, because the real controller took the slot the
+  test had just freed. The self-test now ignores everything but its own
+  virtual controllers (`SDL_JoystickIsVirtual`); games still open real
+  ones as before.
+
+Not done: the left stick and plugging in and out were only checked with
+virtual controllers; other input devices (Zapper, Arkanoid paddle, Four
+Score) and changing the mapping without recompiling are left for later.
 
 ## Not in this stage
 - Other NES input devices: the Zapper light gun, the Arkanoid paddle
@@ -100,7 +131,7 @@ write where the stage ended.
   four-player adapter.
 - Changing the key or button mapping without recompiling.
 
-## Risks
+## Risks (as planned)
 - The face-button question: "A" on an Xbox controller is the bottom
   button, while the NES's A is on the right. Mapping by position feels
   right on most layouts but may surprise people used to labels; the
