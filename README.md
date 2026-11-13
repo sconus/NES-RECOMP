@@ -59,9 +59,13 @@ shows which mapper a ROM uses.
   check on every instruction, a game's `forever: JMP forever` loop would
   never see an NMI.
 - **PPU** (`ppu.c`). The PPU doesn't run alongside the CPU: it catches up
-  dot by dot whenever the CPU touches it or an event is due. Each visible
-  line is drawn in one go from the scroll position at its start (lines with
-  rendering off are drawn dot by dot). It covers background and sprites,
+  dot by dot whenever the CPU touches it or an event is due, and draws the
+  way the real chip does: background tiles fetched every 8 dots through
+  the scroll address as it is at that dot, each line's sprites prepared
+  during the line before, and each pixel output at its own dot with
+  `$2001` as it is then. So scroll, pattern table, CHR bank, greyscale and
+  emphasis changes made partway through a line show from the right pixel
+  (the `scanline` demo checks this). It covers background and sprites,
   sprite 0 hit, sprite overflow (including the hardware's search bug),
   the cycle-exact vblank and NMI behaviour the timing test ROMs check,
   and the "decay register": what write-only registers read back, each
@@ -206,7 +210,7 @@ own. Each `tests/make_*.py` writes a small ROM into `tests/`:
 Each check in these was confirmed by breaking that part of the runtime or
 recompiler on purpose and seeing the test report it.
 
-Current results: all 123 graded tests pass, and the 11 pictures and 2
+Current results: all 123 graded tests pass, and the 14 pictures and 2
 sound recordings match. That includes all 16 `instr_test-v5` CPU tests,
 all of `ppu_vbl_nmi`, `vbl_nmi_timing`, the sprite 0 hit and sprite
 overflow suites, blargg's 2005 PPU tests, all 8 `apu_test` and 11 blargg
@@ -239,12 +243,11 @@ or display-only `read_joy3` tests are left out of the suite.
 - [x] Sprite DMA cycle by cycle, with DMC fetches inside it
 - [x] PPU open-bus decay
 - [x] Colour emphasis
-- [ ] Mid-line scroll and `$2001` changes (the renderer draws a line at
-      a time; see `PLAN-render.md`)
+- [x] Mid-line scroll, `$2000`, `$2001` and CHR bank changes
 - [ ] Other mappers (MMC5, VRC, ...) and Famicom expansion sound
 - [ ] Controller 2 and game controllers
 
-`PLAN.md`, `PLAN-mappers.md`, `PLAN-sound.md` and `PLAN-cycles.md` have
-the step-by-step notes for the graphics, mapper, sound and per-cycle
-timing stages, including how each timing value was tuned and what was
+`PLAN.md`, `PLAN-mappers.md`, `PLAN-sound.md`, `PLAN-cycles.md` and
+`PLAN-render.md` have the step-by-step notes for the graphics, mapper,
+sound, per-cycle timing and rendering stages, including how each timing value was tuned and what was
 tried for what still fails.

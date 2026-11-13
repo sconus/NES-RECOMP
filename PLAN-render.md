@@ -7,7 +7,7 @@ show them, not from the next line.
 
 `make test-all` must not get worse at any step; nestest stays exact.
 
-## What happens today
+## What happened before this stage
 
 - **Colours** are 6-bit numbers in the frame buffer, turned into RGB by
   `palette.c` from the NTSC signal. `$2001` bits 5-7 (emphasise red,
@@ -153,11 +153,50 @@ Added picture checks for `scanline`, `nmi_sync`'s demo and `colorwin`
 (with the caveat above in `tests/suite.txt`). 123 of 123 tests pass, 14
 pictures and 2 sounds match, nestest exact.
 
-### 5. Suite, README, notes
+### 5. Suite, README, notes (done)
 Accept the new pictures, update the README (the status list, the PPU
 description), note speed and anything left approximate.
 
-## Risks
+Done: pictures accepted at each step; the README's PPU and colour
+descriptions, results and status list are current.
+
+## Where the stage ended
+
+- **Colour emphasis** works: 512 colours from the signal model.
+  `full_palette` shows its full grid.
+- **The renderer works like the chip.** Background tiles are fetched at
+  their real dots through `v` as it is then, each line's sprites are
+  prepared during the line before (one pattern fetch per sprite, with the
+  CHR banks at that dot), and each pixel is output at its own dot. Its
+  colour, greyscale and emphasis are applied 3 dots after it's worked out,
+  where the PPU actually outputs it.
+- **Mid-line writes show from the right pixel.** The `scanline` demo
+  reports no errors (it showed errors in all three of its areas before),
+  and `nmi_sync`'s mid-line greyscale lines up with its reference sprites.
+- **Tests:** all 123 graded tests pass, unchanged, and nestest is exact.
+  The picture checks went from 11 to 14 (`scanline`, `nmi_sync`'s demo,
+  `colorwin`). The only existing picture that changed was `full_palette`,
+  from emphasis.
+- **Speed:** about 25% slower than before the stage (nes15, 6000 headless
+  frames: 3.5 s before, 4.4 s now), still about 23 times faster than a
+  real console.
+
+New constant: `PIXEL_OUTPUT_DELAY` (3 dots), from the wiki's "first pixel
+at dot 4" and `nmi_sync`'s demo.
+
+Approximate or unverified:
+- `colorwin`'s bottom window row (a mid-line `$2006` write at x = 76) is
+  believed but not known to match hardware.
+- With rendering off, pixels are still output at dot x + 1, with no
+  3-dot delay. `full_palette` was accepted that way, and nothing checks
+  where its colour changes land within a line.
+- The PPU's `$2007` reads and writes while rendering is on (which move
+  `v` in odd ways on hardware) and OAM changes during the sprite search
+  aren't modelled. No test here needs them.
+- Composite-video artifacts and pixel shape (`tvpassfail`) aren't
+  modelled.
+
+## Risks (as planned)
 - Speed: per-dot output is more work than drawing a line at a time.
   Measured at step 2; the fallback is to keep the fast path for lines
   with no mid-line writes.
