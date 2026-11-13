@@ -17,6 +17,8 @@ struct mapper {
     int bank_changed;       /* set when a PRG slot changes (for the CPU) */
     int power_on_bank[4];   /* prg_bank[] after reset (old .missed files) */
     int prg_ram_disabled;   /* $6000-$7FFF switched off by the mapper */
+    int prg_ram_readonly;   /* $6000-$7FFF write-protected (MMC5) */
+    uint8_t *ram6000;       /* what $6000-$7FFF reads and writes (8 KB) */
     /* Mappers that watch the PPU's A12 address line (MMC3) set this; the
        PPU calls it when A12 changes. `dot` is in ppu.dots units. */
     void (*a12)(int level, uint64_t dot);
@@ -29,6 +31,24 @@ struct mapper {
     /* Called after every PPU read of pattern data ($0000-$1FFF), from
        rendering or $2007 (MMC2/MMC4 switch banks on certain tiles). */
     void (*chr_fetched)(uint16_t addr);
+    /* MMC5. The PPU says which kind of pattern fetches come next (0 none:
+       vblank, rendering off or $2007; 1 background; 2 sprites), so the
+       mapper can switch between its CHR sets. */
+    void (*ppu_phase)(int phase);
+    /* Nametable reads and writes ($2000-$3EFF), when the mapper decides
+       where each nametable comes from (MMC5's $5105, fill mode, ExRAM). */
+    uint8_t (*nt_read)(uint16_t addr);
+    void (*nt_write)(uint16_t addr, uint8_t val);
+    /* Called at dot 4 of lines 0-240 with the line number while rendering
+       a visible line, or -1 (line 240, or rendering off): MMC5 detects
+       scanlines there. watch_scanlines asks the PPU to wake the CPU at
+       each such dot. */
+    void (*scanline)(int line);
+    int watch_scanlines;
+    /* MMC5's extended attributes: for the background tile the PPU is
+       fetching through v, return 1 and give its palette and the 4 KB of
+       CHR its pattern comes from; return 0 for the normal fetch. */
+    int (*bg_tile)(uint16_t v, uint8_t *palette, const uint8_t **chr4k);
     const char *name;
 };
 
@@ -45,6 +65,8 @@ void mapper_write(uint16_t addr, uint8_t val);
 /* CPU write to $4020-$5FFF, which some boards also decode (Action 53's
    register select). Ignored by the others. */
 void mapper_write_low(uint16_t addr, uint8_t val);
+/* CPU read of $4020-$5FFF: a mapper register (MMC5) or open bus (0). */
+uint8_t mapper_read_low(uint16_t addr);
 
 static inline uint8_t prg_read(uint16_t addr) {
     return mapper.prg[(addr >> 13) & 3][addr & 0x1FFF];

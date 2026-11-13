@@ -45,7 +45,8 @@ uint8_t rd(uint16_t a) {
     if (a == 0x4016 || a == 0x4017) return input_read(a & 1);
     if (a >= 0x8000) return prg_read(a);
     if (a >= 0x6000)
-        return mapper.prg_ram_disabled ? 0 : cart.prg_ram[a - 0x6000];
+        return mapper.prg_ram_disabled ? 0 : mapper.ram6000[a - 0x6000];
+    if (a >= 0x4020) return mapper_read_low(a);
     return 0;                 /* APU and unmapped space: not wired up yet */
 }
 
@@ -53,7 +54,7 @@ uint8_t peek(uint16_t a) {
     if (a < 0x2000) return ram[a & 0x7FF];
     if (a >= 0x8000) return prg_read(a);
     if (a >= 0x6000)
-        return mapper.prg_ram_disabled ? 0 : cart.prg_ram[a - 0x6000];
+        return mapper.prg_ram_disabled ? 0 : mapper.ram6000[a - 0x6000];
     return 0;
 }
 
@@ -66,7 +67,8 @@ void wr(uint16_t a, uint8_t v) {
     else if (a >= 0x8000) mapper_write(a, v);
     else if (a >= 0x4020 && a < 0x6000) mapper_write_low(a, v);
     else if (a >= 0x6000) {
-        if (!mapper.prg_ram_disabled) cart.prg_ram[a - 0x6000] = v;
+        if (!mapper.prg_ram_disabled && !mapper.prg_ram_readonly)
+            mapper.ram6000[a - 0x6000] = v;
     }
 }
 

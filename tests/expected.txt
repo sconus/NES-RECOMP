@@ -66,6 +66,12 @@ tests/vrc4_25.nes	pass
 m22chrbankingtest/0-127.nes	frame:0f2a5e05
 tests/mmc2_9.nes	pass
 tests/mmc4_10.nes	pass
+exram/mmc5exram.nes	frame:33a0d6e4
+mmc5test_v2/mmc5test.nes	frame:07784193
+mmc5test_v2/mmc5test.nes +mmc5_fill.txt	frame:5e6d46cb
+mmc5test_v2/mmc5test.nes +mmc5_exattr.txt	frame:654b2cbf
+other/firefly.nes	frame:d5f7f330
+mmc5test/mmc5test.nes	frame:b4bf4f18
 blargg_ppu_tests_2005.09.15b/palette_ram.nes	pass
 blargg_ppu_tests_2005.09.15b/sprite_ram.nes	pass
 blargg_ppu_tests_2005.09.15b/vbl_clear_time.nes	pass

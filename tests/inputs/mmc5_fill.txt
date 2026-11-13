@@ -1,0 +1,3 @@
+# mmc5test_v2: press Up to map fill mode into the nametables.
+120 up
+126

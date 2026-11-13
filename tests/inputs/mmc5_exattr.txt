@@ -1,0 +1,3 @@
+# mmc5test_v2: press Select to turn on ExRAM mode 1 (extended attributes).
+120 select
+126

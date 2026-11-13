@@ -165,7 +165,7 @@ read, and mirroring. Breaking each of those fails its own status code
 horizontal; the ROM now switches to vertical first). No measurable speed
 cost from the hook (nes15: 4.6-4.9 s with and without it).
 
-### 5. MMC5 (5)
+### 5. MMC5 (5) (done)
 The biggest Nintendo mapper:
 - PRG in 8, 16 or 32 KB modes, with RAM or ROM in most slots;
 - CHR in four sizes, with separate sets for sprites and backgrounds when
@@ -179,6 +179,66 @@ The biggest Nintendo mapper:
 The vertical split screen and MMC5's sound channels are left for later.
 Checks: `mmc5test`, `mmc5test_v2`, `mmc5exram`, `firefly`. This step may
 be split if it gets large.
+
+Done, in two parts (`mmc5_*` in `runtime/mapper.c`), from the nesdev
+wiki's MMC5 page.
+
+**5a: registers.**
+- PRG in all four modes, with RAM in any window but `$E000` (bit 7 of
+  `$5114-$5116`), `$5113` at `$6000`, and the write protect
+  (`$5102`/`$5103`). RAM is the wiki's suggested 64 KB superset: bank 0
+  is the cartridge's battery-saved 8 KB. RAM banks get bank numbers that
+  never match a ROM bank, so code there runs in the interpreter.
+- CHR in all four sizes, stored in 1 KB units at write time (with
+  `$5130` in the 1 and 2 KB modes). With 8x16 sprites and rendering on,
+  sprites use the A set and backgrounds the B set; with 8x8 sprites only
+  the A set; `$2007` uses whichever set was written last.
+- Nametables per quarter (`$5105`): CIRAM 0/1, ExRAM, or fill mode
+  (`$5106` tile, `$5107` palette). ExRAM at `$5C00`: CPU writes in modes
+  0/1 only while rendering, read/write in mode 2, read-only in mode 3.
+- The scanline IRQ: detected at dot 4 of each rendered line (the wiki's
+  point, after the PPU's three same-address nametable reads); line 0
+  sets "in frame" and resets the counter, each later line counts and
+  compares with `$5203`; `$5204` reads pending and in-frame and
+  acknowledges. "In frame" clears at line 240 or when rendering stops.
+- The multiplier (`$5205`/`$5206`).
+- New runtime pieces: the `$6000` window is a pointer the mapper sets
+  (`mapper.ram6000`), with a read-only flag; `$4020-$5FFF` reads go to
+  the mapper (`mapper_read_low`); nametable access, the fetch phase
+  (background or sprites, for the CHR sets) and the per-line call are
+  mapper hooks the PPU calls. In `MAPPERS`, MMC5 has `low_regs`
+  (`$5100-$5117`), so stores there count as possible bank switches.
+
+**5b: extended attribute mode** (ExRAM mode 1): each background tile's
+ExRAM byte gives its palette and a 4 KB CHR bank (with `$5130` above
+it), through a `bg_tile` hook in the background fetch.
+
+Checks (none of these ROMs grades itself; each picture was checked by
+eye against what its source says it does):
+- `mmc5exram` runs its own code from ExRAM during vblank and draws its
+  colour bars.
+- `mmc5test_v2` reports sprite banks 0-7 and background banks 8-B with
+  8x16 sprites; with Up, fill mode covers the screen with tile `$25` in
+  palette 3; with Select, extended attributes draw the background from
+  4 KB bank 3 (banks C-F) with ExRAM's diagonal palette pattern.
+- `firefly` uses the scanline IRQ and timed mid-line emphasis writes to
+  light a pool around the firefly.
+- `mmc5test` (v1) switches from fill mode to a normal nametable at line
+  159 with the IRQ (a regression check only).
+- Breaking the fill tile or colour, the IRQ line, the sprite/background
+  sets, ExRAM reads, the `$5204` acknowledge, or the extended palette or
+  bank each changes one of these pictures.
+
+Not done: the vertical split, MMC5's sound, the MMC5A extras, and
+finer points of scanline detection (the NMI vector read, `$2002`/`$4014`
+counter resets).
+
+Speed: these hooks cost nes15 about 9% (4.7 to 5.1 s for 6000 frames;
+still about 20 times faster than a real console). Timing each hook on
+its own showed the cost spread out, with no single expensive spot, so
+it was left there.
+
+Suite: 129 of 130 (test28 still the one failure), 23 pictures.
 
 ### 6. Suite, README, notes
 Add the new ROMs to the suite, update the README's mapper list and

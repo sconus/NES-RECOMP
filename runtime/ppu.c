@@ -61,7 +61,8 @@ uint8_t ppu_mem_read(uint16_t addr) {
         if (mapper.chr_fetched) mapper.chr_fetched(addr);
         return v;
     }
-    if (addr < 0x3F00) return ppu.nametables[nt_offset(addr)];
+    if (addr < 0x3F00)
+        return mapper.nt_read ? mapper.nt_read(addr) : ppu.nametables[nt_offset(addr)];
     return ppu.palette[pal_offset(addr)];
 }
 
@@ -70,7 +71,10 @@ void ppu_mem_write(uint16_t addr, uint8_t val) {
     if (addr < 0x2000) {
         if (cart.chr_is_ram) mapper.chr[addr >> 10][addr & 0x3FF] = val;
     }
-    else if (addr < 0x3F00) ppu.nametables[nt_offset(addr)] = val;
+    else if (addr < 0x3F00) {
+        if (mapper.nt_write) mapper.nt_write(addr, val);
+        else ppu.nametables[nt_offset(addr)] = val;
+    }
     else ppu.palette[pal_offset(addr)] = val & 0x3F;
 }
 
@@ -117,22 +121,43 @@ static void copy_vertical(void) {
    each read through v as it is at that dot, then v moves one tile right.
    So a scroll or address change mid-line shows up from the tiles fetched
    after it, as on hardware. */
+/* The rendering fetches' own reads, kept small so they inline: a
+   nametable byte (through the mapper if it maps nametables) and a
+   pattern byte (telling the mapper if it watches pattern reads). */
+static inline uint8_t fetch_nt(uint16_t addr) {
+    return mapper.nt_read ? mapper.nt_read(addr) : ppu.nametables[nt_offset(addr)];
+}
+static inline uint8_t fetch_chr(uint16_t addr) {
+    uint8_t v = chr_read(addr);
+    if (mapper.chr_fetched) mapper.chr_fetched(addr);
+    return v;
+}
+
 static void fetch_background(int dot) {
     int slot = dot <= 256 ? (dot - 1) / 8 + 2 : (dot - 321) / 8;
     uint16_t v = ppu.v;
     switch ((dot - 1) & 7) {
     case 0: {
-        ppu.fetch_name = ppu_mem_read(0x2000 | (v & 0x0FFF));
-        uint8_t attr = ppu_mem_read(0x23C0 | (v & 0x0C00) |
-                                    ((v >> 4) & 0x38) | ((v >> 2) & 0x07));
+        ppu.fetch_name = fetch_nt(0x2000 | (v & 0x0FFF));
+        uint8_t attr = fetch_nt(0x23C0 | (v & 0x0C00) |
+                                ((v >> 4) & 0x38) | ((v >> 2) & 0x07));
         ppu.bg_pal[slot] = (attr >> (((v >> 4) & 4) | (v & 2))) & 3;
+        ppu.fetch_chr = NULL;
+        if (mapper.bg_tile)
+            mapper.bg_tile(v, &ppu.bg_pal[slot], &ppu.fetch_chr);
         break;
     }
     case 4: {
+        if (ppu.fetch_chr) {            /* MMC5 extended attributes */
+            const uint8_t *p = ppu.fetch_chr + ppu.fetch_name * 16 + ((v >> 12) & 7);
+            ppu.bg_lo[slot] = p[0];
+            ppu.bg_hi[slot] = p[8];
+            break;
+        }
         uint16_t addr = (uint16_t)(((ppu.ctrl & 0x10) ? 0x1000 : 0) +
                                    ppu.fetch_name * 16 + ((v >> 12) & 7));
-        ppu.bg_lo[slot] = ppu_mem_read(addr);
-        ppu.bg_hi[slot] = ppu_mem_read(addr + 8);
+        ppu.bg_lo[slot] = fetch_chr(addr);
+        ppu.bg_hi[slot] = fetch_chr(addr + 8);
         break;
     }
     case 7:
@@ -307,6 +332,15 @@ static void step_dot(void) {
     }
 
     int fetching = rendering && ((dot >= 1 && dot <= 256) || (dot >= 321 && dot <= 336));
+    if (mapper.ppu_phase && (line < NES_HEIGHT || line == PRERENDER_LINE || line == NES_HEIGHT)) {
+        /* Which CHR set MMC5 should show: background tiles from dot 1 and
+           dot 321, sprites from dot 257, nothing after the last line. */
+        if (line == NES_HEIGHT) { if (dot == 1) mapper.ppu_phase(0); }
+        else if (dot == 1 || dot == 321) mapper.ppu_phase(rendering ? 1 : 0);
+        else if (dot == 257) mapper.ppu_phase(rendering ? 2 : 0);
+    }
+    if (mapper.scanline && dot == 4 && line <= NES_HEIGHT)
+        mapper.scanline(rendering && line < NES_HEIGHT ? line : -1);
     if (line < NES_HEIGHT || line == PRERENDER_LINE) {
         if (dot == 257) {
             int next = line == PRERENDER_LINE ? 0 : line + 1;
@@ -401,6 +435,20 @@ void ppu_schedule(void) {
                         : (long)LINES_PER_FRAME * DOTS_PER_LINE - pos - 1 + vbl;
     uint64_t dots_needed = ppu.dots + (uint64_t)d + 1;
     schedule_event((dots_needed + 2) / 3);
+
+    /* MMC5 with its IRQ on: wake the CPU at dot 4 of the next line that
+       may be detected (lines 0-240). */
+    if (mapper.watch_scanlines) {
+        long at = -1;
+        for (int i = 0; i <= LINES_PER_FRAME && at < 0; i++) {
+            long line = ppu.scanline + i;
+            long l = line % LINES_PER_FRAME;
+            long dot_at = line * DOTS_PER_LINE + 4;
+            if (l <= NES_HEIGHT && dot_at >= pos) at = dot_at;
+        }
+        dots_needed = ppu.dots + (uint64_t)(at - pos) + 1;
+        schedule_event((dots_needed + 2) / 3);
+    }
 
     /* A mapper with its scanline IRQ on wants the CPU woken at the next
        dot where A12 might rise, so the IRQ arrives on time. */

@@ -266,6 +266,13 @@ MAPPERS = {
              power_on={0: 0, 1: -3, 2: -2, 3: -1}),
     10: dict(name="MMC4", unit=2, fixed={2: -2, 3: -1},
              power_on={0: 0, 1: 1, 2: -2, 3: -1}),
+    # MMC5: every slot can switch (even $E000, by $5117), in 8 KB steps,
+    # and the bank registers are at $5113-$5117: stores there may switch
+    # the running code out too (low_regs). Power-on: $5117 = $FF, and
+    # the other bank registers are assumed $FF too, so all four slots hold
+    # the last 8 KB.
+    5:  dict(name="MMC5", unit=1, fixed={}, power_on={0: -1, 1: -1, 2: -1, 3: -1},
+             low_regs=(0x5100, 0x5117)),
     # Action 53 switches 16 or 32 KB with either half fixed, depending on a
     # mode the program sets, so no slot is safe to treat as fixed. It
     # starts in its last 32 KB.
@@ -298,6 +305,7 @@ class Rom:
         m = MAPPERS[self.mapper]
         self.mapper_name = m["name"]
         self.unit = m["unit"]
+        self.low_regs = m.get("low_regs")
         if self.unit is None:                    # nothing moves: NROM layout
             self.power_on = {s: s % self.banks for s in range(4)}
             self.fixed = dict(self.power_on)
@@ -556,14 +564,18 @@ def goto(frm, tgt, rom, insns):
     return "{ pc = 0x%04X; goto dispatch; }" % tgt
 
 
-def may_write_mapper(mode, operand):
-    """Could this store reach a mapper register ($8000-$FFFF)?"""
+def may_write_mapper(mode, operand, rom):
+    """Could this store reach a mapper register ($8000-$FFFF, or the
+    mapper's low_regs range such as MMC5's $5100-$5117)?"""
     if mode in ("zp", "zpx", "zpy"):
         return False
+    lo, hi = rom.low_regs or (0x8000, 0x8000)
     if mode == "abs":
-        return (operand[0] | operand[1] << 8) >= 0x8000
+        a = operand[0] | operand[1] << 8
+        return a >= 0x8000 or lo <= a <= hi
     if mode in ("abx", "aby"):
-        return (operand[0] | operand[1] << 8) + 0xFF >= 0x8000
+        a = operand[0] | operand[1] << 8
+        return a + 0xFF >= 0x8000 or (a <= hi and a + 0xFF >= lo)
     return True
 
 
@@ -631,11 +643,11 @@ def gen_insn(loc, opc, operand, rom, insns):
         # Writes that may reach a mapper are timed too: some mappers (MMC1)
         # care which cycle a write lands on.
         timed = may_touch_io(mode, operand) or (
-            writes and rom.unit is not None and may_write_mapper(mode, operand))
+            writes and rom.unit is not None and may_write_mapper(mode, operand, rom))
         body += mem_body(mnem, mode, cyc, pen, cross, base, timed)
         # Code in a switchable bank that writes to the mapper may have just
         # switched itself out: carry on through dispatch if so.
-        if writes and rom.switches(addr) and may_write_mapper(mode, operand):
+        if writes and rom.switches(addr) and may_write_mapper(mode, operand, rom):
             body.append("if (mapper.bank_changed) { mapper.bank_changed = 0; "
                         "pc = 0x%04X; goto dispatch; }" % nxt)
 

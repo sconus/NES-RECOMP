@@ -130,6 +130,23 @@ frame 1000 m22chrbankingtest/0-127.nes
 result 60 tests/mmc2_9.nes
 result 60 tests/mmc4_10.nes
 
+# --- Mapper 5 (MMC5). Pictures, checked by eye (none grades itself):
+# mmc5exram runs its code from ExRAM during vblank; its colour bars must
+# draw. mmc5test_v2 shows which CHR banks sprites (0-7, A set) and the
+# background (8-B, B set with 8x16 sprites) come from. firefly uses the
+# scanline IRQ and mid-line emphasis writes to light a pool around the
+# firefly. mmc5test (v1) switches nametables at line 159 with the IRQ,
+# fill mode above; a regression check only.
+frame 300 exram/mmc5exram.nes
+frame 300 mmc5test_v2/mmc5test.nes
+# The same with Up (fill mode: tile $25 in palette 3 everywhere) and with
+# Select (extended attributes: the background from 4 KB bank 3, CDEF,
+# with ExRAM's diagonal palette pattern).
+frame 200 mmc5test_v2/mmc5test.nes tests/inputs/mmc5_fill.txt
+frame 200 mmc5test_v2/mmc5test.nes tests/inputs/mmc5_exattr.txt
+frame 300 other/firefly.nes
+frame 300 mmc5test/mmc5test.nes
+
 # --- PPU, result on screen only (power_up_palette is left out: it checks
 #     values unique to its author's console)
 text 600 blargg_ppu_tests_2005.09.15b/palette_ram.nes

@@ -47,7 +47,8 @@ mapper). So the same address can hold different code at different times:
   through `dispatch` if it's set.
 
 Supported mappers: 0 NROM, 1 MMC1, 2 UxROM, 3 CNROM, 4 MMC3 (with its
-scanline IRQ), 7 AxROM, 9 MMC2, 10 MMC4, 11 Color Dreams, 21/22/23/25
+scanline IRQ), 5 MMC5 (without its split screen and sound), 7 AxROM,
+9 MMC2, 10 MMC4, 11 Color Dreams, 21/22/23/25
 Konami VRC2 and VRC4 (with VRC4's IRQ), 28 Action 53, 34 BNROM,
 66 GxROM. `python3 tests/romlist.py <folder>` shows which mapper a ROM
 uses.
@@ -219,7 +220,7 @@ own. Each `tests/make_*.py` writes a small ROM into `tests/`:
 Each check in these was confirmed by breaking that part of the runtime or
 recompiler on purpose and seeing the test report it.
 
-Current results: 129 of 130 graded tests pass, and the 17 pictures and 2
+Current results: 129 of 130 graded tests pass, and the 23 pictures and 2
 sound recordings match. That includes all 16 `instr_test-v5` CPU tests,
 all of `ppu_vbl_nmi`, `vbl_nmi_timing`, the sprite 0 hit and sprite
 overflow suites, blargg's 2005 PPU tests, all 8 `apu_test` and 11 blargg

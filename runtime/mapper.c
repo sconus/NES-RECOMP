@@ -12,6 +12,7 @@
 struct mapper mapper;
 static void (*write_reg)(uint16_t addr, uint8_t val);
 static void (*write_low)(uint16_t addr, uint8_t val);   /* $4020-$5FFF */
+static int (*read_low)(uint16_t addr);                  /* -1: open bus */
 
 /* ---- helpers: put bank n (counted in the given size) in a slot ------ */
 
@@ -378,6 +379,246 @@ static void mmc2_reset(void) {
     mapper.chr_fetched = mmc2_chr_fetched;
 }
 
+/* ---- 5: MMC5 (nesdev wiki "MMC5"). Without the vertical split, the
+   extended attribute mode (ExRAM mode 1; next step) and its sound.
+     $5100     PRG mode: 0 = 32 KB, 1 = 16+16, 2 = 16+8+8, 3 = 8 KB x 4
+     $5101     CHR mode: 0 = 8 KB, 1 = 4 KB, 2 = 2 KB, 3 = 1 KB banks
+     $5102/3   PRG RAM write protect: writable only when $02 / $01
+     $5104     ExRAM mode: 0/1 nametable (CPU writes while rendering),
+               2 CPU RAM, 3 CPU read-only
+     $5105     nametable mapping, 2 bits per quarter: CIRAM 0, CIRAM 1,
+               ExRAM, fill mode
+     $5106/7   fill-mode tile and palette
+     $5113     8 KB RAM bank at $6000
+     $5114-7   PRG banks (bit 7: ROM, else RAM; $5117 always ROM)
+     $5120-7   CHR "A" set, $5128-B CHR "B" set, $5130 upper CHR bits
+     $5203/4   scanline IRQ compare / enable (read: pending, in frame)
+     $5205/6   8 x 8 multiplier (read: product low, high)
+     $5C00-$5FFF  ExRAM (1 KB)
+   PRG RAM: the wiki suggests always emulating the 64 KB superset; bank 0
+   is the cartridge's (battery-saved) 8 KB, banks 1-7 live here. ---- */
+
+static uint8_t mmc5_ram[7][0x2000];
+
+static struct {
+    uint8_t prg_mode, chr_mode, protect1, protect2, exram_mode, nt_map;
+    uint8_t fill_tile, fill_attr, upper, last_b, irq_target, irq_enable;
+    uint8_t irq_pending, in_frame, counter, mul_a, mul_b;
+    uint8_t prg[5];                 /* $5113-$5117 */
+    uint16_t chr[12];               /* $5120-$512B, in 1 KB units */
+    int phase;                      /* from the PPU: 0 none, 1 bg, 2 sprites */
+    uint8_t exram[0x400];
+} mmc5;
+
+static uint8_t *mmc5_ram_bank(int n) {
+    n &= 7;
+    return n == 0 ? cart.prg_ram : mmc5_ram[n - 1];
+}
+
+/* One 8 KB CPU slot: a ROM bank, or (bit 7 clear) a RAM bank. */
+static void mmc5_prg_slot(int slot, int value, int rom) {
+    if (rom) {
+        set_prg_8k(slot, value & 0x7F);
+    } else {
+        int bank = 0x1000 + (value & 7);   /* never matches a ROM bank */
+        if (mapper.prg_bank[slot] != bank) mapper.bank_changed = 1;
+        mapper.prg_bank[slot] = bank;
+        mapper.prg[slot] = mmc5_ram_bank(value);
+    }
+}
+
+static void mmc5_apply_prg(void) {
+    uint8_t *r = mmc5.prg;          /* r[0] = $5113 ... r[4] = $5117 */
+    mapper.ram6000 = mmc5_ram_bank(r[0]);
+    mapper.prg_ram_readonly = !(mmc5.protect1 == 2 && mmc5.protect2 == 1);
+    switch (mmc5.prg_mode & 3) {
+    case 0:
+        for (int i = 0; i < 4; i++) mmc5_prg_slot(i, (r[4] & 0x7C) + i, 1);
+        break;
+    case 1:
+        mmc5_prg_slot(0, (r[2] & 0x7E), r[2] >> 7);
+        mmc5_prg_slot(1, (r[2] & 0x7E) + 1, r[2] >> 7);
+        mmc5_prg_slot(2, (r[4] & 0x7E), 1);
+        mmc5_prg_slot(3, (r[4] & 0x7E) + 1, 1);
+        break;
+    case 2:
+        mmc5_prg_slot(0, (r[2] & 0x7E), r[2] >> 7);
+        mmc5_prg_slot(1, (r[2] & 0x7E) + 1, r[2] >> 7);
+        mmc5_prg_slot(2, r[3], r[3] >> 7);
+        mmc5_prg_slot(3, r[4], 1);
+        break;
+    case 3:
+        mmc5_prg_slot(0, r[1], r[1] >> 7);
+        mmc5_prg_slot(1, r[2], r[2] >> 7);
+        mmc5_prg_slot(2, r[3], r[3] >> 7);
+        mmc5_prg_slot(3, r[4], 1);
+        break;
+    }
+}
+
+/* Which CHR set the PPU sees: with 8x16 sprites (and rendering on),
+   sprites use the A set ($5120-$5127) and backgrounds the B set
+   ($5128-$512B); with 8x8 sprites only the A set is used. $2007 access
+   uses whichever set was written last. */
+static void mmc5_apply_chr(void) {
+    int big = (ppu.ctrl & 0x20) && (ppu.mask & 0x18);
+    int use_b = big ? (mmc5.phase == 1 || (mmc5.phase == 0 && mmc5.last_b)) : 0;
+    int size = 8 >> (mmc5.chr_mode & 3);       /* 8, 4, 2 or 1 KB */
+    for (int slot = 0; slot < 8; slot++) {
+        int first = slot & ~(size - 1);         /* first 1 KB of its window */
+        int reg;
+        if (use_b) reg = 8 + (((first & 3) + size - 1) & 3);
+        else reg = first + size - 1;            /* last register of the window */
+        set_chr_1k(slot, mmc5.chr[reg] + (slot - first) % (use_b && size == 8 ? 8 : size));
+    }
+}
+
+static void mmc5_update_irq(void) {
+    cpu_set_irq_at(IRQ_MAPPER, mmc5.irq_enable && mmc5.irq_pending, ppu.dots);
+}
+
+static void mmc5_scanline(int line) {
+    if (line < 0) { mmc5.in_frame = 0; return; }
+    if (!mmc5.in_frame) {
+        mmc5.in_frame = 1;
+        mmc5.counter = 0;
+        mmc5.irq_pending = 0;       /* scanline 0 acknowledges */
+    } else if (++mmc5.counter == mmc5.irq_target && mmc5.irq_target) {
+        mmc5.irq_pending = 1;
+    }
+    mmc5_update_irq();
+}
+
+static void mmc5_phase(int phase) {
+    if (phase != mmc5.phase) { mmc5.phase = phase; mmc5_apply_chr(); }
+}
+
+static uint8_t mmc5_nt_read(uint16_t addr) {
+    uint16_t off = addr & 0x3FF;
+    switch ((mmc5.nt_map >> (((addr >> 10) & 3) * 2)) & 3) {
+    case 0: return ppu.nametables[off];
+    case 1: return ppu.nametables[0x400 | off];
+    case 2: return mmc5.exram_mode < 2 ? mmc5.exram[off] : 0;
+    default: {
+        uint8_t c = mmc5.fill_attr & 3;
+        return off < 0x3C0 ? mmc5.fill_tile : (uint8_t)(c | c << 2 | c << 4 | c << 6);
+    }
+    }
+}
+
+static void mmc5_nt_write(uint16_t addr, uint8_t val) {
+    uint16_t off = addr & 0x3FF;
+    switch ((mmc5.nt_map >> (((addr >> 10) & 3) * 2)) & 3) {
+    case 0: ppu.nametables[off] = val; break;
+    case 1: ppu.nametables[0x400 | off] = val; break;
+    case 2: if (mmc5.exram_mode < 2) mmc5.exram[off] = val; break;
+    default: break;                 /* fill mode: nothing to write to */
+    }
+}
+
+static void mmc5_write_low(uint16_t addr, uint8_t val) {
+    if (addr >= 0x5C00) {
+        /* Modes 0/1: CPU writes only land while rendering; 2: always. */
+        if (mmc5.exram_mode == 2 || (mmc5.exram_mode < 2 && mmc5.in_frame))
+            mmc5.exram[addr - 0x5C00] = val;
+        return;
+    }
+    switch (addr) {
+    case 0x5100: mmc5.prg_mode = val & 3; mmc5_apply_prg(); break;
+    case 0x5101: mmc5.chr_mode = val & 3; mmc5_apply_chr(); break;
+    case 0x5102: mmc5.protect1 = val & 3; mmc5_apply_prg(); break;
+    case 0x5103: mmc5.protect2 = val & 3; mmc5_apply_prg(); break;
+    case 0x5104: mmc5.exram_mode = val & 3; break;
+    case 0x5105: mmc5.nt_map = val; break;
+    case 0x5106: mmc5.fill_tile = val; break;
+    case 0x5107: mmc5.fill_attr = val & 3; break;
+    case 0x5113: case 0x5114: case 0x5115: case 0x5116: case 0x5117:
+        mmc5.prg[addr - 0x5113] = addr == 0x5117 ? (val | 0x80) : val;
+        mmc5_apply_prg();
+        break;
+    case 0x5130: mmc5.upper = val & 3; break;
+    case 0x5203: mmc5.irq_target = val; break;
+    case 0x5204:
+        mmc5.irq_enable = val >> 7;
+        mapper.watch_scanlines = mmc5.irq_enable;
+        mmc5_update_irq();
+        break;
+    case 0x5205: mmc5.mul_a = val; break;
+    case 0x5206: mmc5.mul_b = val; break;
+    default:
+        if (addr >= 0x5120 && addr <= 0x512B) {
+            /* Stored in 1 KB units, by the CHR mode at the time of the
+               write; $5130 supplies the top bits in 1 and 2 KB modes. */
+            uint16_t v;
+            switch (mmc5.chr_mode & 3) {
+            case 3:  v = (uint16_t)(mmc5.upper << 8 | val); break;
+            case 2:  v = (uint16_t)((mmc5.upper & 1) << 9 | val << 1); break;
+            case 1:  v = (uint16_t)(val << 2); break;
+            default: v = (uint16_t)((val & 0x7F) << 3); break;
+            }
+            mmc5.chr[addr - 0x5120] = v;
+            mmc5.last_b = addr >= 0x5128;
+            mmc5_apply_chr();
+        }
+        break;                      /* sound, split screen: not modelled */
+    }
+}
+
+static int mmc5_read_low(uint16_t addr) {
+    if (addr >= 0x5C00)
+        return mmc5.exram_mode >= 2 ? mmc5.exram[addr - 0x5C00] : -1;
+    switch (addr) {
+    case 0x5204: {
+        uint8_t v = (uint8_t)(mmc5.irq_pending << 7 | mmc5.in_frame << 6);
+        mmc5.irq_pending = 0;       /* reading acknowledges */
+        mmc5_update_irq();
+        return v;
+    }
+    case 0x5205: return (mmc5.mul_a * mmc5.mul_b) & 0xFF;
+    case 0x5206: return (mmc5.mul_a * mmc5.mul_b) >> 8;
+    }
+    return -1;
+}
+
+/* Extended attribute mode (ExRAM mode 1, rendering on): each background
+   tile's ExRAM byte (same position as its nametable byte, the same for
+   all four nametables) gives its palette (bits 6-7) and a 4 KB CHR bank
+   (bits 0-5, with $5130 above them), ignoring the CHR registers. */
+static int mmc5_bg_tile(uint16_t v, uint8_t *palette, const uint8_t **chr4k) {
+    if (mmc5.exram_mode != 1 || !(ppu.mask & 0x18)) return 0;
+    uint8_t e = mmc5.exram[v & 0x3FF];
+    size_t bank = (size_t)(mmc5.upper << 6 | (e & 0x3F));
+    *palette = e >> 6;
+    *chr4k = cart.chr + (bank * 0x1000) % cart.chr_size;
+    return 1;
+}
+
+/* CPU writes to $8000-$DFFF land in RAM when RAM is mapped there. */
+static void mmc5_write(uint16_t addr, uint8_t val) {
+    int slot = (addr >> 13) & 3;
+    if (mapper.prg_bank[slot] >= 0x1000 && !mapper.prg_ram_readonly)
+        mapper.prg[slot][addr & 0x1FFF] = val;
+}
+
+static void mmc5_reset(void) {
+    memset(&mmc5, 0, sizeof mmc5);
+    mmc5.prg_mode = 3;
+    mmc5.chr_mode = 3;
+    mmc5.protect1 = 1;
+    mmc5.protect2 = 2;
+    mmc5.exram_mode = 3;
+    for (int i = 0; i < 5; i++) mmc5.prg[i] = 0xFF;
+    mmc5_apply_prg();
+    mmc5_apply_chr();
+    mapper.ppu_phase = mmc5_phase;
+    mapper.nt_read = mmc5_nt_read;
+    mapper.nt_write = mmc5_nt_write;
+    mapper.scanline = mmc5_scanline;
+    mapper.bg_tile = mmc5_bg_tile;
+    write_low = mmc5_write_low;
+    read_low = mmc5_read_low;
+}
+
 /* ---- 1: MMC1. Registers are loaded one bit at a time. -----------------
 
    Each write to $8000-$FFFF shifts bit 0 into a 5-bit register; the fifth
@@ -531,6 +772,7 @@ void mapper_init(void) {
        reset may then change it. */
     for (int i = 0; i < 4; i++) set_prg_8k(i, i);
     set_chr_8k(0);
+    mapper.ram6000 = cart.prg_ram;
     mapper.bank_changed = 0;
 
     switch (cart.mapper) {
@@ -553,6 +795,7 @@ void mapper_init(void) {
         set_prg_32k(0);
         break;
     case 66: mapper.name = "GxROM"; write_reg = gxrom_write; set_prg_32k(0); break;
+    case 5: mapper.name = "MMC5"; write_reg = mmc5_write; mmc5_reset(); break;
     case 9: mapper.name = "MMC2"; write_reg = mmc2_write; mmc2_reset(); break;
     case 10: mapper.name = "MMC4"; write_reg = mmc2_write; mmc2_reset(); break;
     case 21: case 23: case 25:
@@ -572,6 +815,13 @@ void mapper_init(void) {
     }
     mapper.bank_changed = 0;
     for (int i = 0; i < 4; i++) mapper.power_on_bank[i] = mapper.prg_bank[i];
+}
+
+uint8_t mapper_read_low(uint16_t addr) {
+    if (!read_low) return 0;
+    ppu_catch_up();             /* MMC5's $5204 reflects the PPU's line */
+    int v = read_low(addr);
+    return v < 0 ? 0 : (uint8_t)v;
 }
 
 void mapper_write_low(uint16_t addr, uint8_t val) {
