@@ -123,6 +123,13 @@ result 60 tests/vrc4_23.nes
 result 60 tests/vrc4_25.nes
 frame 1000 m22chrbankingtest/0-127.nes
 
+# --- Mappers 9 and 10 (MMC2, MMC4). tests/mmc2_9.nes and mmc4_10.nes (from
+# make_mmc2_test.py) drive the CHR latches through $2007 reads: banks,
+# MMC2's top-row-only left table, the old bank for the triggering read,
+# PRG layout and mirroring.
+result 60 tests/mmc2_9.nes
+result 60 tests/mmc4_10.nes
+
 # --- PPU, result on screen only (power_up_palette is left out: it checks
 #     values unique to its author's console)
 text 600 blargg_ppu_tests_2005.09.15b/palette_ram.nes

@@ -26,6 +26,9 @@ struct mapper {
        need attention. Called from runtime_event and after mapper writes. */
     void (*catch_up)(void);
     void (*schedule)(void);
+    /* Called after every PPU read of pattern data ($0000-$1FFF), from
+       rendering or $2007 (MMC2/MMC4 switch banks on certain tiles). */
+    void (*chr_fetched)(uint16_t addr);
     const char *name;
 };
 

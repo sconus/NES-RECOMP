@@ -317,6 +317,67 @@ static void vrc_reset(void) {
     }
 }
 
+/* ---- 9, 10: MMC2 and MMC4 (nesdev wiki "MMC2", "MMC4"). Two 4 KB CHR
+   banks per pattern table, chosen by a latch that flips when the PPU
+   reads tile $FD or $FE's second plane: $xFD8 sets it to $FD, $xFE8 to
+   $FE. On MMC2 the left table ($0000) only reacts to exactly $0FD8/$0FE8
+   (a tile's top row); the right table, and both on MMC4, to the whole
+   row range $xFD8-$xFDF / $xFE8-$xFEF. The latch changes after the read,
+   so the switching tile itself still comes from the old bank.
+     $A000  PRG bank: 8 KB at $8000 (MMC2; the last three 8 KB fixed) or
+            16 KB (MMC4; the last 16 KB fixed)
+     $B000  CHR bank for $0000 when latch 0 = $FD     $C000  ... = $FE
+     $D000  CHR bank for $1000 when latch 1 = $FD     $E000  ... = $FE
+     $F000  mirroring: 0 vertical, 1 horizontal
+   The wiki doesn't give the power-on latch state; both start at $FE. ---- */
+
+static struct { uint8_t chr[4], latch[2]; } mmc2;
+
+static void mmc2_apply_chr(void) {
+    set_chr_4k(0, mmc2.chr[mmc2.latch[0] == 0xFD ? 0 : 1]);
+    set_chr_4k(1, mmc2.chr[mmc2.latch[1] == 0xFD ? 2 : 3]);
+}
+
+static void mmc2_write(uint16_t addr, uint8_t val) {
+    switch (addr & 0xF000) {
+    case 0xA000:
+        if (cart.mapper == 9) set_prg_8k(0, val & 0x0F);
+        else set_prg_16k(0, val & 0x0F);
+        break;
+    case 0xB000: mmc2.chr[0] = val & 0x1F; break;
+    case 0xC000: mmc2.chr[1] = val & 0x1F; break;
+    case 0xD000: mmc2.chr[2] = val & 0x1F; break;
+    case 0xE000: mmc2.chr[3] = val & 0x1F; break;
+    case 0xF000: cart.mirroring = (val & 1) ? MIRROR_HORIZONTAL : MIRROR_VERTICAL; break;
+    }
+    mmc2_apply_chr();
+}
+
+static void mmc2_chr_fetched(uint16_t addr) {
+    int table = addr >> 12;
+    uint16_t low = addr & 0x0FFF;
+    int exact = cart.mapper == 9 && table == 0;     /* MMC2's left table */
+    uint8_t to = 0;
+    if (exact ? low == 0xFD8 : (low & 0xFF8) == 0xFD8) to = 0xFD;
+    else if (exact ? low == 0xFE8 : (low & 0xFF8) == 0xFE8) to = 0xFE;
+    if (to && mmc2.latch[table] != to) {
+        mmc2.latch[table] = to;
+        mmc2_apply_chr();
+    }
+}
+
+static void mmc2_reset(void) {
+    memset(&mmc2, 0, sizeof mmc2);
+    mmc2.latch[0] = mmc2.latch[1] = 0xFE;
+    if (cart.mapper == 9) {
+        set_prg_8k(0, 0); set_prg_8k(1, -3); set_prg_8k(2, -2); set_prg_8k(3, -1);
+    } else {
+        set_prg_16k(0, 0); set_prg_16k(1, -1);
+    }
+    mmc2_apply_chr();
+    mapper.chr_fetched = mmc2_chr_fetched;
+}
+
 /* ---- 1: MMC1. Registers are loaded one bit at a time. -----------------
 
    Each write to $8000-$FFFF shifts bit 0 into a 5-bit register; the fifth
@@ -492,6 +553,8 @@ void mapper_init(void) {
         set_prg_32k(0);
         break;
     case 66: mapper.name = "GxROM"; write_reg = gxrom_write; set_prg_32k(0); break;
+    case 9: mapper.name = "MMC2"; write_reg = mmc2_write; mmc2_reset(); break;
+    case 10: mapper.name = "MMC4"; write_reg = mmc2_write; mmc2_reset(); break;
     case 21: case 23: case 25:
         mapper.name = "VRC4"; write_reg = vrc_write; vrc_reset();
         break;

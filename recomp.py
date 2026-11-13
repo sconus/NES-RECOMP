@@ -260,6 +260,12 @@ MAPPERS = {
     22: dict(name="VRC2", unit=1, fixed={3: -1}, power_on={0: 0, 1: 1, 2: -2, 3: -1}),
     23: dict(name="VRC4", unit=1, fixed={3: -1}, power_on={0: 0, 1: 1, 2: -2, 3: -1}),
     25: dict(name="VRC4", unit=1, fixed={3: -1}, power_on={0: 0, 1: 1, 2: -2, 3: -1}),
+    # MMC2: 8 KB at $8000 switches, the last three 8 KB are fixed. MMC4:
+    # 16 KB at $8000 switches, the last 16 KB is fixed.
+    9:  dict(name="MMC2", unit=1, fixed={1: -3, 2: -2, 3: -1},
+             power_on={0: 0, 1: -3, 2: -2, 3: -1}),
+    10: dict(name="MMC4", unit=2, fixed={2: -2, 3: -1},
+             power_on={0: 0, 1: 1, 2: -2, 3: -1}),
     # Action 53 switches 16 or 32 KB with either half fixed, depending on a
     # mode the program sets, so no slot is safe to treat as fixed. It
     # starts in its last 32 KB.

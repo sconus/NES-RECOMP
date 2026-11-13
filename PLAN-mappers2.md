@@ -132,12 +132,38 @@ Checks:
 
 Suite: 127 of 128 (the one failure is still `test28`), 17 pictures.
 
-### 4. MMC2 and MMC4 (9, 10)
+### 4. MMC2 and MMC4 (9, 10) (done)
 CHR banks switched automatically when the PPU reads tile `$FD` or `$FE`
 (a latch per pattern table), used for big animated characters. This
 needs a hook on the PPU's pattern fetches, which the new dot-by-dot
 renderer makes possible. No free ROM uses it, so a generated test checks
 the latch timing.
+
+Done (`mmc2_*` in `runtime/mapper.c`), from the nesdev wiki's MMC2 and
+MMC4 pages:
+- A new mapper hook, `chr_fetched`, is called after every PPU read of
+  pattern data, from rendering or `$2007` (the wiki files these boards
+  under "mappers triggering on reads"). Because it's called after the
+  read, the tile that flips a latch is itself read from the old bank, as
+  the wiki describes.
+- Latch rules: `$xFD8` sets `$FD`, `$xFE8` sets `$FE`; on MMC2 the left
+  table only reacts to exactly `$0FD8`/`$0FE8` (a tile's top row), the
+  right table and both of MMC4's to the whole row range.
+- PRG: MMC2 switches 8 KB at `$8000` with the last three fixed; MMC4
+  switches 16 KB with the last 16 KB fixed. Both are `MAPPERS` entries
+  with those fixed slots.
+- The power-on latch state isn't documented; both start at `$FE`.
+- Not modelled: the sprite unit's dummy fetches of tile `$FF` for empty
+  slots, which with 8x16 sprites flip latch 1 at the ends of some lines
+  (no known game relies on it; the renderer only fetches real sprites).
+
+`tests/mmc2_9.nes` and `mmc4_10.nes` (from `make_mmc2_test.py`) check
+PRG banks, all four CHR registers through both latches, MMC2's top-row
+rule against MMC4's whole-tile rule, the old bank for the triggering
+read, and mirroring. Breaking each of those fails its own status code
+(the first mirroring check didn't notice, because the header already set
+horizontal; the ROM now switches to vertical first). No measurable speed
+cost from the hook (nes15: 4.6-4.9 s with and without it).
 
 ### 5. MMC5 (5)
 The biggest Nintendo mapper:

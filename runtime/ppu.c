@@ -53,7 +53,14 @@ static uint8_t pal_offset(uint16_t addr) {
 
 uint8_t ppu_mem_read(uint16_t addr) {
     addr &= 0x3FFF;
-    if (addr < 0x2000) return chr_read(addr);
+    if (addr < 0x2000) {
+        uint8_t v = chr_read(addr);
+        /* Mappers that watch which tiles the PPU reads (MMC2/MMC4) hear
+           about it after the read, so a switching tile is itself read
+           from the old bank. */
+        if (mapper.chr_fetched) mapper.chr_fetched(addr);
+        return v;
+    }
     if (addr < 0x3F00) return ppu.nametables[nt_offset(addr)];
     return ppu.palette[pal_offset(addr)];
 }
