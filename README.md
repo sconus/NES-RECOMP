@@ -47,7 +47,8 @@ mapper). So the same address can hold different code at different times:
   through `dispatch` if it's set.
 
 Supported mappers: 0 NROM, 1 MMC1, 2 UxROM, 3 CNROM, 4 MMC3 (with its
-scanline IRQ), 7 AxROM, 11 Color Dreams, 34 BNROM, 66 GxROM. `python3 tests/romlist.py <folder>`
+scanline IRQ), 7 AxROM, 11 Color Dreams, 28 Action 53, 34 BNROM,
+66 GxROM. `python3 tests/romlist.py <folder>`
 shows which mapper a ROM uses.
 
 ### The rest of the console (`runtime/`)
@@ -212,7 +213,7 @@ own. Each `tests/make_*.py` writes a small ROM into `tests/`:
 Each check in these was confirmed by breaking that part of the runtime or
 recompiler on purpose and seeing the test report it.
 
-Current results: all 124 graded tests pass, and the 15 pictures and 2
+Current results: 124 of 125 graded tests pass, and the 16 pictures and 2
 sound recordings match. That includes all 16 `instr_test-v5` CPU tests,
 all of `ppu_vbl_nmi`, `vbl_nmi_timing`, the sprite 0 hit and sprite
 overflow suites, blargg's 2005 PPU tests, all 8 `apu_test` and 11 blargg
@@ -220,7 +221,10 @@ APU tests, the three `apu_mixer` silence checks, all 8 reset tests, both
 CNROM tests, all 12 MMC3 tests (the two for the older chip run with
 `--mmc3-rev=A`), all of `cpu_interrupts_v2`, all of
 `dmc_dma_during_read4`, both `sprdma_and_dmc_dma` tests and
-`ppu_open_bus`.
+`ppu_open_bus`. The one failure is `other/test28`, a 2012 Action 53 test
+whose expectations contradict the nesdev wiki's reference
+implementation; the Action 53 collection it was written for (Streemerz)
+works.
 
 `dmc_tests` (no readme, source or on-screen result) and the interactive
 or display-only `read_joy3` tests are left out of the suite.

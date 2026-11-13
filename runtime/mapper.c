@@ -2,6 +2,7 @@
    (power-on banks) and a write function (its registers). */
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include "cart.h"
 #include "mapper.h"
 #include "ppu.h"
@@ -10,6 +11,7 @@
 
 struct mapper mapper;
 static void (*write_reg)(uint16_t addr, uint8_t val);
+static void (*write_low)(uint16_t addr, uint8_t val);   /* $4020-$5FFF */
 
 /* ---- helpers: put bank n (counted in the given size) in a slot ------ */
 
@@ -97,6 +99,73 @@ static void gxrom_write(uint16_t addr, uint8_t val) {
     val = bus_conflict(addr, val);
     set_prg_32k((val >> 4) & 3);
     set_chr_8k(val & 3);
+}
+
+/* ---- 28: Action 53. A multicart board (nesdev wiki "Action 53 mapper").
+   $5000-$5FFF selects a register with bits 7 and 0; $8000-$FFFF writes
+   it. No bus conflicts.
+     $00  CHR RAM bank (bits 0-1, 8 KB of 32 KB)
+     $01  inner PRG bank (bits 0-3)
+     $80  mode: mirroring (bits 0-1: one-screen low/high, vertical,
+          horizontal), PRG mode (bits 2-3: 32 KB, 32 KB, $8000 fixed,
+          $C000 fixed), game size (bits 4-5: 32-256 KB)
+     $81  outer PRG bank, in 32 KB units
+   In a one-screen mirroring mode, bit 4 of a write to $00 or $01 picks
+   which screen. ------------------------------------------------------- */
+
+static struct { uint8_t select, chr, inner, mode, outer; } a53;
+
+/* The 16 KB bank at $8000 (a14 = 0) or $C000 (a14 = 1), as the wiki's
+   reference implementation computes it: the inner bank supplies the low
+   bits (more of them for bigger games), the outer bank the rest. The
+   fixed half of a 16 KB mode acts like 32 KB mode with the smallest
+   size, so it's the outer bank's first or last 16 KB. */
+static int a53_bank(int a14) {
+    int mode = (a53.mode >> 2) & 3, size = (a53.mode >> 4) & 3;
+    if ((mode & 2) && ((mode ^ a14) & 3) == 2) mode = size = 0;
+    int current = (mode & 2) ? a53.inner : (a53.inner << 1 | a14);
+    int mask = (2 << size) - 1;
+    return (current & mask) | ((a53.outer << 1) & ~mask);
+}
+
+static void a53_apply(void) {
+    set_prg_16k(0, a53_bank(0));
+    set_prg_16k(1, a53_bank(1));
+    set_chr_8k(a53.chr & 3);
+    static const enum mirroring mir[4] = {
+        MIRROR_SINGLE_LOW, MIRROR_SINGLE_HIGH, MIRROR_VERTICAL, MIRROR_HORIZONTAL };
+    cart.mirroring = mir[a53.mode & 3];
+}
+
+static void a53_select(uint16_t addr, uint8_t val) {
+    if (addr >= 0x5000) a53.select = val & 0x81;
+}
+
+static void a53_write(uint16_t addr, uint8_t val) {
+    (void)addr;
+    switch (a53.select) {
+    case 0x00: a53.chr = val; break;
+    case 0x01: a53.inner = val & 0x0F; break;
+    case 0x80: a53.mode = val; break;
+    case 0x81: a53.outer = val; break;
+    }
+    if (a53.select <= 0x01 && (a53.mode & 2) == 0)     /* one-screen mode */
+        a53.mode = (uint8_t)((a53.mode & ~1) | ((val >> 4) & 1));
+    a53_apply();
+}
+
+static void a53_reset(void) {
+    /* The wiki only promises the last 16 KB at $C000; this is the state
+       it suggests a menu sets up (32 KB mode, the last 32 KB). */
+    a53.outer = 0xFF;
+    a53.mode = 0x02;
+    a53.inner = a53.chr = a53.select = 0;
+    if (cart.chr_is_ram && cart.chr_size < 0x8000) {   /* 32 KB of CHR RAM */
+        cart.chr = realloc(cart.chr, 0x8000);
+        memset(cart.chr, 0, 0x8000);
+        cart.chr_size = 0x8000;
+    }
+    a53_apply();
 }
 
 /* ---- 1: MMC1. Registers are loaded one bit at a time. -----------------
@@ -274,6 +343,10 @@ void mapper_init(void) {
         set_prg_32k(0);
         break;
     case 66: mapper.name = "GxROM"; write_reg = gxrom_write; set_prg_32k(0); break;
+    case 28:
+        mapper.name = "Action 53"; write_reg = a53_write; write_low = a53_select;
+        a53_reset();
+        break;
     default:
         fprintf(stderr, "mapper %d is not supported yet; running it as NROM, "
                         "which will probably go wrong\n", cart.mapper);
@@ -283,6 +356,13 @@ void mapper_init(void) {
     }
     mapper.bank_changed = 0;
     for (int i = 0; i < 4; i++) mapper.power_on_bank[i] = mapper.prg_bank[i];
+}
+
+void mapper_write_low(uint16_t addr, uint8_t val) {
+    if (!write_low) return;
+    ppu_catch_up();
+    write_low(addr, val);
+    ppu_schedule();
 }
 
 void mapper_write(uint16_t addr, uint8_t val) {

@@ -53,10 +53,41 @@ conflict (`$33` written over a ROM `$21` must become `$21`). Breaking the
 PRG bits, the CHR switch or the bus conflict on purpose gives status
 `$02`, `$03` and `$04` respectively. Suite: 124 of 124, 15 pictures.
 
-### 2. Action 53 (28)
+### 2. Action 53 (28) (done)
 A multicart board: an outer bank and an inner bank that combine
 according to a mode (32 KB, or 16 KB with either half fixed), plus
 mirroring. Checks: `test28` and the `Streemerz` collection.
+
+Done (`a53_*` in `runtime/mapper.c`), following the nesdev wiki page and
+its reference implementation:
+- `$5000-$5FFF` selects a register with bits 7 and 0 (`$00` CHR bank,
+  `$01` inner bank, `$80` mode, `$81` outer bank); `$8000-$FFFF` writes
+  it; no bus conflicts. Writes to `$4020-$5FFF` didn't reach the mapper
+  before; `mapper_write_low` now passes them on (MMC5 will need it too).
+- The 16 KB bank: the inner bank supplies as many low bits as the game
+  size allows, the outer bank the rest; the fixed half of a 16 KB mode
+  acts like 32 KB mode at the smallest size. One-screen mirroring can be
+  flipped by bit 4 of writes to `$00`/`$01`.
+- 32 KB of CHR RAM (the header can't say so in iNES 1.0).
+- Power-on: the wiki only promises the last 16 KB at `$C000`; this starts
+  in 32 KB mode with the last 32 KB, as it suggests.
+- In `MAPPERS`: 16 KB units, nothing fixed, starting in the last 32 KB.
+
+The Streemerz collection works: title, menu, a game's page, and launching
+the game (through a routine the menu runs from RAM), whose title screen
+appears. That's a picture check now, with its input script in
+`tests/inputs/a53_streemerz.txt`. Ignoring the fixed half, the game size
+or the outer bank each break it.
+
+`test28` (2012) fails its check 2. Decoded from the ROM: it sets mode
+`$00`, writes `$FF` to the outer bank, and then expects bank 0 at
+`$8000` (check 2) and, after writing `$00` to the outer bank, the last
+bank still at `$C000` (check 4). Under the wiki's rules and its
+reference code, which this follows, mode `$00` with outer bank `$FF`
+maps the last 32 KB, so the two checks can't both pass. Its source
+couldn't be found (it isn't in the action53 repository), so the most
+likely explanation, an older revision of the mapper, is unconfirmed.
+It's in the suite as an expected failure.
 
 ### 3. Konami VRC2 and VRC4 (21, 22, 23, 25)
 8 KB PRG banks (with a swap mode on VRC4), 1 KB CHR banks written as two

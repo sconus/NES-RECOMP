@@ -34,6 +34,9 @@ void mapper_init(void);
 extern char mmc3_revision;
 /* CPU write to $8000-$FFFF. */
 void mapper_write(uint16_t addr, uint8_t val);
+/* CPU write to $4020-$5FFF, which some boards also decode (Action 53's
+   register select). Ignored by the others. */
+void mapper_write_low(uint16_t addr, uint8_t val);
 
 static inline uint8_t prg_read(uint16_t addr) {
     return mapper.prg[(addr >> 13) & 3][addr & 0x1FFF];

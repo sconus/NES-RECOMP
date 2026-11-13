@@ -1,0 +1,8 @@
+# Streemerz bundle (Action 53): leave the title, open the first game's
+# page, launch it. Its title screen is up by frame 1400.
+320 start
+326
+440 a
+446
+520 a
+526

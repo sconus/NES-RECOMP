@@ -252,6 +252,11 @@ MAPPERS = {
     34: dict(name="BNROM", unit=4, fixed={}, power_on={0: 0, 1: 1, 2: 2, 3: 3}),
     11: dict(name="Color Dreams", unit=4, fixed={}, power_on={0: 0, 1: 1, 2: 2, 3: 3}),
     66: dict(name="GxROM", unit=4, fixed={}, power_on={0: 0, 1: 1, 2: 2, 3: 3}),
+    # Action 53 switches 16 or 32 KB with either half fixed, depending on a
+    # mode the program sets, so no slot is safe to treat as fixed. It
+    # starts in its last 32 KB.
+    28: dict(name="Action 53", unit=2, fixed={},
+             power_on={0: -4, 1: -3, 2: -2, 3: -1}),
 }
 
 

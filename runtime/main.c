@@ -64,6 +64,7 @@ void wr(uint16_t a, uint8_t v) {
     else if (a == 0x4016) input_write_strobe(v);
     else if (a <= 0x4017) apu_write(a, v);      /* $4000-$4013, $4015, $4017 */
     else if (a >= 0x8000) mapper_write(a, v);
+    else if (a >= 0x4020 && a < 0x6000) mapper_write_low(a, v);
     else if (a >= 0x6000) {
         if (!mapper.prg_ram_disabled) cart.prg_ram[a - 0x6000] = v;
     }

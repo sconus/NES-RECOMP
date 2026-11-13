@@ -105,6 +105,14 @@ text 600 mmc3_irq_tests/6.MMC3_rev_B.nes
 result 60 tests/gxrom_switch.nes
 frame 300 other/test001.nes
 
+# --- Mapper 28 (Action 53). The Streemerz collection's menu launches its
+# first game, whose title screen must appear (the menu runs a small
+# routine from RAM that switches to the game's banks). test28 (2012)
+# expects results that contradict the nesdev wiki's reference
+# implementation (see PLAN-mappers2.md step 2), so it is expected to fail.
+frame 1400 other/Streemerz_bundle.nes tests/inputs/a53_streemerz.txt
+text 900 other/test28.nes
+
 # --- PPU, result on screen only (power_up_palette is left out: it checks
 #     values unique to its author's console)
 text 600 blargg_ppu_tests_2005.09.15b/palette_ram.nes
