@@ -30,13 +30,20 @@ struct ppu {
     int odd_frame;
     uint64_t dots;
     uint64_t frame;                 /* frames completed */
-    int sprite0_line, sprite0_dot;  /* where this frame's sprite 0 hit lands */
     int overflow_line, overflow_dot;    /* where the overflow flag gets set */
     int suppress_vbl;               /* $2002 read just before vblank began */
     uint64_t vblank_dot;            /* when the vblank flag was last set */
 
-    /* One finished picture: 6-bit NES colour numbers, 256 x 240. */
-    /* Per pixel: colour (bits 0-5) and the $2001 emphasis bits in effect
+    /* Background tiles for the line being drawn, fetched at the dots the
+       PPU fetches them: slots 0-1 at the end of the line before, 2-33
+       during the line. 8 pixels each: two pattern bytes and a palette. */
+    uint8_t bg_lo[34], bg_hi[34], bg_pal[34];
+    uint8_t fetch_name;             /* nametable byte of the tile being fetched */
+    /* Sprite pixels for the line being drawn: 0x10 | palette << 2 | pixel
+       (0 = none), whether in front of the background, whether sprite 0. */
+    uint8_t sp[NES_WIDTH], sp_front[NES_WIDTH], sp_zero[NES_WIDTH];
+
+    /* One finished picture, 256 x 240. Per pixel: colour (bits 0-5) and the $2001 emphasis bits in effect
        (bits 6-8: red, green, blue). nes_rgb (palette.h) turns it into RGB. */
     uint16_t framebuffer[NES_WIDTH * NES_HEIGHT];
 };

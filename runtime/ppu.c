@@ -7,13 +7,14 @@
    so scroll changes made mid-line show up on the next line. That is the
    classic "scanline renderer" trade-off; most games and tests are happy
    with it. */
+#include <string.h>
 #include "ppu.h"
 #include "cart.h"
 #include "mapper.h"
 #include "event.h"
 #include "rt.h"
 
-struct ppu ppu = { .sprite0_line = -1, .overflow_line = -1 };
+struct ppu ppu = { .overflow_line = -1 };
 void (*ppu_frame_done)(const uint16_t *framebuffer);
 
 #define DOTS_PER_LINE 341
@@ -74,6 +75,12 @@ static int rendering_enabled(void) { return (ppu.mask & 0x18) != 0; }
 /* $2001 bits 5-7 (emphasise red, green, blue), placed above the colour. */
 static uint16_t emphasis_bits(void) { return (uint16_t)(ppu.mask & 0xE0) << 1; }
 
+/* Move v one tile right, wrapping into the next nametable across. */
+static void increment_x(void) {
+    if ((ppu.v & 0x001F) == 31) { ppu.v &= ~0x001F; ppu.v ^= 0x0400; }
+    else ppu.v++;
+}
+
 /* Move v down one pixel row, wrapping into the next nametable below. */
 static void increment_y(void) {
     if ((ppu.v & 0x7000) != 0x7000) { ppu.v += 0x1000; return; }
@@ -97,36 +104,43 @@ static void copy_vertical(void) {
    Drawing one scanline
    --------------------------------------------------------------------- */
 
-static void draw_background(uint8_t bg[NES_WIDTH]) {
-    uint16_t v = ppu.v;                  /* a copy: real v moves at dot 257 */
-    uint16_t table = (ppu.ctrl & 0x10) ? 0x1000 : 0;
-    int fine_y = (v >> 12) & 7;
-    for (int tile = 0; tile < 33; tile++) {
-        uint8_t name = ppu_mem_read(0x2000 | (v & 0x0FFF));
+/* One step of the background fetches, on a rendering line at dot 1-256
+   (tiles 2-33 of this line) or 321-336 (tiles 0-1 of the next). Every 8
+   dots: the nametable and attribute bytes, then the two pattern bytes,
+   each read through v as it is at that dot, then v moves one tile right.
+   So a scroll or address change mid-line shows up from the tiles fetched
+   after it, as on hardware. */
+static void fetch_background(int dot) {
+    int slot = dot <= 256 ? (dot - 1) / 8 + 2 : (dot - 321) / 8;
+    uint16_t v = ppu.v;
+    switch ((dot - 1) & 7) {
+    case 0: {
+        ppu.fetch_name = ppu_mem_read(0x2000 | (v & 0x0FFF));
         uint8_t attr = ppu_mem_read(0x23C0 | (v & 0x0C00) |
                                     ((v >> 4) & 0x38) | ((v >> 2) & 0x07));
-        int shift = ((v >> 4) & 4) | (v & 2);
-        uint8_t pal = (attr >> shift) & 3;
-        uint16_t addr = table + name * 16 + fine_y;
-        uint8_t lo = ppu_mem_read(addr), hi = ppu_mem_read(addr + 8);
-        for (int b = 0; b < 8; b++) {
-            int px = tile * 8 + b - ppu.x;
-            if (px < 0 || px >= NES_WIDTH) continue;
-            int p = ((lo >> (7 - b)) & 1) | ((hi >> (7 - b)) & 1) << 1;
-            bg[px] = p ? (uint8_t)(pal << 2 | p) : 0;
-        }
-        if ((v & 0x001F) == 31) { v &= ~0x001F; v ^= 0x0400; }
-        else v++;
+        ppu.bg_pal[slot] = (attr >> (((v >> 4) & 4) | (v & 2))) & 3;
+        break;
     }
-    if (!(ppu.mask & 0x02))              /* hide the leftmost 8 pixels */
-        for (int px = 0; px < 8; px++) bg[px] = 0;
+    case 4: {
+        uint16_t addr = (uint16_t)(((ppu.ctrl & 0x10) ? 0x1000 : 0) +
+                                   ppu.fetch_name * 16 + ((v >> 12) & 7));
+        ppu.bg_lo[slot] = ppu_mem_read(addr);
+        ppu.bg_hi[slot] = ppu_mem_read(addr + 8);
+        break;
+    }
+    case 7:
+        increment_x();
+        break;
+    }
 }
 
 /* sp[px] = 0x10 | palette << 2 | pixel, or 0 for no sprite pixel.
    Sprites drawn on this line were found by the search on the line above,
    hence the "- 1". */
-static void draw_sprites(int line, uint8_t sp[NES_WIDTH],
-                         uint8_t front[NES_WIDTH], uint8_t zero[NES_WIDTH]) {
+static void draw_sprites(int line) {
+    uint8_t *sp = ppu.sp, *front = ppu.sp_front, *zero = ppu.sp_zero;
+    memset(sp, 0, NES_WIDTH);
+    memset(zero, 0, NES_WIDTH);
     int height = (ppu.ctrl & 0x20) ? 16 : 8;
     int found = 0;
     for (int i = 0; i < 64; i++) {
@@ -156,8 +170,6 @@ static void draw_sprites(int line, uint8_t sp[NES_WIDTH],
             zero[px] = i == 0;
         }
     }
-    if (!(ppu.mask & 0x04))
-        for (int px = 0; px < 8; px++) sp[px] = zero[px] = 0;
 }
 
 /* During dots 65-256 of each visible line the PPU searches OAM for
@@ -188,33 +200,25 @@ static void evaluate_overflow(int line) {
     }
 }
 
-static void draw_line(int line) {
-    uint16_t *out = &ppu.framebuffer[line * NES_WIDTH];
-    uint8_t grey = (ppu.mask & 0x01) ? 0x30 : 0x3F;
-    uint16_t emphasis = emphasis_bits();
-
-    if (!rendering_enabled()) return;   /* drawn dot by dot in step_dot */
-
-    uint8_t bg[NES_WIDTH] = {0}, sp[NES_WIDTH] = {0};
-    uint8_t front[NES_WIDTH] = {0}, zero[NES_WIDTH] = {0};
-    if (ppu.mask & 0x08) draw_background(bg);
-    if (ppu.mask & 0x10) draw_sprites(line, sp, front, zero);
-
-    for (int px = 0; px < NES_WIDTH; px++) {
-        int bg_opaque = bg[px] & 3;
-        /* Sprite 0 hit: an opaque sprite 0 pixel over an opaque background
-           pixel, never at x = 255. Flagged when the PPU reaches that dot. */
-        if (zero[px] && bg_opaque && px != 255 && ppu.sprite0_line < 0 &&
-            !(ppu.status & STATUS_SPRITE0)) {
-            ppu.sprite0_line = line;
-            ppu.sprite0_dot = px + 1;
-        }
-        uint8_t entry;
-        if (sp[px] && (front[px] || !bg_opaque)) entry = sp[px];
-        else if (bg_opaque) entry = bg[px];
-        else entry = 0;
-        out[px] = (ppu.palette[pal_offset(0x3F00 | entry)] & grey) | emphasis;
+/* Pixel x of a rendering line, output at dot x + 1 with $2001 as it is
+   then: background from the fetched tiles and fine X, sprites from this
+   line's sprite pixels, the left-edge clips, greyscale and emphasis. */
+static void output_pixel(int line, int x) {
+    uint8_t mask = ppu.mask;
+    int bg = 0, sp = 0;
+    if ((mask & 0x08) && (x >= 8 || (mask & 0x02))) {
+        int s = x + ppu.x, k = s >> 3, b = 7 - (s & 7);
+        int p = ((ppu.bg_lo[k] >> b) & 1) | ((ppu.bg_hi[k] >> b) & 1) << 1;
+        if (p) bg = ppu.bg_pal[k] << 2 | p;
     }
+    if ((mask & 0x10) && (x >= 8 || (mask & 0x04))) sp = ppu.sp[x];
+    /* Sprite 0 hit: an opaque sprite 0 pixel over an opaque background
+       pixel, never at x = 255. */
+    if (sp && bg && ppu.sp_zero[x] && x != 255) ppu.status |= STATUS_SPRITE0;
+    int entry = (sp && (ppu.sp_front[x] || !bg)) ? sp : bg;
+    uint8_t grey = (mask & 0x01) ? 0x30 : 0x3F;
+    ppu.framebuffer[line * NES_WIDTH + x] =
+        (ppu.palette[pal_offset(0x3F00 | entry)] & grey) | emphasis_bits();
 }
 
 /* ---------------------------------------------------------------------
@@ -273,8 +277,14 @@ static void step_dot(void) {
             mapper.a12(0, ppu.dots);        /* no fetches during vblank */
     }
 
+    int fetching = rendering && ((dot >= 1 && dot <= 256) || (dot >= 321 && dot <= 336));
     if (line < NES_HEIGHT) {
-        if (dot == 1) draw_line(line);
+        if (dot == 1) {
+            if (rendering) draw_sprites(line);
+            else memset(ppu.sp, 0, NES_WIDTH);
+        }
+        if (fetching) fetch_background(dot);
+        if (rendering && dot >= 1 && dot <= NES_WIDTH) output_pixel(line, dot - 1);
         if (!rendering && dot >= 1 && dot <= NES_WIDTH) {
             /* Rendering off: the PPU outputs the backdrop colour, or the
                palette entry v points at when v is inside the palette.
@@ -284,10 +294,6 @@ static void step_dot(void) {
             uint8_t grey = (ppu.mask & 0x01) ? 0x30 : 0x3F;
             ppu.framebuffer[line * NES_WIDTH + dot - 1] =
                 (ppu.palette[pal_offset(a)] & grey) | emphasis_bits();
-        }
-        if (line == ppu.sprite0_line && dot == ppu.sprite0_dot) {
-            ppu.status |= STATUS_SPRITE0;
-            ppu.sprite0_line = -1;
         }
         if (rendering) {
             if (dot == 65) evaluate_overflow(line);  /* the search starts here */
@@ -308,10 +314,9 @@ static void step_dot(void) {
         ppu.frame++;
         if (ppu_frame_done) ppu_frame_done(ppu.framebuffer);
     } else if (line == PRERENDER_LINE) {
-        if (dot == 1) {
+        if (dot == 1)
             ppu.status &= ~(STATUS_VBLANK | STATUS_SPRITE0 | STATUS_OVERFLOW);
-            ppu.sprite0_line = -1;
-        }
+        if (fetching) fetch_background(dot);
         if (rendering) {
             if (dot == 256) increment_y();
             else if (dot == 257) copy_horizontal();

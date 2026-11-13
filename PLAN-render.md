@@ -68,12 +68,35 @@ accepted; the other ten pictures are pixel-identical and all 123 tests
 still pass. Emphasis is taken per line where rendering is on, per dot
 where it's off.
 
-### 2. Background fetched at the real dots
+### 2. Background fetched at the real dots (done)
 Replace the whole-line background with the fetch pipeline above, and
 output pixels per dot. Sprites still drawn per line for now. Every PPU
 test must still pass (`sprite_hit_tests`, `ppu_vbl_nmi`, the 2005 PPU
 tests, MMC3 scanline timing) and all pictures must stay identical, since
 those programs don't change things mid-line. Measure speed on nes15.
+
+Done (`fetch_background` and `output_pixel` in `runtime/ppu.c`):
+
+- Background tiles are fetched at the real dots: the nametable and
+  attribute bytes at the start of each 8 dots, the pattern bytes halfway,
+  each through `v` as it is then. Coarse X moves on at dots 8, 16 ... 256
+  and 328, 336, as on hardware; the first two tiles of each line are
+  fetched at dots 321-336 of the line before (or the pre-render line).
+- Each pixel is output at its own dot, using fine X and `$2001` (show
+  background/sprites, left clips, greyscale, emphasis) as they are then.
+- Sprite pixels are still worked out once per line, at dot 1, and merged
+  per pixel. Sprite 0 hit is set at the pixel where it happens, which is
+  the same dot the old "work it out in advance" code used, so the
+  separate `sprite0_line`/`sprite0_dot` bookkeeping is gone.
+
+All 123 tests pass; all 11 pictures and both sounds are identical;
+nestest exact. Speed: nes15 6000 frames 3.9-4.1 s (was 3.5), spritecans
+4.0-4.2 s (was 3.7-3.9): about 8-13% slower, still about 25 times
+faster than a real console, so no fast path is needed.
+
+First look at a mid-line effect: `nmi_sync`'s demo now draws its middle
+line (greyscale turned on mid-line), but it starts at x = 84 where the
+reference lines start at 80: about one CPU cycle late. For step 4.
 
 ### 3. Sprites fetched at the real dots, sprite 0 hit per pixel
 Sprite patterns fetched at dots 257-320, merged per pixel; sprite 0 hit
