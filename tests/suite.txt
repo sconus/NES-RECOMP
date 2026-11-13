@@ -111,6 +111,11 @@ result 60 tests/vrc6_24.nes
 result 60 tests/vrc6_26.nes
 tones 700 tests/vrc6_tones_24.nes 440.4@1,440.4@1.000,440.4@0.467,440.4@0.927,440.4@0.578,440.4@1.000,440.4@1.000,439.3@1.458,439.3@0.717
 tones 700 tests/vrc6_tones_26.nes 440.4@1,440.4@1.000,440.4@0.467,440.4@0.927,440.4@0.578,440.4@1.000,440.4@1.000,439.3@1.458,439.3@0.717
+# Sunsoft FME-7 / 5B (mapper 69; make_fme7_test.py): banking and IRQ, and
+# the 5B's tones, volume curve and envelope (loudness only between 5B notes:
+# its level against the APU isn't documented).
+result 60 tests/fme7.nes
+tones 700 tests/fme7_tones.nes 440.4@1,440.4@-,440.4@0.501/2,440.4@0.178/2,440.4@1/2,440.4@1/2,437.0@0.570/2,437.0@0.548/2
 
 # --- Mapper 66 (GxROM) and 11 (Color Dreams). tests/gxrom_switch.nes (from
 # make_gxrom_test.py) checks PRG and CHR switching and bus conflicts.

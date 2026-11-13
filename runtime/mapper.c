@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 #include "cart.h"
 #include "mapper.h"
 #include "ppu.h"
@@ -744,6 +745,182 @@ static void vrc6_reset(void) {
     mapper.audio_step = vrc6_audio_step;
 }
 
+/* ---- 69: Sunsoft FME-7, with the 5B's sound (nesdev wiki "Sunsoft
+   FME-7", "Sunsoft 5B audio"). $8000 selects a command, $A000 runs it:
+     $0-$7  1 KB CHR banks
+     $8     $6000: ERbBBBBB, bit 6 RAM (else ROM), bit 7 RAM enable (RAM
+            selected but not enabled reads open bus)
+     $9-$B  8 KB PRG banks at $8000, $A000, $C000 ($E000: the last bank)
+     $C     mirroring: vertical, horizontal, one-screen low, high
+     $D     IRQ: bit 7 counter on, bit 0 IRQ on; any write acknowledges
+     $E/$F  IRQ counter low/high: counts down every CPU cycle while on,
+            IRQ when it wraps from $0000 to $FFFF
+   5B sound: $C000 selects register 0-15 (writes to $E000 are ignored if
+   its top 4 bits aren't 0), $E000 writes it. A YM2149:
+     $0-$5  tone periods A, B, C (12 bits): CPU / (32 * period)
+     $6     noise period (5 bits): a 17-bit LFSR stepped every 32 * P
+     $7     1 disables: bits 0-2 tone A-C, bits 3-5 noise A-C
+     $8-$A  ---E VVVV: E = use the envelope, else volume V
+     $B/$C  envelope period (16 bits): a step every 16 * P cycles, 32
+            steps a ramp
+     $D     envelope shape: continue, attack, alternate, hold
+   A period of 0 acts as 1. Each channel outputs its level when (tone or
+   tone off) and (noise or noise off); levels go through a 5-bit log DAC,
+   1.5 dB a step, where volume V is level 2V + 1 and levels 0-1 are
+   silent. How loud the 5B is against the APU isn't documented ("very
+   loud", through a non-linear amplifier); here one channel at full
+   volume equals an APU pulse at full volume. ------------------------ */
+
+static struct {
+    uint8_t command, irq_ctrl;
+    uint16_t irq_counter;
+    uint64_t irq_time;              /* cycle irq_counter is valid at */
+    /* 5B */
+    uint8_t select, regs[16];
+    uint32_t tone_timer[3], noise_timer, env_timer, lfsr;
+    uint8_t tone_out[3];
+    uint8_t env_step, env_flip, env_holding;
+} fme;
+
+static float fme_dac[32];
+
+static void fme_irq_catch_up(void) {
+    uint64_t now = cycles;
+    if (fme.irq_ctrl & 0x80) {
+        uint64_t elapsed = now - fme.irq_time;
+        if (elapsed > fme.irq_counter) {        /* wrapped past 0 */
+            uint64_t at = fme.irq_time + fme.irq_counter + 1;
+            if (fme.irq_ctrl & 1) cpu_set_irq_at(IRQ_MAPPER, 1, at * 3);
+        }
+        fme.irq_counter = (uint16_t)(fme.irq_counter - elapsed);
+    }
+    fme.irq_time = now;
+}
+
+static void fme_irq_schedule(void) {
+    if ((fme.irq_ctrl & 0x81) == 0x81)
+        schedule_event(fme.irq_time + fme.irq_counter + 1);
+}
+
+static void fme_set_6000(uint8_t v) {
+    if (v & 0x40) {                             /* RAM */
+        mapper.ram6000 = cart.prg_ram;
+        mapper.prg_ram_disabled = !(v & 0x80);
+        mapper.prg_ram_readonly = 0;
+    } else {                                    /* ROM, read-only */
+        mapper.ram6000 = cart.prg + (size_t)((v & 0x3F) % prg_banks_8k()) * 0x2000;
+        mapper.prg_ram_disabled = 0;
+        mapper.prg_ram_readonly = 1;
+    }
+}
+
+/* The envelope's level (0-31) and its next step. */
+static int fme_env_level(void) {
+    int attack = (fme.regs[13] >> 2) & 1;
+    if (fme.env_holding && !(fme.regs[13] & 8)) return 0;   /* shapes 0-7 */
+    return (attack ^ fme.env_flip) ? fme.env_step : 31 - fme.env_step;
+}
+
+static void fme_env_clock(void) {
+    if (fme.env_holding) return;
+    if (++fme.env_step < 32) return;
+    uint8_t shape = fme.regs[13];
+    if (!(shape & 8)) { fme.env_holding = 1; return; }      /* drop to 0 */
+    if (shape & 1) {                                        /* hold */
+        fme.env_holding = 1;
+        fme.env_step = 31;
+        if (shape & 2) fme.env_flip ^= 1;
+    } else {
+        fme.env_step = 0;
+        if (shape & 2) fme.env_flip ^= 1;                   /* alternate */
+    }
+}
+
+static float fme_audio_step(void) {
+    uint8_t *r = fme.regs;
+    for (int c = 0; c < 3; c++) {
+        if (fme.tone_timer[c] == 0) {
+            uint32_t p = (uint32_t)(r[c * 2] | (r[c * 2 + 1] & 0x0F) << 8);
+            fme.tone_timer[c] = 16 * (p ? p : 1) - 1;
+            fme.tone_out[c] ^= 1;
+        } else {
+            fme.tone_timer[c]--;
+        }
+    }
+    if (fme.noise_timer == 0) {
+        uint32_t p = r[6] & 0x1F;
+        fme.noise_timer = 32 * (p ? p : 1) - 1;
+        uint32_t bit = (fme.lfsr ^ (fme.lfsr >> 3)) & 1;
+        fme.lfsr = fme.lfsr >> 1 | bit << 16;
+    } else {
+        fme.noise_timer--;
+    }
+    if (fme.env_timer == 0) {
+        uint32_t p = (uint32_t)(r[11] | r[12] << 8);
+        fme.env_timer = 16 * (p ? p : 1) - 1;
+        fme_env_clock();
+    } else {
+        fme.env_timer--;
+    }
+    float out = 0;
+    int noise = fme.lfsr & 1;
+    for (int c = 0; c < 3; c++) {
+        int tone_on = !(r[7] >> c & 1), noise_on = !(r[7] >> (c + 3) & 1);
+        if ((fme.tone_out[c] || !tone_on) && (noise || !noise_on)) {
+            int level = (r[8 + c] & 0x10) ? fme_env_level()
+                      : (r[8 + c] & 15) ? (r[8 + c] & 15) * 2 + 1 : 0;
+            out += fme_dac[level];
+        }
+    }
+    return out;
+}
+
+static void fme_write(uint16_t addr, uint8_t val) {
+    switch (addr & 0xE000) {
+    case 0x8000: fme.command = val & 0x0F; break;
+    case 0xA000: {
+        uint8_t c = fme.command;
+        if (c < 8) set_chr_1k(c, val);
+        else if (c == 8) fme_set_6000(val);
+        else if (c < 0x0C) set_prg_8k(c - 9, val & 0x3F);
+        else if (c == 0x0C) {
+            static const enum mirroring mir[4] = {
+                MIRROR_VERTICAL, MIRROR_HORIZONTAL, MIRROR_SINGLE_LOW, MIRROR_SINGLE_HIGH };
+            cart.mirroring = mir[val & 3];
+        } else {
+            fme_irq_catch_up();
+            if (c == 0x0D) { fme.irq_ctrl = val; cpu_set_irq(IRQ_MAPPER, 0); }
+            else if (c == 0x0E) fme.irq_counter = (uint16_t)((fme.irq_counter & 0xFF00) | val);
+            else fme.irq_counter = (uint16_t)((fme.irq_counter & 0x00FF) | val << 8);
+        }
+        break;
+    }
+    case 0xC000: fme.select = val; break;
+    case 0xE000:
+        if (fme.select & 0xF0) break;
+        apu_catch_up();             /* the change lands on this cycle */
+        fme.regs[fme.select & 15] = val;
+        if ((fme.select & 15) == 13) {          /* new shape: restart */
+            fme.env_step = 0;
+            fme.env_flip = 0;
+            fme.env_holding = 0;
+        }
+        break;
+    }
+}
+
+static void fme_reset(void) {
+    memset(&fme, 0, sizeof fme);
+    fme.lfsr = 1;
+    fme.irq_time = cycles;
+    for (int n = 2; n < 32; n++)    /* 1.5 dB a step; full scale = APU pulse */
+        fme_dac[n] = 0.1494f * powf(10.0f, (n - 31) * 1.5f / 20.0f);
+    set_prg_8k(0, 0); set_prg_8k(1, 1); set_prg_8k(2, 2); set_prg_8k(3, -1);
+    mapper.catch_up = fme_irq_catch_up;
+    mapper.schedule = fme_irq_schedule;
+    mapper.audio_step = fme_audio_step;
+}
+
 /* ---- 1: MMC1. Registers are loaded one bit at a time. -----------------
 
    Each write to $8000-$FFFF shifts bit 0 into a 5-bit register; the fifth
@@ -926,6 +1103,7 @@ void mapper_init(void) {
     case 21: case 23: case 25:
         mapper.name = "VRC4"; write_reg = vrc_write; vrc_reset();
         break;
+    case 69: mapper.name = "FME-7"; write_reg = fme_write; fme_reset(); break;
     case 24: case 26:
         mapper.name = "VRC6"; write_reg = vrc6_write; vrc6_reset();
         break;

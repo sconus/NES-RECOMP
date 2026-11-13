@@ -115,11 +115,38 @@ sawtooth at two rates). Breaking the duty comparison, the sawtooth's
 cycle length or add rhythm, the `$9003` shift, the output level, or
 mapper 26's line swap each fails a check.
 
-### 3. Sunsoft FME-7 and 5B (69)
+### 3. Sunsoft FME-7 and 5B (69) (done)
 Banking (four 8 KB PRG slots including RAM or ROM at `$6000`, eight
 1 KB CHR banks, mirroring) and the 16-bit CPU-cycle IRQ counter; then the
 5B's three square channels: 12-bit period, logarithmic volume, tone and
 noise enables, and the envelope generator. Check: tones and the IRQ.
+
+Done (`fme_*` in `runtime/mapper.c`), from the nesdev wiki's "Sunsoft
+FME-7" and "Sunsoft 5B audio":
+- Banking through the command/parameter pair: eight 1 KB CHR banks,
+  three 8 KB PRG banks (`$E000` fixed), mirroring, and `$6000` as a ROM
+  bank (read-only) or RAM (with its enable bit).
+- The IRQ: a 16-bit counter counting down every CPU cycle, firing when
+  it wraps past 0, worked out from the elapsed cycles (catch_up/
+  schedule hooks, like VRC4's); any write to command D acknowledges.
+- The 5B (`fme_audio_step`): three tones at CPU / (32 P), the 17-bit
+  noise LFSR, the 32-step envelope with all its shapes, the mixer's
+  enables (a channel with tone and noise both off outputs its level
+  constantly), and the 5-bit log DAC at 1.5 dB a step (volume V is level
+  2V + 1).
+- The 5B's loudness against the APU isn't documented (the wiki says it's
+  "very loud" and goes through a non-linear amplifier, still being
+  investigated). Here a full channel equals a full APU pulse; the tones
+  check only compares 5B notes with each other, so this choice is
+  unverified.
+
+Checks: `tests/fme7.nes` (PRG and `$6000` banks, RAM, CHR, mirroring,
+IRQ timing) and `tests/fme7_tones.nes` (three volumes on the log curve:
+0.501 and 0.178 measured and expected; channels B and C; the envelope's
+sawtooth and triangle: 0.564 and 0.550 measured, 0.570 and 0.548
+expected, pitches exact). Breaking the log DAC, the tone or envelope
+rate, the envelope's alternate bit, the tone-off constant output, the
+`$6000` ROM select or the IRQ counter each fails a check.
 
 ### 4. Namco 163 (19)
 Banking (8 KB PRG, 1 KB CHR including the nametable RAM choices) and its
