@@ -23,9 +23,11 @@
 struct nsf {
     int songs, start_song;          /* start_song counts from 1 */
     uint16_t load, init, play;
-    unsigned speed_ntsc;            /* play period, microseconds */
+    unsigned speed_ntsc, speed_pal; /* play period, microseconds */
     uint8_t banks[8], pal_flags, chips;
     int banked;                     /* bank switching at $5FF8-$5FFF */
+    int pal_only;                   /* made for PAL consoles only */
+    int song;                       /* playing now, from 1 */
     char title[33], artist[33], copyright[33];
 };
 extern struct nsf nsf;
@@ -36,8 +38,16 @@ extern struct nsf nsf;
 void nsf_load(const char *path, FILE *f);
 void nsf_print_info(const char *path);
 /* Set up the driver for song (1-based; 0 = the header's start song) and
-   return the address to start the CPU at. */
+   return the address to start the CPU at. The play timer runs at the
+   header's NTSC rate, or its PAL rate for an NSF made only for PAL (the
+   console is still an NTSC one, so such music plays at PAL speed but
+   about 7% sharp). A rate of 0 in the header means 60 Hz. */
 uint16_t nsf_start(int song);
+/* The play period the driver uses, in microseconds. */
+unsigned nsf_play_period_us(void);
+/* Draw the NSF's screen (title, artist, song, time) into a 256x240
+   frame: `frames` is how long the song has been playing. */
+void nsf_draw(uint16_t *fb, long frames);
 /* Set up the program's slots (from mapper_init). */
 void nsf_mapper_reset(void);
 /* $4020-$5FFF for the NSF "mapper": the driver, its play timer, and the

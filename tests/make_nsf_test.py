@@ -20,6 +20,17 @@ Twelve banks, each with its number at offset $FF0. The test runs in init
    5  code at $A000 switching its own slot ($5FFA) didn't carry on in
       the new bank's code
    6  the load offset: the file's first byte isn't at $x100 of bank 0
+
+tests/nsf_rate.nsf and tests/nsf_rate_pal.nsf: the play rate, for the
+"tones" check. Each play call flips the DMC's output level ($4011)
+between $00 and $40, so the sound is a square wave at half the play
+rate; then, after a pause, the same flipping every second call, at a
+quarter of the rate. The header asks for a play call every 1136 us
+(880 Hz, so notes of 440.1 and 220.1 Hz):
+  nsf_rate.nsf      NTSC field 1136 us, PAL field 3000 us, an NTSC NSF
+  nsf_rate_pal.nsf  NTSC field 3000 us, PAL field 1136 us, PAL only:
+                    the PAL rate must be used
+A player using the wrong field plays 166.7 and 83.3 Hz.
 """
 import os
 import sys
@@ -111,11 +122,91 @@ def build():
     return bytes(header) + bytes(image[LOAD & 0xFFF:])
 
 
+RATE_US = 1136
+OTHER_US = 3000
+STATE, LEFT, LEVEL = 0x10, 0x11, 0x13   # zero page: phase, calls left (16 bits)
+
+
+def rate_nsf(ntsc_us, pal_us, pal_only):
+    calls = 1e6 / RATE_US                       # play calls a second
+    phases = [int(0.5 * calls), int(0.3 * calls), int(0.5 * calls)]
+    a = Asm(0x8000)
+    a.label("init")
+    a.lda(0); a.b(0x85, STATE, 0x85, LEVEL)
+    a.lda(phases[0] & 0xFF); a.b(0x85, LEFT)
+    a.lda(phases[0] >> 8); a.b(0x85, LEFT + 1)
+    a.rts()
+
+    a.label("flip")                             # LEVEL ^= $40 -> $4011
+    a.b(0xA5, LEVEL, 0x49, 0x40, 0x85, LEVEL); a.sta(0x4011)
+    a.rts()
+
+    a.label("play")
+    a.b(0xA5, STATE)                            # LDA STATE
+    a.cmp(0); a.bne("not0")
+    a.jsr_label("flip")                         # note 1: every call
+    a.b(0x4C); a.fix.append((len(a.code), "tick")); a.b(0, 0)
+    a.label("not0")
+    a.cmp(2); a.bne("tick")                     # 1: the pause
+    a.b(0xA5, LEFT, 0x29, 0x01)                 # note 2: every second call
+    a.bne("tick")
+    a.jsr_label("flip")
+    a.label("tick")                             # 16-bit LEFT -= 1
+    a.b(0xA5, STATE); a.cmp(3); a.bne("count")
+    a.rts()                                     # 3: done, silent
+    a.label("count")
+    a.b(0xA5, LEFT); a.bne("low")
+    a.b(0xC6, LEFT + 1)                         # DEC LEFT+1
+    a.label("low")
+    a.b(0xC6, LEFT)                             # DEC LEFT
+    a.b(0xA5, LEFT, 0x05, LEFT + 1)             # LDA LEFT; ORA LEFT+1
+    a.bne("out")
+    a.b(0xE6, STATE)                            # next phase
+    a.b(0xA6, STATE)                            # LDX STATE
+    a.b(0xBD); a.fix.append((len(a.code), "lo")); a.b(0, 0)   # LDA lo,X
+    a.b(0x85, LEFT)
+    a.b(0xBD); a.fix.append((len(a.code), "hi")); a.b(0, 0)   # LDA hi,X
+    a.b(0x85, LEFT + 1)
+    a.label("out")
+    a.rts()
+    a.label("lo")
+    a.b(*[p & 0xFF for p in phases], 1)
+    a.label("hi")
+    a.b(*[p >> 8 for p in phases], 0)
+    a.label("vector")
+    a.b(0x40)
+    code = a.done()
+
+    prg = bytearray(0x8000)
+    prg[:len(code)] = code
+    t = a.labels["vector"]
+    for vec in (0x7FFA, 0x7FFC, 0x7FFE):
+        prg[vec], prg[vec + 1] = t & 0xFF, t >> 8
+    header = bytearray(0x80)
+    header[0:5] = b"NESM\x1a"
+    header[5], header[6], header[7] = 1, 1, 1
+    for at, v in ((8, 0x8000), (10, a.labels["init"]), (12, a.labels["play"]),
+                  (0x6E, ntsc_us), (0x78, pal_us)):
+        header[at], header[at + 1] = v & 0xFF, v >> 8
+    header[0x0E:0x0E + 8] = b"nsf_rate"
+    header[0x2E:0x2E + 9] = b"nesrecomp"
+    header[0x7A] = 1 if pal_only else 0
+    return bytes(header) + bytes(prg)
+
+
 def main():
     path = os.path.join(HERE, "nsf_banks.nsf")
     with open(path, "wb") as f:
         f.write(build())
     print("wrote", path)
+    for name, ntsc, pal, pal_only in (("nsf_rate", RATE_US, OTHER_US, False),
+                                      ("nsf_rate_pal", OTHER_US, RATE_US, True)):
+        path = os.path.join(HERE, name + ".nsf")
+        with open(path, "wb") as f:
+            f.write(rate_nsf(ntsc, pal, pal_only))
+        print("wrote", path)
+    hz = 1e6 / RATE_US
+    print("expected: %.1f@1,%.1f@-" % (hz / 2, hz / 4))
 
 
 if __name__ == "__main__":

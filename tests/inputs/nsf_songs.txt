@@ -1,0 +1,9 @@
+# For other/dnsf2_enginetest3.nsf: change song with controller 1's
+# Left and Right (it starts on song 5): song 6, then 1 (wrapping round),
+# then back to 6.
+120 right
+130
+240 right
+250
+360 left
+370

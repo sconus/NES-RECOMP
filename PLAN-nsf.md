@@ -133,7 +133,7 @@ Done.
   byte-identical C. Results: 156 of 157 graded tests (test28 the only
   failure), nestest exact.
 
-### 3. Playing music
+### 3. Playing music (done)
 - A window showing the title, artist, copyright and song number;
   left/right to change song, R to restart it, M to mute.
 - The play rate from the header (NTSC field; PAL with the PAL flag).
@@ -141,6 +141,49 @@ Done.
   call, so the note's pitch measures the play rate (through the `tones`
   check), at the default 60 Hz and at an unusual rate. The engine
   test's songs recorded as `audio` regression checks.
+
+Done.
+- The screen (`nsf_draw` in `nsf.c`): "NSF MUSIC", the title, artist and
+  copyright, "SONG n OF m", the time the song has played, and the keys,
+  drawn with a small built-in 5x7 font (upper case; lower case is shown
+  as upper case). The window is named after the title. `--screenshot`
+  saves this screen for an NSF.
+- Song changes: controller 1's Left and Right (the arrow keys, a game
+  controller, or an input script) step through the songs, wrapping
+  round. R restarts the song. Both go through the reset button: for an
+  NSF, reset clears RAM ($0000-$07FF and $6000-$7FFF, as a player does
+  before init) and starts the driver again with the chosen song
+  (`cpu_reset_target` in `main.c`, used by `take_interrupt` in place of
+  reading $FFFC).
+- The play rate: the header's NTSC field, or its PAL field for an NSF
+  marked PAL-only, which is also told it's on PAL (X = 1). The console is
+  still NTSC, so such music plays at PAL speed but about 7% sharp;
+  `--info` says so. 0 in the field means 60 Hz.
+- The default 60 Hz couldn't be checked with a tone as planned: a play
+  routine flipping the level 60 times a second makes a 30 Hz wave, below
+  what the output filters let through cleanly. The rate tests use a fast
+  rate instead (1136 us, 880 calls a second), so the note's pitch shows
+  the rate exactly; the usual rate is covered by the engine test
+  recordings.
+- Checks:
+  - `tests/nsf_rate.nsf` and `nsf_rate_pal.nsf` (`make_nsf_test.py`):
+    notes of 440.1 and 220.1 Hz pass the `tones` check. Using the NTSC
+    field for the PAL-only one gives 166.7 Hz; a fixed 60 Hz gives 60.1.
+  - The engine test's songs 2-6 recorded (`audio`), and one recording
+    changing songs from a script (5 to 6, round to 1, back to 6).
+    Not clearing RAM on a song change, or not wrapping round, each
+    change that recording.
+  - After a song change, the sound registers get exactly the same 1032
+    writes as when that song is started fresh (checked by logging the
+    writes). The sound itself only correlates 0.66 with the fresh
+    start, since the noise channel's random generator and other channel
+    phases carry on across a restart, as they would on a hardware
+    player.
+  - A screenshot of the screen, before and after scripted song changes,
+    checked by eye.
+- Results: 158 of 159 graded tests (test28 the only failure), 8 sounds
+  checked, nestest exact; the ROM reset tests pass through the changed
+  reset path.
 
 ### 4. Expansion chips in NSFs
 - Turn on the chips the header lists, at their NSF addresses, using the

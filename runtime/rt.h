@@ -29,6 +29,9 @@ void note_missed(uint16_t addr);
 int interp_step(void);
 void trace_step(uint16_t addr);
 void recomp_run(uint16_t start);
+/* Where the reset button sends the CPU: the reset vector, or for an NSF
+   the start of the driver, after clearing RAM (main.c). */
+uint16_t cpu_reset_target(void);
 /* Called when cycles >= next_event, between two instructions. Brings the
    hardware up to date, sets a new next_event, and returns the vector of an
    interrupt to take now ($FFFA for NMI, $FFFE for IRQ) or 0 for none. */
@@ -86,7 +89,7 @@ static inline void take_interrupt(uint16_t vector) {
            stack writes are turned into reads, so only SP moves. */
         SP -= 3;
         I = 1;
-        pc = rd(0xFFFC) | (rd(0xFFFD) << 8);
+        pc = cpu_reset_target();
         cycles += 7;
         return;
     }

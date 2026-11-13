@@ -56,6 +56,19 @@ result 3000 nes_instr_test/nsf_singles/11-special.nsf
 # tests/nsf_banks.nsf (make_nsf_test.py): 4 KB bank switching at
 # $5FF8-$5FFF, the header's starting banks and the load offset.
 result 300 tests/nsf_banks.nsf
+# tests/nsf_rate*.nsf (make_nsf_test.py): each play call flips the DMC
+# level, so the pitch is half the play rate. The header asks for 1136 us
+# (880 calls a second); the PAL-only one has it in the PAL field.
+tones 150 tests/nsf_rate.nsf 440.1@1,220.1@-
+tones 150 tests/nsf_rate_pal.nsf 440.1@1,220.1@-
+# "The Amazing Engine Test" (Drag): its songs, recorded (song 1 is
+# silent on purpose), and changing song from controller 1.
+audio 300 other/dnsf2_enginetest3.nsf --song=2
+audio 300 other/dnsf2_enginetest3.nsf --song=3
+audio 300 other/dnsf2_enginetest3.nsf --song=4
+audio 300 other/dnsf2_enginetest3.nsf --song=5
+audio 300 other/dnsf2_enginetest3.nsf --song=6
+audio 480 other/dnsf2_enginetest3.nsf tests/inputs/nsf_songs.txt
 
 # --- PPU, $6000 harness
 result 3000 ppu_vbl_nmi/rom_singles/01-vbl_basics.nes

@@ -27,6 +27,14 @@ nes_instr_test/nsf_singles/09-branches.nsf	pass
 nes_instr_test/nsf_singles/10-stack.nsf	pass
 nes_instr_test/nsf_singles/11-special.nsf	pass
 tests/nsf_banks.nsf	pass
+tests/nsf_rate.nsf	pass
+tests/nsf_rate_pal.nsf	pass
+other/dnsf2_enginetest3.nsf --song=2 (sound)	audio:1ce0cb9b
+other/dnsf2_enginetest3.nsf --song=3 (sound)	audio:8459b1df
+other/dnsf2_enginetest3.nsf --song=4 (sound)	audio:9ba6ebc6
+other/dnsf2_enginetest3.nsf --song=5 (sound)	audio:2c214a27
+other/dnsf2_enginetest3.nsf --song=6 (sound)	audio:2c4359b1
+other/dnsf2_enginetest3.nsf +nsf_songs.txt (sound)	audio:fca026fd
 ppu_vbl_nmi/rom_singles/01-vbl_basics.nes	pass
 ppu_vbl_nmi/rom_singles/02-vbl_set_time.nes	pass
 ppu_vbl_nmi/rom_singles/03-vbl_clear_time.nes	pass

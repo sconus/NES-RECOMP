@@ -74,6 +74,20 @@ void wr(uint16_t a, uint8_t v) {
     }
 }
 
+/* An NSF's "reset" starts the current song again from the driver, with
+   RAM cleared as an NSF player clears it before init. Changing song
+   sets nsf_next_song and resets. */
+static int nsf_next_song;
+static long song_frames;            /* how long the song has played */
+
+uint16_t cpu_reset_target(void) {
+    if (cart.mapper != MAPPER_NSF) return rd(0xFFFC) | (rd(0xFFFD) << 8);
+    memset(ram, 0, sizeof ram);
+    memset(cart.prg_ram, 0, sizeof cart.prg_ram);
+    song_frames = 0;
+    return nsf_start(nsf_next_song ? nsf_next_song : nsf.song);
+}
+
 void trace_step(uint16_t a) {
     if (check_cycles) cycle_check_step(a);
     printf("%04X A:%02X X:%02X Y:%02X P:%02X SP:%02X CYC:%llu\n",
@@ -264,7 +278,26 @@ static void finish_run(const uint16_t *fb) {
     exit(0);
 }
 
-static void frame_done(const uint16_t *fb) {
+/* NSF: a song change from controller 1 (keyboard arrows, a game
+   controller or a script): Left and Right step through the songs. */
+static void nsf_controls(void) {
+    static uint8_t held;
+    uint8_t now = pad_buttons[0], pressed = (uint8_t)(now & ~held);
+    held = now;
+    int step = (pressed & BTN_RIGHT) ? 1 : (pressed & BTN_LEFT) ? -1 : 0;
+    if (!step) return;
+    nsf_next_song = (nsf.song - 1 + step + nsf.songs) % nsf.songs + 1;
+    cpu_request_reset();
+}
+
+static void frame_done(const uint16_t *ppu_fb) {
+    /* An NSF has no picture of its own: show its screen instead. */
+    static uint16_t nsf_screen[256 * 240];
+    const uint16_t *fb = ppu_fb;
+    if (cart.mapper == MAPPER_NSF) {
+        nsf_draw(nsf_screen, song_frames++);
+        fb = nsf_screen;
+    }
     if (wav_path || speakers) drain_sound();
     if (audio_stats && ppu.frame % 60 == 0)
         fprintf(stderr, "frame %llu: %d samples queued\n",
@@ -277,6 +310,7 @@ static void frame_done(const uint16_t *fb) {
     }
     for (int p = 0; p < 2; p++)
         pad_buttons[p] = script_buttons[p] | (headless ? 0 : video_buttons(p));
+    if (cart.mapper == MAPPER_NSF) nsf_controls();
     if (stop_after_frames && (long)ppu.frame >= stop_after_frames)
         finish_run(fb);
     /* Headless runs stop as soon as a $6000 test reports its result. */
@@ -354,7 +388,10 @@ int main(int argc, char **argv) {
         else usage(argv[0]);
     }
     /* An NSF has no reset vector: the runtime's driver calls its routines. */
-    if (cart.mapper == MAPPER_NSF) start = nsf_start(song);
+    if (cart.mapper == MAPPER_NSF) {
+        start = nsf_start(song);
+        nsf_next_song = nsf.song;
+    }
     if ((screenshot_path || dump_text) && !stop_after_frames) {
         fprintf(stderr, "--screenshot and --dump-text need --frames N\n");
         return 1;
@@ -368,7 +405,9 @@ int main(int argc, char **argv) {
     palette_init();
     if (!headless) {
         const char *name = strrchr(rom_path, '/');
-        video_init(scale < 1 ? 1 : scale, name ? name + 1 : rom_path);
+        name = name ? name + 1 : rom_path;
+        if (cart.mapper == MAPPER_NSF && nsf.title[0]) name = nsf.title;
+        video_init(scale < 1 ? 1 : scale, name);
     }
     atexit(at_exit);
     ppu_frame_done = frame_done;
