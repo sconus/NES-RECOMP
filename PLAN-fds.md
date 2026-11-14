@@ -470,6 +470,79 @@ the same C as before.
   (polling and by IRQ), checks the CRC flag, and writes a block back.
   Break each part.
 
+- Done:
+  - **The stream.** The drive sees a side as a stream of bytes built
+    from the image:
+    - a leading gap of 28300 bits (3537 zero bytes);
+    - then each block as the gap's end mark `$80`, the block, its CRC
+      (low byte first), and a gap of 976 bits (122 bytes);
+    - then the side's remaining room, as gap.
+
+    The CRC is CRC-16/KERMIT over the mark and the block, as the wiki
+    says. One byte passes every 149⅓ cycles, kept exact in PPU dots
+    (448).
+  - **The registers:**
+    - `$4025`: bit 0 = 0 is the transfer reset (the head goes back to
+      the start); the head moves while bits 1-0 are `01`; bit 2 picks
+      read or write; bit 4 is for the CRC; bits 5 and 6 must both be
+      set for a transfer; bit 7 is the IRQ.
+    - `$4030` gives the transfer flag (bit 7), the CRC error (bit 4) and
+      end of head (bit 6). Reading it acknowledges only the timer.
+    - `$4031` (read) and `$4024` (write) clear the flag.
+    - `$4032` bit 1 (not ready) is 0 only while the head moves.
+    - The transfer IRQ has its own source bit, `IRQ_DISK`, so the timer
+      and the drive don't clear each other's IRQ.
+  - **Reading:** with bit 6 set, the first nonzero byte ends the gap.
+    That byte is the mark, and it isn't handed over. Each byte after it
+    goes to `$4031` and raises the flag. With bit 4 set, `$4030` bit 4
+    says whether the CRC so far came out wrong.
+  - **Writing:** with bit 6 set, each byte time writes `$4024`. With
+    bit 4 also set, it writes the CRC (two bytes) and then zeros. With
+    bit 6 clear, it writes zeros, which is how gaps are written.
+  - **Writes reach the image:** what the drive wrote goes back into the
+    image (blocks only, without the gaps and CRCs) when the head stops
+    or resets, before a BIOS file routine, and at exit. A side changed
+    in the image (by a file routine or a `.sav`) is rebuilt into a
+    stream the next time the motor starts.
+  - **Choices where the wiki is open,** all written in `runtime/fds.c`:
+    - bit 0 as a transfer reset;
+    - finding a block by the first nonzero byte;
+    - the CRC low byte first;
+    - no spin-up time;
+    - the head stopping at the end of the side until a transfer reset;
+    - the transfer flag not cleared by `$4025` writes. The wiki only
+      names `$4031` and `$4024`. So bytes keep coming after a block's
+      CRC while bit 6 is on, and a program has to read `$4031` once
+      before it waits for the next block.
+  - **`make_fds_drive_test.py`** writes `fds_drive.fds`, 12 checks:
+    - the ready flag;
+    - the leading gap's length, timed;
+    - the byte time;
+    - blocks 1 and 2, read by polling;
+    - `$4030` not clearing the transfer flag, and `$4031` clearing it;
+    - the CRC checked a byte early, flagged bad;
+    - a data block read by IRQ (through the BIOS's `$0101` = `$C0`);
+    - a data block rewritten through `$4024`: the gap, the mark, the
+      block, the CRC, and a gap over the old block. LoadFiles then
+      loads the new bytes, and the drive reads them back with a good
+      CRC;
+    - end of head, not ready, and a transfer reset back to block 1;
+    - no bytes with bit 5 clear.
+
+    3.9 million instructions ran translated, 0 interpreted.
+  - **The leftover transfer flag,** found while testing: the test read
+    a stale byte as a block's first. The behaviour stays, as the wiki
+    describes it; the test now clears the flag first, as noted above.
+  - **Breaks, 23 tried, all caught.** Two only after fixes:
+    - "bit 5 not needed" needed check 12;
+    - "bit 6 off doesn't wait for a mark" had to break both places
+      that reset the wait.
+  - **Not covered by any test here:** the BIOS's own disk IRQ modes
+    (`$0101` = `$00`, `$40`). They still only acknowledge, since the
+    BIOS's file routines don't use the drive.
+  - 218 of 219 (test28 as always); nestest exact; all 319 earlier
+    files give the same C.
+
 ### 6. The BIOS's other routines, a demo, README
 - The documented helpers: delays, VINTWait, the PPUMASK routines,
   the VRAM buffer and structures, VRAMFill, MemFill, SetScroll,

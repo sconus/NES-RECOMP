@@ -13,6 +13,7 @@ void cpu_cancel_nmi(void);
 /* IRQ sources. Each holds the shared IRQ line active until it lets go. */
 #define IRQ_MAPPER 1u
 #define IRQ_APU    2u
+#define IRQ_DISK   4u     /* the FDS drive's byte transfer (the timer is IRQ_MAPPER) */
 void cpu_set_irq(unsigned source, int active);
 /* The same, saying when it happened (in PPU dots, cycles * 3), for
    sources that run on their own clock (the APU). */

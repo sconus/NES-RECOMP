@@ -272,6 +272,10 @@ result 60 tests/fds_nsf_code_banks.nsf --translated=99
 # GetDiskInfo) against a two-side disk, their error numbers, code loaded
 # over code, and a side change from the input script.
 result 300 tests/fds_files.fds tests/inputs/fds_files.txt --translated=99
+# tests/fds_drive.fds (make_fds_drive_test.py): the drive's registers,
+# byte by byte: blocks read by polling and by IRQ, the gaps and the byte
+# time, the CRC flag, a block written back, the end of the side.
+result 1200 tests/fds_drive.fds --translated=99
 
 # --- PPU, result on screen only (power_up_palette is left out: it checks
 #     values unique to its author's console)

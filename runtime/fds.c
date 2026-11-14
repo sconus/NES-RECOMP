@@ -275,6 +275,7 @@ static struct {
     int ejected;
     int insert_side, insert_wait;   /* a side change from a key */
     int changed;                    /* written since loading */
+    unsigned gen;                   /* counts changes to the image */
     uint8_t arg, res_a, res_y;      /* ARG, RESULT_Y */
     uint16_t reload, counter;
     uint8_t timer_on, repeat, irq;
@@ -314,6 +315,10 @@ static int files_in(const uint8_t *s, struct fds_file *out, int max) {
 }
 
 static uint8_t *side_at(int side) { return fds.image + (size_t)side * SIDE_BYTES; }
+
+static void image_changed(void) { fds.changed = 1; fds.gen++; }
+static void drive_flush(void);
+static void drive_stop(void);
 
 static int side_files(int side, struct fds_file *out, int max) {
     return files_in(side_at(side), out, max);
@@ -393,12 +398,14 @@ void fds_load_save(const char *rom_path) {
         fprintf(stderr, "%s: not %d disk side(s); ignored\n", path, fds.sides);
     } else {
         memcpy(fds.image, buf, want);
+        fds.gen++;
         fprintf(stderr, "loaded the disk as saved in %s\n", path);
     }
     free(buf);
 }
 
 void fds_write_save(const char *rom_path) {
+    drive_flush();
     if (!fds.changed) return;
     char path[1024], tmp[1040];
     sav_path(path, sizeof path, rom_path);
@@ -425,6 +432,7 @@ static void say_side(void) {
 int fds_sides(void) { return fds.sides; }
 
 void fds_eject(void) {
+    drive_stop();
     fds.ejected = 1;
     fds.insert_side = -1;
     say_side();
@@ -432,6 +440,7 @@ void fds_eject(void) {
 
 void fds_insert(int side) {
     if (side < 0 || side >= fds.sides) return;
+    drive_stop();
     fds.side = side;
     fds.ejected = 0;
     fds.insert_side = -1;
@@ -546,7 +555,7 @@ static int disk_check(uint16_t id) {
 
 static void set_count(int n) {
     uint8_t *s = side_at(fds.side);
-    if (s[57] != n) { s[57] = (uint8_t)n; fds.changed = 1; }
+    if (s[57] != n) { s[57] = (uint8_t)n; image_changed(); }
 }
 
 /* WriteFile: the file the header describes, as file `pos` of the side
@@ -572,7 +581,7 @@ static int write_file(int pos, uint16_t hdr) {
         s[at + 17 + i] = vram ? ppu_mem_read((src + i) & 0x3FFF) : peek((uint16_t)(src + i));
     memset(s + at + 17 + size, 0, SIDE_BYTES - (at + 17 + size));
     s[57] = (uint8_t)(pos + 1);
-    fds.changed = 1;
+    image_changed();
     return 0;
 }
 
@@ -595,6 +604,7 @@ static void disk_info(uint16_t out) {
 }
 
 static void file_routine(int code) {
+    drive_flush();          /* what the drive wrote, into the image */
     /* The pointers after the JSR: the return address on the stack is the
        JSR's last byte. */
     static const int pointers[] = { [LOAD_FILES] = 2, [WRITE_FILE] = 2,
@@ -635,6 +645,220 @@ static void file_routine(int code) {
     fds.res_a = (uint8_t)err;
 }
 
+/* ---- the drive (nesdev wiki "Family Computer Disk System", "FDS disk
+   format"), byte by byte ----
+   The head sees a side as a stream of bytes, built from the image: a
+   gap of 28300 bits (3537 zero bytes), then each block as the gap's
+   end mark ($80, its one bit coming last), the block, its CRC (2
+   bytes, low first), and a gap of 976 bits (122 bytes); then the rest
+   of the side's room, as gap. The CRC is CRC-16/KERMIT (reflected
+   $8408, starting at 0) over the mark and the block, so a block read
+   with its CRC leaves 0. One byte passes the head every 149 1/3 CPU
+   cycles (448 PPU dots).
+   $4025, as this drive reads it:
+     bit 0  0: transfer reset, the head back to the start of the side
+     bit 1  0: motor on; the head moves while bits 1-0 are 01
+     bit 2  1 read, 0 write
+     bit 4  read: the CRC bytes come now, $4030 bit 4 checks them;
+            write: put the CRC out (2 bytes), then zeros
+     bit 5  must be 1 for any transfer
+     bit 6  0: no transfer (read: wait for the next block's mark; write:
+            zeros go out, the CRC starts again); 1: transfer
+     bit 7  IRQ on each byte (the line follows the transfer flag)
+   Reading: with bit 6 set, the first nonzero byte ends the gap (it is
+   the mark, not handed over); from then on each byte goes to $4031 and
+   raises the transfer flag ($4030 bit 7), cleared by reading $4031.
+   Writing: with bit 6 set, each byte time writes the byte in $4024
+   (latched before) and raises the flag, cleared by writing $4024.
+   At the end of the side the head stops: $4030 bit 6 (end of head) and
+   $4032 bit 1 (not ready) until a transfer reset. $4032 bit 1 is 0
+   only while the head moves. What the drive wrote goes back into the
+   image (blocks without their gaps and CRCs) when the head stops or
+   resets, before a BIOS file routine, and on exit. Where the wiki
+   leaves things open (the meaning of bit 0, how a read finds a block,
+   the CRC's byte order, a spin-up time, which here is none) this is the
+   reading that fits what it does say. */
+#define GAP_START 3537
+#define GAP 122
+#define BYTE_DOTS 448
+
+static struct {
+    uint8_t *stream;
+    size_t len, room;
+    int side;                       /* the side the stream is of, or -1 */
+    unsigned gen;                   /* fds.gen it was built from */
+    int written;                    /* the head wrote to the stream */
+    size_t pos;                     /* the next byte under the head */
+    uint64_t next;                  /* when it passes (PPU dots) */
+    int moving, at_end;
+    int gap_ended;                  /* read: a block's mark went past */
+    uint16_t crc;
+    int crc_out;                    /* write: CRC bytes put out */
+    uint8_t latch, data, flag, crc_bad;
+} drive = { .side = -1 };
+
+static uint16_t crc_add(uint16_t crc, uint8_t b) {
+    crc ^= b;
+    for (int i = 0; i < 8; i++) crc = (crc & 1) ? (uint16_t)((crc >> 1) ^ 0x8408) : (uint16_t)(crc >> 1);
+    return crc;
+}
+
+/* The blocks of a side as the image holds them: returns the length of
+   the block at `at` (0: none), from its code and the last file header. */
+static size_t block_len(const uint8_t *s, size_t at, size_t end, unsigned *size) {
+    if (at >= end) return 0;
+    size_t n;
+    switch (s[at]) {
+    case 1: n = 56; break;
+    case 2: n = 2; break;
+    case 3: n = 16; break;
+    case 4: n = 1 + (size_t)*size; break;
+    default: return 0;
+    }
+    if (at + n > end) return 0;
+    if (s[at] == 3) *size = (unsigned)(s[at + 13] | s[at + 14] << 8);
+    return n;
+}
+
+static void put(uint8_t b) { drive.stream[drive.len++] = b; }
+
+static void drive_build(void) {
+    const uint8_t *s = side_at(fds.side);
+    size_t max = GAP_START + SIDE_BYTES + (SIDE_BYTES / 3) * (3 + GAP) + GAP;
+    if (!drive.stream) drive.stream = malloc(max);
+    drive.len = 0;
+    for (int i = 0; i < GAP_START; i++) put(0);
+    size_t at = 0, n;
+    unsigned size = 0;
+    while ((n = block_len(s, at, SIDE_BYTES, &size))) {
+        uint16_t crc = crc_add(0, 0x80);
+        put(0x80);
+        for (size_t i = 0; i < n; i++) { put(s[at + i]); crc = crc_add(crc, s[at + i]); }
+        put((uint8_t)crc);
+        put((uint8_t)(crc >> 8));
+        for (int i = 0; i < GAP; i++) put(0);
+        at += n;
+    }
+    /* The rest of the side's room: as much as the image has left. */
+    for (size_t i = at; i < SIDE_BYTES && drive.len < max; i++) put(0);
+    drive.side = fds.side;
+    drive.gen = fds.gen;
+    drive.written = 0;
+}
+
+/* The stream back into the image: each block after a gap and its mark,
+   without the CRC. */
+static void drive_flush(void) {
+    if (!drive.written || drive.side < 0) return;
+    uint8_t *s = side_at(drive.side);
+    uint8_t out[SIDE_BYTES];
+    size_t at = 0, p = 0, n;
+    unsigned size = 0;
+    for (;;) {
+        while (p < drive.len && !drive.stream[p]) p++;
+        if (++p >= drive.len) break;                    /* past the mark */
+        unsigned keep = size;
+        n = block_len(drive.stream, p, drive.len, &size);
+        if (!n || at + n > SIDE_BYTES) { size = keep; break; }
+        memcpy(out + at, drive.stream + p, n);
+        at += n;
+        p += n + 2;                                     /* and the CRC */
+    }
+    memset(out + at, 0, SIDE_BYTES - at);
+    if (memcmp(s, out, SIDE_BYTES)) {
+        memcpy(s, out, SIDE_BYTES);
+        image_changed();
+    }
+    drive.gen = fds.gen;
+    drive.written = 0;
+}
+
+static void drive_irq_line(void) {
+    cpu_set_irq(IRQ_DISK, drive.flag && (fds.ctrl & 0x80));
+}
+
+static void raise_flag(uint64_t at) {
+    drive.flag = 1;
+    if (fds.ctrl & 0x80) cpu_set_irq_at(IRQ_DISK, 1, at);
+}
+
+static void byte_time(uint64_t at) {
+    if (drive.pos >= drive.len) {
+        drive.moving = 0;
+        drive.at_end = 1;
+        drive_flush();
+        return;
+    }
+    uint8_t ctrl = fds.ctrl;
+    int on = (ctrl & 0x60) == 0x60;
+    if (ctrl & 4) {                                     /* read */
+        uint8_t b = drive.stream[drive.pos];
+        if (!on) {
+            drive.gap_ended = 0;
+        } else if (!drive.gap_ended) {
+            if (b) { drive.gap_ended = 1; drive.crc = crc_add(0, b); }
+        } else {
+            drive.data = b;
+            drive.crc = crc_add(drive.crc, b);
+            if (ctrl & 0x10) drive.crc_bad = drive.crc != 0;
+            raise_flag(at);
+        }
+    } else {                                            /* write */
+        uint8_t b = 0;
+        if (!on) {
+            drive.crc = 0;
+            drive.crc_out = 0;
+        } else if (ctrl & 0x10) {
+            b = drive.crc_out == 0 ? (uint8_t)drive.crc : drive.crc_out == 1 ? (uint8_t)(drive.crc >> 8) : 0;
+            drive.crc_out++;
+            raise_flag(at);
+        } else {
+            b = drive.latch;
+            drive.crc = crc_add(drive.crc, b);
+            raise_flag(at);
+        }
+        if (drive.stream[drive.pos] != b) { drive.stream[drive.pos] = b; drive.written = 1; }
+    }
+    drive.pos++;
+}
+
+static void drive_catch_up(void) {
+    uint64_t now = cycles * 3;
+    while (drive.moving && drive.next <= now) {
+        uint64_t at = drive.next;
+        drive.next += BYTE_DOTS;
+        byte_time(at);
+    }
+}
+
+static void drive_schedule(void) {
+    if (drive.moving && (fds.ctrl & 0x80))
+        schedule_event((drive.next + 2) / 3);
+}
+
+static void drive_stop(void) {
+    drive_catch_up();
+    drive.moving = 0;
+    drive_flush();
+}
+
+/* A $4025 write (or its reset to $06): the drive follows bits 0-1. */
+static void drive_control(uint8_t val) {
+    if (!(val & 0x40)) { drive.gap_ended = 0; drive.crc_bad = 0; drive.crc_out = 0; }
+    if (!(val & 1)) {                                   /* transfer reset */
+        drive_stop();
+        drive.pos = 0;
+        drive.at_end = 0;
+    } else if (val & 2) {                               /* motor off */
+        drive_stop();
+    } else if (!drive.moving && !drive.at_end && !fds.ejected) {
+        if (drive.side != fds.side || drive.gen != fds.gen) { drive_flush(); drive_build(); }
+        drive.moving = 1;
+        drive.next = cycles * 3 + BYTE_DOTS;
+    }
+    drive_irq_line();
+}
+
 /* ---- the timer IRQ ---- */
 
 static void timer_catch_up(void) {
@@ -671,6 +895,9 @@ static void timer_ack(void) {
     cpu_set_irq(IRQ_MAPPER, 0);
 }
 
+static void fds_catch_up(void) { timer_catch_up(); drive_catch_up(); }
+static void fds_schedule(void) { timer_schedule(); drive_schedule(); }
+
 /* ---- the registers ---- */
 
 void fds_write_low(uint16_t addr, uint8_t val) {
@@ -678,7 +905,7 @@ void fds_write_low(uint16_t addr, uint8_t val) {
         if (fds.io & 2) { apu_catch_up(); fds_sound_write(addr, val); }
         return;
     }
-    timer_catch_up();
+    fds_catch_up();
     switch (addr) {
     case 0x4020: fds.reload = (uint16_t)((fds.reload & 0xFF00) | val); break;
     case 0x4021: fds.reload = (uint16_t)((fds.reload & 0x00FF) | val << 8); break;
@@ -695,6 +922,7 @@ void fds_write_low(uint16_t addr, uint8_t val) {
             fds.timer_on = 0;
             timer_ack();
             fds.ctrl = 0x06;
+            drive_control(0x06);
             ppu_catch_up();
             cart.mirroring = MIRROR_VERTICAL;
         }
@@ -703,9 +931,16 @@ void fds_write_low(uint16_t addr, uint8_t val) {
         apu_catch_up();
         fds_sound_on = (val >> 1) & 1;
         break;
+    case 0x4024:                        /* the next byte to write */
+        if (!(fds.io & 1)) break;
+        drive.latch = val;
+        drive.flag = 0;
+        drive_irq_line();
+        break;
     case 0x4025:
         if (!(fds.io & 1)) break;
         fds.ctrl = val;
+        drive_control(val);
         ppu_catch_up();
         cart.mirroring = (val & 8) ? MIRROR_HORIZONTAL : MIRROR_VERTICAL;
         break;
@@ -715,7 +950,7 @@ void fds_write_low(uint16_t addr, uint8_t val) {
         break;
     case ARG: fds.arg = val; break;
     }
-    timer_schedule();
+    fds_schedule();
 }
 
 int fds_read_low(uint16_t addr) {
@@ -725,15 +960,27 @@ int fds_read_low(uint16_t addr) {
     }
     switch (addr) {
     case 0x4030: {
-        timer_catch_up();
-        int v = fds.irq | (fds.ctrl & 8);
+        /* Reading it acknowledges the timer, not the transfer flag. */
+        fds_catch_up();
+        int v = fds.irq | (fds.ctrl & 8) | drive.crc_bad << 4 | drive.at_end << 6 |
+                drive.flag << 7;
         timer_ack();
-        timer_schedule();
+        fds_schedule();
         return v;
     }
-    /* A disk in, not ready (the drive isn't modelled yet); ejected:
-       bit 0 no disk, bit 2 "write protected" too, as the wiki says. */
-    case 0x4032: return fds.ejected ? 0x40 | 0x07 : 0x40 | 0x02;
+    case 0x4031: {                      /* the byte read */
+        fds_catch_up();
+        drive.flag = 0;
+        drive_irq_line();
+        fds_schedule();
+        return drive.data;
+    }
+    /* Bit 0 no disk, bit 1 not ready (the head isn't moving), bit 2
+       write protected: set with the disk out, as the wiki says. */
+    case 0x4032:
+        fds_catch_up();
+        if (fds.ejected) return 0x40 | 0x07;
+        return 0x40 | (drive.moving ? 0 : 0x02);
     case ARG: return fds.res_a;
     case RESULT_Y: return fds.res_y;
     case 0x4033: return 0x80;           /* battery good */
@@ -760,9 +1007,12 @@ void fds_reset(void) {
     fds.io = 0;
     fds.ctrl = 0x06;
     fds.timer_time = cycles;
+    drive.moving = drive.at_end = 0;
+    drive.pos = 0;
+    drive.flag = 0;
     fds_sound_reset();
     fds_sound_on = 0;
-    mapper.catch_up = timer_catch_up;
-    mapper.schedule = timer_schedule;
+    mapper.catch_up = fds_catch_up;
+    mapper.schedule = fds_schedule;
     mapper.audio_step = fds_audio_step;
 }
