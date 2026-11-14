@@ -143,7 +143,9 @@ handle gets translated natively on the next build. Paths with spaces
 aren't supported by the Makefile.
 
 Cartridges with a battery keep their `$6000-$7FFF` RAM in `<rom>.sav`
-next to the ROM: it's loaded at start and written on exit.
+next to the ROM: it's loaded at start and written on exit. With an NES
+2.0 header only the battery-backed part (its PRG NVRAM) is saved; see
+"NES 2.0 headers" below.
 
 Sound plays through the speakers unless you pass `--mute` (or press M).
 `--wav FILE` also writes it to a file, with or without a window.
@@ -223,6 +225,9 @@ the button, like the others, is released. For the Zapper, `aim=X,Y`
 (0-255, 0-239) points it at a pixel and `aim=off` away from the screen;
 the aim stays put like the knob, and `trigger` is held only on its line.
 
+With none of the controller options, an NES 2.0 header can choose the
+device instead (below).
+
 `make run` passes options to the program with `ARGS`:
 
     make run ROM=game.nes ARGS="--port2 vaus"
@@ -286,6 +291,57 @@ the Famicom wiring sends controllers 3 and 4 on bit 1 beside 1 and 2;
 Hori's adapter sends the Four Score's sequence on bit 1 with the
 signatures swapped. A paddle on the same line as an adapter is refused.
 
+## NES 2.0 headers
+
+An iNES header gives little more than the mapper number and the ROM
+sizes. An NES 2.0 header (nesdev wiki "NES 2.0") adds:
+- RAM sizes;
+- the board variant (a "submapper");
+- the console and region the program was made for;
+- the controller it expects.
+
+`recomp.py` and the runtime read it the same way; `--info` prints
+every field. A file whose NES 2.0 sizes don't fit in it is read as
+iNES 1.0, as the wiki says. iNES 1.0 files behave as they always have.
+
+- **ROM sizes** up to the header's limits, including the exponent form
+  for odd sizes. Sizes that aren't whole banks are refused.
+- **RAM** (bytes 10-11):
+  - `$6000-$7FFF` holds the declared PRG RAM, then the battery-backed
+    PRG NVRAM, and smaller RAM repeats through the 8 KB. With none,
+    reads give the open bus (the address's high byte).
+  - MMC1 boards with 16 or 32 KB (SOROM, SXROM) switch it with CHR
+    bank 0's bits 3 and 2.
+  - `<rom>.sav` holds only the NVRAM.
+  - CHR RAM is the declared size; with neither CHR ROM nor CHR RAM,
+    pattern data reads 0.
+- **Board variants** (byte 8, "NES 2.0 submappers"), where an iNES 1.0
+  header leaves the runtime guessing:
+  - bus conflicts on UxROM, CNROM and AxROM (1 none, 2 yes);
+  - MMC1's fixed 32 KB boards (5), which the recompiler also knows
+    never switch;
+  - one VRC2/VRC4 wiring instead of both (21, 23, 25: 1 and 2);
+  - the VRC2 itself (23, 25: 3): no IRQ, two mirroring modes, and a
+    1-bit latch at `$6000-$6FFF` where there's no PRG RAM;
+  - VRC7a or VRC7b (85: 2, 1);
+  - Namco 163's loudness (19: none, 12, 16.5 or 18.75 dB);
+  - NEC's MMC3 (4: 4), the older chip of `--mmc3-rev A`, which the
+    option can still change.
+
+  NINA-001 (34: 1) is refused. Other submappers run as submapper 0,
+  with a warning.
+- **The controller** (byte 15): with no controller option, the runtime
+  plugs in what the header names:
+  - the Four Score (`$02`) or Famicom four players (`$03`);
+  - a Zapper in port 2 (`$08`) or port 1 (`$49`);
+  - an Arkanoid paddle in port 2 (`$0F`) or the Famicom's (`$10`).
+
+  Devices the runtime doesn't have get a warning and standard
+  controllers.
+- **Region and console** (bytes 7, 12-14) are only reported: a PAL or
+  Dendy program runs at NTSC speed, and a Vs. System or PlayChoice-10
+  program as an NES, each with a warning.
+
 ## Play music (NSF files)
 
 An NSF file holds a music program without a picture: a routine that
@@ -330,7 +386,9 @@ NSFe formats.
 
 `make test` also runs `--test-gamepads`, which plugs in virtual game
 controllers, presses and tilts them, and checks the NES buttons that
-come out. It checks the program's state after every one of nestest's 8,991
+come out, and `tests/check_headers.py`, which writes 19 iNES and NES 2.0
+headers and checks that `recomp.py` and the runtime read each the same
+way, and as written down by hand from the wiki. It checks the program's state after every one of nestest's 8,991
 instructions against a reference log: registers, flags, stack pointer and
 cycle count. It also checks that every instruction took as many cycles as
 its cycle map says (the per-cycle bus activity `recomp.py` generates for
@@ -405,6 +463,16 @@ own. Each `tests/make_*.py` writes a small ROM into `tests/`:
 - `make_vrc4_test.py`: one ROM per VRC4 mapper number (21, 23, 25):
   banking, swap mode, mirroring and the IRQ in both modes, through both
   address wirings each number covers.
+- `make_ram_test.py`: NES 2.0 RAM sizes: no PRG RAM, 2 KB repeated,
+  no CHR at all, MMC1 with 32 and 16 KB of banked PRG RAM, and 16 KB of
+  CHR RAM. They report on screen (`text`), since a RAM test can't count
+  on RAM.
+- `make_variant_test.py`: one ROM per board variant (submapper): bus
+  conflicts, MMC1's fixed PRG, each VRC2/VRC4 and VRC7 wiring alone, the
+  VRC2 and its latch, and Namco 163 tone ROMs at two loudness levels.
+- `make_device_test.py`: NES 2.0 copies of the Zapper, paddle and
+  four-player ROMs that name their device in byte 15 and run with no
+  option.
 - `make_nsf_test.py`: NSFs for bank switching (12 tagged banks, code
   switching its own slot), the play rate (each play call flips the DMC
   level, so the pitch shows the rate; NTSC and PAL-only headers), and
@@ -415,7 +483,7 @@ own. Each `tests/make_*.py` writes a small ROM into `tests/`:
 Each check in these was confirmed by breaking that part of the runtime or
 recompiler on purpose and seeing the test report it.
 
-Current results: 174 of 175 graded tests pass, and the 28 pictures and 8
+Current results: 205 of 206 graded tests pass, and the 28 pictures and 8
 sound recordings match. That includes all 16 `instr_test-v5` CPU tests
 and the 11 built as NSFs (`nes_instr_test/nsf_singles`),
 all of `ppu_vbl_nmi`, `vbl_nmi_timing`, the sprite 0 hit and sprite
@@ -465,7 +533,8 @@ or display-only `read_joy3` tests are left out of the suite, and so is
       modulation depth approximate)
 - [x] NSF music files: a player screen, song changes, bank switching,
       the header's play rate, and the expansion sound chips (not FDS)
-- [ ] NES 2.0 headers, so board variants (submappers) can be told apart
+- [x] NES 2.0 headers: RAM sizes, board variants (submappers) and the
+      expected controller
 - [x] Arkanoid paddles (NES and Famicom), on the mouse or in scripts
 - [x] The Zapper (NES and Famicom) on the mouse or in scripts
 - [x] Four players: the Four Score, the Famicom's expansion port, Hori's
