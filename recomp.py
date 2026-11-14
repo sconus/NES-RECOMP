@@ -439,8 +439,12 @@ class Rom:
             self.low_regs = (0x5FF8, 0x5FFF)
             self.high_writes = True
             return
+        # An FDS NSF may load from $6000 (the RAM there); that part is
+        # RAM to the recompiler, left to the interpreter.
+        if load < (0x6000 if chips & 4 else 0x8000):
+            sys.exit("NSF loads below $%04X" % (0x6000 if chips & 4 else 0x8000))
         if load < 0x8000:
-            sys.exit("NSF loads below $8000")
+            body, load = body[0x8000 - load:], 0x8000
         prg = bytearray(0x8000)
         body = body[:0x10000 - load]
         prg[load - 0x8000:load - 0x8000 + len(body)] = body
@@ -955,7 +959,8 @@ def main():
     vectors = [rom.read16(0xFFFA), rom.read16(0xFFFC), rom.read16(0xFFFE)]
     entries = [rom.power_on_loc(v) for v in vectors]
     if rom.nsf:                  # no reset: the runtime calls init and play
-        entries += [rom.power_on_loc(rom.nsf[k]) for k in ("init", "play")]
+        entries += [rom.power_on_loc(rom.nsf[k]) for k in ("init", "play")
+                    if rom.nsf[k] >= 0x8000]  # an FDS NSF's code in RAM: interpreted
     entries += [rom.power_on_loc(int(e, 16)) for e in args.entry]
     for path in args.missed:
         for line in open(path):

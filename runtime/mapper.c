@@ -10,6 +10,8 @@
 #include "ppu.h"
 #include "rt.h"
 #include "event.h"
+#include "fds.h"
+#include "apu.h"
 #include "apu.h"
 
 struct mapper mapper;
@@ -1736,7 +1738,10 @@ static void mmc3_reset(void) {
    IRQs of its own:
      bit 0  VRC6      $9000-$9003, $A000-$A002, $B000-$B002
      bit 1  VRC7      $9010 register select, $9030 data
-     bit 2  FDS       (not supported: silent)
+     bit 2  FDS       $4040-$408A sound, read back at $4040-$407F and
+                      $4090-$4097 (fds.c); $8000-$DFFF become writable
+                      RAM, and $5FF6/$5FF7 switch 4 KB banks into the
+                      RAM at $6000/$7000 (nsf.c)
      bit 3  MMC5      $5000-$5015 sound, $5205/$5206 multiplier, and
                       $5C00-$5FF5 as plain RAM
      bit 4  Namco 163 $4800 sound RAM data, $F800 its address
@@ -1752,6 +1757,7 @@ static float nsf_audio_step(uint64_t cycle) {
     if (nsf_chips & NSF_MMC5) out += mmc5_audio_step(cycle);
     if (nsf_chips & NSF_N163) out += n163_audio_step(cycle);
     if (nsf_chips & NSF_5B) out += fme_audio_step(cycle);
+    if (nsf_chips & NSF_FDS) out += fds_audio_step(cycle);
     return out;
 }
 
@@ -1765,10 +1771,16 @@ void nsf_chips_reset(uint8_t chips) {
     memset(&n163, 0, sizeof n163);
     n163.channel = 7;
     fme_sound_reset();
+    fds_sound_reset();
+    fds_sound_on = 1;
     mapper.audio_step = chips ? nsf_audio_step : NULL;
 }
 
 static void nsf_chip_write(uint16_t addr, uint8_t val) {
+    /* With the FDS, $8000-$DFFF is RAM (nesdev wiki "NSF"). Code the
+       recompiler translated from there doesn't see such writes. */
+    if ((nsf_chips & NSF_FDS) && addr < 0xE000)
+        mapper.prg[(addr >> 13) & 3][addr & 0x1FFF] = val;
     if ((nsf_chips & NSF_VRC6) && addr >= 0x9000 && addr < 0xC000 &&
         (addr & 0x0FFC) == 0 && addr != 0xB003)
         vrc6_sound_write(addr, val);
@@ -1784,6 +1796,10 @@ static void nsf_chip_write(uint16_t addr, uint8_t val) {
 }
 
 void nsf_chip_write_low(uint16_t addr, uint8_t val) {
+    if ((nsf_chips & NSF_FDS) && addr >= 0x4040 && addr <= 0x408A) {
+        apu_catch_up();
+        fds_sound_write(addr, val);
+    }
     if ((nsf_chips & NSF_N163) && addr >= 0x4800 && addr < 0x5000)
         n163_write_low(addr, val);
     if (nsf_chips & NSF_MMC5) {
@@ -1795,6 +1811,11 @@ void nsf_chip_write_low(uint16_t addr, uint8_t val) {
 }
 
 int nsf_chip_read_low(uint16_t addr) {
+    if ((nsf_chips & NSF_FDS) && addr >= 0x4040 && addr <= 0x4097) {
+        apu_catch_up();
+        int v = fds_sound_read(addr);
+        if (v >= 0) return v;
+    }
     if ((nsf_chips & NSF_N163) && addr >= 0x4800 && addr < 0x5000)
         return n163_read_low(addr);
     if (nsf_chips & NSF_MMC5) {

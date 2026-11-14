@@ -8,6 +8,9 @@
 
 struct nsf nsf;
 
+/* An FDS NSF's data below $8000 (loaded at $6000-$7FFF before init). */
+static uint8_t nsf_low[0x2000];
+
 #define CPU_HZ 1789772.727          /* NTSC: 21.477 MHz / 12 */
 #define PLAY_DUE 0x41F0             /* driver register: is play due? */
 
@@ -39,9 +42,6 @@ void nsf_load(const char *path, FILE *f) {
     nsf.pal_flags = h[0x7A];
     nsf.pal_only = (nsf.pal_flags & 3) == 1;    /* bit 1 = both work */
     nsf.chips = h[0x7B] & 0x3F;
-    if (nsf.chips & NSF_FDS)
-        fprintf(stderr, "%s: uses the FDS sound chip, which isn't supported: "
-                        "its part will be silent\n", path);
 
     nsf.banked = 0;
     for (int i = 0; i < 8; i++) nsf.banked |= nsf.banks[i] != 0;
@@ -59,11 +59,19 @@ void nsf_load(const char *path, FILE *f) {
         if (fread(cart.prg + off, 1, (size_t)len, f) != (size_t)len)
             fail(path, "truncated NSF data");
     } else {
-        if (nsf.load < 0x8000) fail(path, "NSF loads below $8000");
+        /* An FDS NSF may load from $6000, to fill the RAM there (the
+           wiki prefers bank switching for that, but rips do it). */
+        uint16_t lowest = (nsf.chips & NSF_FDS) ? 0x6000 : 0x8000;
+        if (nsf.load < lowest)
+            fail(path, lowest == 0x8000 ? "NSF loads below $8000"
+                                        : "FDS NSF loads below $6000");
         cart.prg_size = 0x8000;
         cart.prg = calloc(1, cart.prg_size);
-        size_t room = 0x10000 - nsf.load;
-        size_t n = fread(cart.prg + (nsf.load - 0x8000), 1, room, f);
+        size_t n = 0;
+        if (nsf.load < 0x8000)
+            n = fread(nsf_low + (nsf.load - 0x6000), 1, (size_t)(0x8000 - nsf.load), f);
+        uint16_t at = nsf.load < 0x8000 ? 0x8000 : nsf.load;
+        n += fread(cart.prg + (at - 0x8000), 1, (size_t)(0x10000 - at), f);
         if (n == 0) fail(path, "NSF has no program data");
     }
     cart.chr_size = 0x2000;
@@ -135,6 +143,15 @@ uint16_t nsf_start(int song) {
                                     0x8D, (uint8_t)(0xF8 + i), 0x5F };
             p = put(p, set, sizeof set);                    /* STA $5FF8+i */
         }
+    if (nsf.banked && (nsf.chips & NSF_FDS))
+        /* $6000-$7FFF start with the same banks as $E000-$FFFF. */
+        for (int i = 6; i < 8; i++) {
+            const uint8_t set[] = { 0xA9, nsf.banks[i],
+                                    0x8D, (uint8_t)(0xF0 + i), 0x5F };
+            p = put(p, set, sizeof set);                    /* STA $5FF6/7 */
+        }
+    if (!nsf.banked && (nsf.chips & NSF_FDS))
+        memcpy(cart.prg_ram, nsf_low, sizeof nsf_low);
     const uint8_t call_init[] = {
         0xA9, (uint8_t)(song - 1),  /* LDA #song (from 0)               */
         0xA2, (uint8_t)nsf.pal_only, /* LDX #0 (NTSC) or #1 (PAL)        */
@@ -151,7 +168,7 @@ uint16_t nsf_start(int song) {
     p = put(p, loop, sizeof loop);
 
     play_period = (uint64_t)(nsf_play_period_us() * CPU_HZ / 1e6 + 0.5);
-    nsf_chips_reset(nsf.chips & ~NSF_FDS);      /* fresh chips each song */
+    nsf_chips_reset(nsf.chips);                 /* fresh chips each song */
     next_play = cycles + play_period;
     return NSF_DRIVER;
 }
@@ -199,6 +216,12 @@ int nsf_read_low(uint16_t addr) {
 
 void nsf_write_low(uint16_t addr, uint8_t val) {
     if (nsf.banked && addr >= 0x5FF8) set_slot_4k(addr - 0x5FF8, val);
+    else if (nsf.banked && (nsf.chips & NSF_FDS) && (addr == 0x5FF6 || addr == 0x5FF7)) {
+        /* A copy of the bank in the RAM at $6000 or $7000. */
+        int count = (int)(cart.prg_size / 0x1000);
+        memcpy(cart.prg_ram + (addr - 0x5FF6) * 0x1000,
+               cart.prg + (size_t)(val % count) * 0x1000, 0x1000);
+    }
     else nsf_chip_write_low(addr, val);
 }
 

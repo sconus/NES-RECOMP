@@ -79,6 +79,15 @@ tones 700 tests/nsf_n163.nsf 440.4@1,440.0@6.682,440.0@0.467/2,440.0@0.500/2,440
 tones 700 tests/nsf_5b.nsf 440.4@1,440.4@-,440.4@0.501/2,440.4@0.178/2,440.4@1/2,440.4@1/2,437.0@0.570/2,437.0@0.548/2
 # Two chips in one NSF (VRC6 and 5B): both must reach the mix.
 tones 300 tests/nsf_two_chips.nsf 440.4@1,440.4@1.000,440.4@-
+# FDS sound (make_fds_sound_test.py, PLAN-fds.md): pitch with and without
+# modulation, volume, master volume, a triangle; and the registers, the
+# envelopes and the modulation table, read back.
+tones 1000 tests/nsf_fds.nsf 440.4@1,439.9@2.178,439.9@0.667/2,439.9@0.500/2,439.9@1.000/2,439.9@0.593/2,659.9@1.107/2,220.0@0.723/2,453.7@1.011/2,433.1@0.994/2
+result 60 tests/fds_sound.nsf
+# FDS NSF memory: a load below $8000 (with code there), $8000-$DFFF as
+# RAM, and $5FF6/$5FF7 banks at $6000-$7FFF.
+result 60 tests/fds_nsf_low.nsf
+result 60 tests/fds_nsf_banks.nsf
 
 # --- PPU, $6000 harness
 result 3000 ppu_vbl_nmi/rom_singles/01-vbl_basics.nes

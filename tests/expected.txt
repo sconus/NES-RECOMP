@@ -41,6 +41,10 @@ tests/nsf_mmc5.nsf	pass
 tests/nsf_n163.nsf	pass
 tests/nsf_5b.nsf	pass
 tests/nsf_two_chips.nsf	pass
+tests/nsf_fds.nsf	pass
+tests/fds_sound.nsf	pass
+tests/fds_nsf_low.nsf	pass
+tests/fds_nsf_banks.nsf	pass
 ppu_vbl_nmi/rom_singles/01-vbl_basics.nes	pass
 ppu_vbl_nmi/rom_singles/02-vbl_set_time.nes	pass
 ppu_vbl_nmi/rom_singles/03-vbl_clear_time.nes	pass
