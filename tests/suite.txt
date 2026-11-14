@@ -9,6 +9,9 @@
 #           The run stops early once the ROM reports.
 #   text    result shown on screen only; passes when a line reads
 #           "Passed" (any case) or "$01".
+#   marks   one line per check on screen, starting O (passed) or X
+#           (failed); passes with no X and as many O lines as the 4th
+#           column says.
 #   frame   homebrew; the final frame must match the saved picture
 #           (a regression check, not a correctness check).
 #   audio   the sound (--wav) must match the saved recording (regression).
@@ -244,6 +247,19 @@ frame 30 tests/mmc5_split_pic.nes
 # status panel; then scrolled 50 lines, moved left, the playfield paused.
 frame 300 tests/mmc5_split_demo.nes
 frame 300 tests/mmc5_split_demo.nes tests/inputs/mmc5_split_demo.txt
+
+# --- The Famicom Disk System (PLAN-fds.md), on nesrecomp's own BIOS.
+# fdsirqtests: 21 checks of the RAM adapter's timer IRQ, each marked O or
+# X. The "V7 patched" copy differs in two bytes: at $6728 it loads $2E
+# itself (LDA #$2E) where the original reads the BIOS's copy of $4025 at
+# $FA (LDA $FA). Its results don't depend on that byte (with $FA left 0
+# both still pass); fds_boot checks it.
+marks 600 fdsirqtests/fdsirqtests.fds 21
+marks 600 fdsirqtests/fdsirqtestsV7_patched.fds 21
+# tests/fds_boot.fds (make_fds_test.py): the boot load (which files,
+# where each type goes), the BIOS's state, the NMI that skips the license
+# check, mirroring, NMI and IRQ dispatch, and a soft reset.
+result 300 tests/fds_boot.fds
 
 # --- PPU, result on screen only (power_up_palette is left out: it checks
 #     values unique to its author's console)

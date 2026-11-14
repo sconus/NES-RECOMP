@@ -194,6 +194,70 @@ the same C as before.
     - the power-on values.
   - Break each part.
 
+- Done:
+  - `runtime/fds.c` reads `.fds` images (with or without the header,
+    any number of sides). A side that doesn't start with the standard
+    disk info and file count blocks is refused. `--info` lists each
+    side's files.
+  - The memory: 32 KB of RAM at `$6000-$DFFF`, the BIOS at `$E000`,
+    8 KB of CHR RAM.
+  - The registers:
+    - the timer IRQ (`$4020-$4023`, `$4030`), to the cycle;
+    - `$4023` disk and sound enables;
+    - `$4025` bit 3 mirroring (0 vertical, 1 horizontal; `$06` while
+      disk I/O is off);
+    - `$4032` and `$4033` as fixed values for now.
+  - `tools/make_fds_bios.py` writes `runtime/fds_bios.h`, the
+    project's BIOS:
+    - the power-on state;
+    - a soft reset that goes straight to `$DFFC`;
+    - the boot load (through `$4028`, which the runtime answers);
+    - the NMI and IRQ dispatch, and the handlers at `$E19D`, `$E1CE`,
+      `$E1D9`, `$E1EF`.
+
+    Every unused byte is `$02`, which stops the CPU with a message
+    naming the address, so a missing BIOS routine shows at once.
+  - Instead of the license check, the BIOS waits a little over a frame
+    (a delay loop) after loading. A boot file that turns on NMIs then
+    gets its NMI first, which is how programs skip the license check on
+    the real console. My first version polled `$2002` for vblank, which
+    can swallow that very NMI, so I changed it before testing.
+  - `recomp.py` reads `.fds` too. It translates the BIOS (from
+    `runtime/fds_bios.h`) and leaves `$6000-$DFFF` to the interpreter.
+    The runtime doesn't save RAM spots there to `.missed`.
+  - `fdsirqtests`: both images, all 21 checks marked O, on the first
+    run. A new suite kind, `marks N`, grades a screen of O/X lines.
+    - The two images differ in two bytes: the original reads the BIOS's
+      copy of `$4025` at `$FA` where the patched one loads `$2E`. Its
+      results don't depend on it.
+    - It starts through its NMI during the boot, then jumps through
+      `$FFFC` itself, so it also uses the soft reset path.
+  - `make_fds_test.py` writes `fds_boot.fds`: 15 checks through `$6000`,
+    including a second part after a reset (status `$81`). It also has
+    `fds_image()` for later tests. It covers:
+    - which files the boot code picks;
+    - where each file type goes, and PRG files below `$2000`;
+    - the NMI that skips the license check;
+    - every value the BIOS leaves;
+    - both mirrorings and `$4030` bit 3;
+    - the four NMI and two IRQ dispatch paths;
+    - the timer's reload, and `$4020` writes not acknowledging;
+    - the soft reset not reloading files.
+  - Breaks, 25 tried:
+    - 24 caught, 5 of them only after fixes:
+      - checks 14 and 15 were added for two breaks nothing caught;
+      - check 14 was made two-sided;
+      - one break edit didn't compile, and my break script took the
+        runner's "build failed" for "not caught". The script now
+        reports build failures.
+    - One isn't caught, and is left as a written-down choice: the timer
+      firing one cycle sooner. The wiki's wording allows it, and
+      `fdsirqtests` passes either way. Firing a cycle later fails it.
+  - Not yet: the disk drive itself (`$4024`, `$4031`, the transfer
+    IRQ), the BIOS's routines, disk sides.
+  - 213 of 214 (test28 as always); nestest exact; all 319 earlier
+    files give the same C.
+
 ### 3. Recompiling disk programs
 - `recomp.py` reads `.fds` too. Each PRG file is placed at its load
   address as a "bank" of its own, and tracing starts from the vectors at

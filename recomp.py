@@ -237,6 +237,7 @@ check_cycle_maps()
 #          the last bank).
 #   power_on: slot -> bank at reset (where the vectors are read).
 NSF_MAPPER = 0x1000                  # runtime/nsf.h: MAPPER_NSF
+FDS_MAPPER = 0x1001                  # runtime/fds.h: MAPPER_FDS
 MAPPERS = {
     0:  dict(name="NROM",  unit=None),
     # MMC1 can fix either half or switch all 32 KB, depending on a mode
@@ -293,7 +294,24 @@ MAPPERS = {
     # An NSF music file (not an iNES mapper; the runtime uses the same
     # number): 32 KB at $8000 that never moves.
     NSF_MAPPER: dict(name="NSF", unit=None),
+    # A Famicom Disk System image: RAM at $6000-$DFFF (its code is loaded
+    # from disk, so it runs in the interpreter for now) and the project's
+    # BIOS at $E000 (runtime/fds_bios.h), which never moves.
+    FDS_MAPPER: dict(name="FDS", unit=None),
 }
+
+
+def fds_bios():
+    """nesrecomp's FDS BIOS, from runtime/fds_bios.h (tools/make_fds_bios.py)."""
+    import os
+    import re
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        "runtime", "fds_bios.h")
+    body = open(path).read().split("{", 1)[1]
+    data = bytes(int(x, 16) for x in re.findall(r"0x([0-9A-Fa-f]{2})", body))
+    if len(data) != 0x2000:
+        sys.exit("%s: expected 8 KB" % path)
+    return data
 
 
 def rom_size(lsb, msb, unit):
@@ -365,11 +383,15 @@ class Rom:
     def __init__(self, path):
         data = open(path, "rb").read()
         self.nsf = None
+        self.ram_top = 0x8000               # code below this is RAM
         if data[:5] == b"NESM\x1a":
             self.load_nsf(data)
             return
+        if data[:4] == b"FDS\x1a" or data[:15] == b"\x01*NINTENDO-HVC*":
+            self.load_fds()
+            return
         if data[:4] != b"NES\x1a":
-            sys.exit("not an iNES or NSF file")
+            sys.exit("not an iNES, NSF or FDS file")
         try:
             self.header = read_header(data)
         except ValueError as e:
@@ -408,6 +430,21 @@ class Rom:
                 # 512 KB MMC1 boards start in the first 256 KB, so the
                 # "last" bank at power-on is the last of that half.
                 self.power_on.update({2: 30, 3: 31})
+
+    def load_fds(self):
+        """A disk image: only the BIOS is known ahead; the program comes
+        from disk into RAM at run time."""
+        self.mapper = FDS_MAPPER
+        self.mapper_name = "FDS"
+        self.prg = bytes(0x6000) + fds_bios()
+        self.slot_bits = 13
+        self.banks = 4
+        self.unit = None
+        self.low_regs = None
+        self.high_writes = False
+        self.power_on = {s: s for s in range(4)}
+        self.fixed = dict(self.power_on)
+        self.ram_top = 0xE000
 
     def load_nsf(self, data):
         """An NSF: the init and play routines are the entry points (see
@@ -470,7 +507,7 @@ class Rom:
         """The bank that code at location frm = (bank, address) will find at
         CPU address `addr`, or None if it depends on the mapper's state at
         that moment (then the jump must go through dispatch)."""
-        if addr < 0x8000:
+        if addr < self.ram_top:
             return None                      # RAM: not translated ahead
         fbank, faddr = frm
         s_from, s_to = self.slot(faddr), self.slot(addr)
@@ -972,13 +1009,16 @@ def main():
                 entries.append((int(b, 16) % rom.banks, int(a, 16)))
             else:                                # old format: AAAA
                 entries.append(rom.power_on_loc(int(line, 16)))
-    entries = [e for e in entries if e[1] >= 0x8000]
+    entries = [e for e in entries if e[1] >= rom.ram_top]
     insns, unknown = trace(rom, entries)
 
     with open(args.out, "w") as f:
         f.write(generate(rom, insns, unknown, args.rom.split("/")[-1]))
 
-    if not rom.nsf:
+    if rom.mapper == FDS_MAPPER:
+        print("FDS disk image: the BIOS at $E000 translated, the program "
+              "(in RAM) interpreted")
+    elif not rom.nsf:
         print("mapper %d (%s), %d KB program ROM" % (
             rom.mapper, rom.mapper_name, len(rom.prg) // 1024))
     if rom.nsf:

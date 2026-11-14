@@ -12,7 +12,6 @@
 #include "event.h"
 #include "fds.h"
 #include "apu.h"
-#include "apu.h"
 
 struct mapper mapper;
 static void (*write_reg)(uint16_t addr, uint8_t val);
@@ -1901,6 +1900,11 @@ void mapper_init(void) {
         mapper.name = "VRC6"; write_reg = vrc6_write; vrc6_reset();
         break;
     case 22: mapper.name = "VRC2"; write_reg = vrc_write; vrc_reset(); break;
+    case MAPPER_FDS:
+        mapper.name = "FDS"; write_reg = fds_write;
+        read_low = fds_read_low; write_low = fds_write_low;
+        fds_reset();
+        break;
     case MAPPER_NSF:
         mapper.name = "NSF"; write_reg = nsf_chip_write;
         read_low = nsf_read_low; write_low = nsf_write_low;

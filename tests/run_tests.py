@@ -53,9 +53,11 @@ def load_suite():
         extra = line[3] if len(line) > 3 else None
         # For "crc" the 4th column lists accepted checksums, and for
         # "tones" the expected notes, not a script.
-        script = extra if kind not in ("crc", "tones") else None
+        script = extra if kind not in ("crc", "tones", "marks") else None
         notes = extra if kind == "tones" else None
         crcs = extra.upper().split(",") if kind == "crc" and extra else []
+        if kind == "marks":
+            crcs = [int(extra)]             # how many lines must pass
         name = rom + (" +" + os.path.basename(script) if script else "")
         if options:
             name += " " + " ".join(options)
@@ -242,6 +244,15 @@ def judge(test, out, err, png):
             return "pass"
         shown = [l for l in lines if re.fullmatch(r"[0-9A-F]{8}", l)]
         return "fail: checksum " + (shown[0] if shown else "not shown")
+    if test["kind"] == "marks":
+        lines = [l.strip() for l in out.splitlines()]
+        ok = [l for l in lines if re.match(r"O\s", l)]
+        bad = [l for l in lines if re.match(r"X\s", l)]
+        if bad:
+            return "fail: " + " / ".join(re.sub(r"^X\s+", "", l) for l in bad)[:70]
+        if len(ok) != test["crcs"][0]:
+            return "fail: %d test lines marked O, expected %d" % (len(ok), test["crcs"][0])
+        return "pass"
     if test["kind"] == "text":
         lines = [l.strip() for l in out.splitlines()]
         if any(l.upper() == "PASSED" for l in lines) or "$01" in lines:
@@ -301,7 +312,7 @@ def run_one(test, cflags, libs, rt_objs):
         before = read_missed()
         # --no-save: battery RAM from an earlier run must not change results.
         cmd = [exe, rom, "--headless", "--no-save", "--frames", str(test["frames"])]
-        if test["kind"] in ("text", "crc"):
+        if test["kind"] in ("text", "crc", "marks"):
             cmd.append("--dump-text")
         if test["kind"] == "frame":
             cmd += ["--screenshot", png]

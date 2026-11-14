@@ -216,3 +216,286 @@ int fds_sound_read(uint16_t addr) {
     }
     return -1;
 }
+
+/* ---- The disk image and the RAM adapter -----------------------------
+   (nesdev wiki "Family Computer Disk System", "FDS disk format", "FDS
+   file format", "FDS BIOS")
+
+   A .fds image: an optional 16-byte header ("FDS\x1a", the number of
+   sides), then 65500 bytes per side, with the gaps and CRCs left out. A
+   side is block 1 (disk info, 56 bytes: "*NINTENDO-HVC*" at 1, the boot
+   file code at $19), block 2 (the file count), then per file block 3
+   (16 bytes: number, ID, name, load address, size, type 0 PRG / 1 CHR /
+   2 nametable) and block 4 (the data).
+
+   Memory: 32 KB of RAM at $6000-$DFFF, the BIOS at $E000-$FFFF, 8 KB of
+   CHR RAM. The RAM adapter's registers:
+     $4020/1  timer reload (works with disk I/O off)
+     $4022    timer: bit 1 on (loads the counter from the reload value),
+              bit 0 repeat; ignored while $4023 bit 0 is clear
+     $4023    bit 0 disk I/O (clear: timer off, its IRQ acknowledged,
+              $4025 = $06), bit 1 sound I/O (clear: sound reset, silent)
+     $4025    bit 3 nametable arrangement: 0 vertical mirroring, 1
+              horizontal (the drive's bits come in a later step)
+     $4030    read: bit 0 timer IRQ, bit 3 a copy of $4025 bit 3;
+              acknowledges the timer IRQ
+     $4032    read: drive status (a disk is in; not ready: no drive yet)
+     $4033    read: bit 7 battery good
+     $4028    not on the real hardware: requests from nesrecomp's BIOS
+              (fds_bios.h), here the boot load
+   The timer, once on, counts down one per CPU cycle; the cycle after it
+   reads 0 it raises the IRQ and starts again from the reload value, or
+   stops if repeat is off. (The wiki's "at 0 it raises an IRQ" could also
+   mean a cycle sooner; fdsirqtests passes either way, and firing a
+   cycle later fails it.) */
+#include <stdio.h>
+#include <stdlib.h>
+#include "cart.h"
+#include "mapper.h"
+#include "event.h"
+#include "ppu.h"
+#include "apu.h"
+#include "fds_bios.h"
+
+#define SIDE_BYTES 65500
+#define SERVICE 0x4028
+
+static struct {
+    uint8_t *image;                 /* the sides, header removed */
+    int sides, side;                /* side in the drive */
+    uint16_t reload, counter;
+    uint8_t timer_on, repeat, irq;
+    uint64_t timer_time;            /* the cycle the counter is at */
+    uint8_t io, ctrl;               /* $4023, $4025 */
+} fds;
+
+static void fail(const char *path, const char *why) {
+    fprintf(stderr, "%s: %s\n", path, why);
+    exit(1);
+}
+
+/* Block offsets within a side: the file count (block 2) is at 56; files
+   follow. Returns the number of files found (up to the count, stopping
+   at anything that isn't a file header). */
+struct fds_file { int number, id, type; uint16_t addr, size; const uint8_t *data; char name[9]; };
+
+static int side_files(int side, struct fds_file *out, int max) {
+    const uint8_t *s = fds.image + (size_t)side * SIDE_BYTES;
+    if (s[56] != 2) return 0;
+    int count = s[57], n = 0, at = 58;
+    while (n < count && n < max && at + 17 <= SIDE_BYTES && s[at] == 3) {
+        struct fds_file *f = &out[n];
+        f->number = s[at + 1];
+        f->id = s[at + 2];
+        memcpy(f->name, s + at + 3, 8);
+        f->name[8] = 0;
+        f->addr = (uint16_t)(s[at + 11] | s[at + 12] << 8);
+        f->size = (uint16_t)(s[at + 13] | s[at + 14] << 8);
+        f->type = s[at + 15];
+        at += 16;
+        if (s[at] != 4 || at + 1 + f->size > SIDE_BYTES) break;
+        f->data = s + at + 1;
+        at += 1 + f->size;
+        n++;
+    }
+    return n;
+}
+
+void fds_load(const char *path, FILE *f) {
+    fseek(f, 0, SEEK_END);
+    long len = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    uint8_t *data = malloc((size_t)len);
+    if (!data || fread(data, 1, (size_t)len, f) != (size_t)len) fail(path, "can't read the disk image");
+    long skip = memcmp(data, "FDS\x1a", 4) ? 0 : 16;
+    fds.sides = (int)((len - skip) / SIDE_BYTES);
+    if (fds.sides < 1 || (len - skip) % SIDE_BYTES)
+        fail(path, "not a whole number of 65500-byte disk sides");
+    fds.image = data + skip;
+    for (int i = 0; i < fds.sides; i++) {
+        const uint8_t *s = fds.image + (size_t)i * SIDE_BYTES;
+        if (s[0] != 1 || memcmp(s + 1, "*NINTENDO-HVC*", 14) || s[56] != 2)
+            fail(path, "a disk side doesn't start with the standard disk info"
+                       " and file count blocks");
+    }
+    fds.side = 0;
+    /* The BIOS at $E000 of a 32 KB "PRG", so slots 0-2 ($8000-$DFFF) can
+       point into the RAM instead. */
+    cart.prg_size = 0x8000;
+    cart.prg = calloc(1, cart.prg_size);
+    memcpy(cart.prg + 0x6000, fds_bios, sizeof fds_bios);
+    cart.prg_ram_size = 0x8000;
+    cart.prg_ram_alloc = 0x8000;
+    cart.prg_ram = calloc(1, cart.prg_ram_alloc);
+    cart.chr_size = 0x2000;
+    cart.chr_is_ram = 1;
+    cart.chr = calloc(1, cart.chr_size);
+    cart.mirroring = MIRROR_HORIZONTAL;
+    cart.mapper = MAPPER_FDS;
+    cart.battery = 0;
+}
+
+void fds_print_info(const char *path) {
+    printf("%s\n  Famicom Disk System image, %d side(s)\n", path, fds.sides);
+    static const char *type[] = { "PRG", "CHR", "nametable" };
+    for (int i = 0; i < fds.sides; i++) {
+        const uint8_t *s = fds.image + (size_t)i * SIDE_BYTES;
+        struct fds_file files[256];
+        int n = side_files(i, files, 256);
+        printf("  side %d: \"%.3s\" version %d, side %c, boot files: IDs up to %d;"
+               " %d of %d file(s)\n", i + 1, (const char *)s + 0x10, s[0x14],
+               s[0x15] ? 'B' : 'A', s[0x19], n, s[57]);
+        for (int k = 0; k < n; k++)
+            printf("    %3d  ID %3d  %-8s  %-9s $%04X  %5u bytes\n", files[k].number,
+                   files[k].id, files[k].name, type[files[k].type < 2 ? files[k].type : 2],
+                   files[k].addr, files[k].size);
+    }
+}
+
+/* The boot load, as the BIOS's LoadFiles does it for the boot files:
+   PRG files through the CPU's bus (so a file loaded to $2000 writes
+   PPUCTRL, and below $2000 only $0200-$07FF is written), CHR and
+   nametable files into PPU memory. */
+static void boot_load(void) {
+    const uint8_t *s = fds.image + (size_t)fds.side * SIDE_BYTES;
+    struct fds_file files[256];
+    int n = side_files(fds.side, files, 256);
+    for (int k = 0; k < n; k++) {
+        struct fds_file *f = &files[k];
+        if (f->id > s[0x19]) continue;
+        for (unsigned i = 0; i < f->size; i++) {
+            uint16_t a = (uint16_t)(f->addr + i);
+            if (f->type == 0) {
+                if (a >= 0x2000 || (a & 0x7FF) >= 0x200) wr(a, f->data[i]);
+            } else {
+                ppu_mem_write(a & 0x3FFF, f->data[i]);
+            }
+        }
+    }
+}
+
+/* ---- the timer IRQ ---- */
+
+static void timer_catch_up(void) {
+    uint64_t now = cycles;
+    if (fds.timer_on && now > fds.timer_time) {
+        uint64_t n = now - fds.timer_time;
+        if (n > fds.counter) {
+            /* It fires on the cycle after reading 0. */
+            uint64_t fire = fds.timer_time + fds.counter;
+            n -= (uint64_t)fds.counter + 1;
+            if (fds.repeat) {
+                uint64_t period = (uint64_t)fds.reload + 1;
+                fire += n / period * period;
+                fds.counter = (uint16_t)(fds.reload - n % period);
+            } else {
+                fds.timer_on = 0;
+                fds.counter = fds.reload;
+            }
+            fds.irq = 1;
+            cpu_set_irq_at(IRQ_MAPPER, 1, fire * 3);
+        } else {
+            fds.counter = (uint16_t)(fds.counter - n);
+        }
+    }
+    fds.timer_time = now;
+}
+
+static void timer_schedule(void) {
+    if (fds.timer_on) schedule_event(fds.timer_time + fds.counter + 1);
+}
+
+static void timer_ack(void) {
+    fds.irq = 0;
+    cpu_set_irq(IRQ_MAPPER, 0);
+}
+
+/* ---- the registers ---- */
+
+void fds_write_low(uint16_t addr, uint8_t val) {
+    if (addr >= 0x4040 && addr <= 0x408A) {
+        if (fds.io & 2) { apu_catch_up(); fds_sound_write(addr, val); }
+        return;
+    }
+    timer_catch_up();
+    switch (addr) {
+    case 0x4020: fds.reload = (uint16_t)((fds.reload & 0xFF00) | val); break;
+    case 0x4021: fds.reload = (uint16_t)((fds.reload & 0x00FF) | val << 8); break;
+    case 0x4022:
+        if (!(fds.io & 1)) break;
+        fds.repeat = val & 1;
+        fds.timer_on = (val >> 1) & 1;
+        if (fds.timer_on) fds.counter = fds.reload;
+        else timer_ack();
+        break;
+    case 0x4023:
+        if (!(val & 1)) {
+            /* Disk I/O off: the timer stops, and $4025 becomes $06. */
+            fds.timer_on = 0;
+            timer_ack();
+            fds.ctrl = 0x06;
+            ppu_catch_up();
+            cart.mirroring = MIRROR_VERTICAL;
+        }
+        if ((fds.io & 2) && !(val & 2)) { apu_catch_up(); fds_sound_reset(); }
+        fds.io = val;
+        apu_catch_up();
+        fds_sound_on = (val >> 1) & 1;
+        break;
+    case 0x4025:
+        if (!(fds.io & 1)) break;
+        fds.ctrl = val;
+        ppu_catch_up();
+        cart.mirroring = (val & 8) ? MIRROR_HORIZONTAL : MIRROR_VERTICAL;
+        break;
+    case SERVICE:
+        if (val == 1) boot_load();
+        break;
+    }
+    timer_schedule();
+}
+
+int fds_read_low(uint16_t addr) {
+    if (addr >= 0x4040 && addr <= 0x4097) {
+        apu_catch_up();
+        return fds_sound_read(addr);
+    }
+    switch (addr) {
+    case 0x4030: {
+        timer_catch_up();
+        int v = fds.irq | (fds.ctrl & 8);
+        timer_ack();
+        timer_schedule();
+        return v;
+    }
+    case 0x4032: return 0x40 | 0x02;    /* a disk in, not ready */
+    case 0x4033: return 0x80;           /* battery good */
+    }
+    return -1;
+}
+
+/* CPU writes to $8000-$FFFF: RAM below $E000; the BIOS is ROM. */
+void fds_write(uint16_t addr, uint8_t val) {
+    if (addr < 0xE000) mapper.prg[(addr >> 13) & 3][addr & 0x1FFF] = val;
+}
+
+void fds_reset(void) {
+    for (int s = 0; s < 3; s++) {
+        mapper.prg[s] = cart.prg_ram + 0x2000 + s * 0x2000;
+        mapper.prg_bank[s] = s;
+    }
+    mapper.prg[3] = cart.prg + 0x6000;
+    mapper.prg_bank[3] = 3;
+    mapper.ram6000 = cart.prg_ram;
+    mapper.ram6000_size = 0x2000;
+    fds.reload = fds.counter = 0;
+    fds.timer_on = fds.repeat = fds.irq = 0;
+    fds.io = 0;
+    fds.ctrl = 0x06;
+    fds.timer_time = cycles;
+    fds_sound_reset();
+    fds_sound_on = 0;
+    mapper.catch_up = timer_catch_up;
+    mapper.schedule = timer_schedule;
+    mapper.audio_step = fds_audio_step;
+}

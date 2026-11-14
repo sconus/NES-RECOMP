@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "cart.h"
+#include "fds.h"
 #include "nsf.h"
 
 struct cart cart;
@@ -111,7 +112,12 @@ void cart_load(const char *path) {
         alloc_prg_ram();
         return;
     }
-    if (memcmp(h, "NES\x1a", 4)) fail(path, "not an iNES or NSF file");
+    if (!memcmp(h, "FDS\x1a", 4) || (h[0] == 1 && !memcmp(h + 1, "*NINTENDO-HVC*", 14))) {
+        fds_load(path, f);                      /* a Famicom Disk System image */
+        fclose(f);
+        return;
+    }
+    if (memcmp(h, "NES\x1a", 4)) fail(path, "not an iNES, NSF or FDS file");
     fseek(f, 0, SEEK_END);
     long file_size = ftell(f);
     fseek(f, 16, SEEK_SET);
@@ -202,6 +208,7 @@ const char *cart_device_name(int d) {
 
 void cart_print_info(const char *path) {
     if (cart.mapper == MAPPER_NSF) { nsf_print_info(path); return; }
+    if (cart.mapper == MAPPER_FDS) { fds_print_info(path); return; }
     static const char *mir[] = { "horizontal", "vertical", "four-screen",
                                  "single-screen", "single-screen" };
     static const char *timing[] = { "NTSC", "PAL", "multi-region", "Dendy" };

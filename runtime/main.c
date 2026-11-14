@@ -9,6 +9,7 @@
 #include "event.h"
 #include "gamepad.h"
 #include "cart.h"
+#include "fds.h"
 #include "cycles.h"
 #include "input.h"
 #include "mapper.h"
@@ -142,7 +143,8 @@ static uint8_t *missed_slot(int bank, uint16_t a) {
 void note_missed(uint16_t a) {
     /* The NSF driver (nsf.h) is always interpreted: not worth counting. */
     if (cart.mapper == MAPPER_NSF && a >= NSF_DRIVER && a < 0x4200) return;
-    if (a < 0x8000) { missed_count++; return; }
+    /* Code in RAM can't be translated ahead (an FDS has RAM up to $DFFF). */
+    if (a < 0x8000 || (cart.mapper == MAPPER_FDS && a < 0xE000)) { missed_count++; return; }
     uint8_t *m = missed_slot(code_bank_at(a), a);
     if (!*m) { *m = 1; missed_count++; }
 }
