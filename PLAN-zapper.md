@@ -149,9 +149,35 @@ try by hand.
   Not checked by the suite: the mouse itself. Tried by hand with
   `zapper_demo.nes`: it works.
 
-### 4. Suite, README, notes
+### 4. Suite, README, notes (done)
 Accept the new checks, document the options, the mouse, the script
 syntax and the key choices, and write where the stage ended.
+- Done: the README has a Zapper section (with the sensor choices) and
+  a four-player section, the options, the script words, the
+  generators and the new results; the status list ticks both.
+
+## Where the stage ended
+- Four controllers through the Four Score, the Famicom expansion port
+  or Hori's adapter, from scripts (`3:`, `4:`) and the third and
+  fourth game controllers. One Zapper in either port or the Famicom's,
+  aimed and fired with the mouse or from scripts. Nothing changes
+  without the options, and `recomp.py` didn't change, so every program
+  recompiles to the same C.
+- Checks: generated ROMs that grade every wiring of both, a picture of
+  `vaus-test` with Famicom controller 3, and a target program's
+  picture. Every break tried was caught, once the tests' own gaps were
+  fixed (too few reads after the Four Score's sequence) and two
+  ineffective breaks redone.
+- Results: 174 of 175 graded tests (test28 the expected failure), 28
+  pictures and 8 sounds; nestest exact. The mouse was tried by hand
+  with the target program; players 3 and 4 only with virtual game
+  controllers.
+- Choices the wiki left open: the sensor's area (5 x 5 pixels) and the
+  brightness each colour needs, checked only against the project's own
+  test ROM, as no free Zapper program exists in the collection.
+- Not done: the Vs. System Zapper, the NES Satellite, the official
+  trigger's half pull and 100 ms release, the Four Score's turbo
+  switches, and keyboard keys for players 3 and 4.
 
 ## Not in this stage
 - The Vs. System Zapper (a serial report) and the NES Satellite (its

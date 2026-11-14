@@ -3,10 +3,10 @@
 A static recompiler for NES programs, built as a learning project. It turns
 the 6502 machine code in a `.nes` file into C, which a normal compiler turns
 into a native program for your Mac, with graphics in a window, sound
-(including the Famicom cartridges' extra sound chips), two players on the
-keyboard or game controllers (or an Arkanoid paddle on the mouse),
-bank switching for the common cartridge
-types, and battery saves. It also recompiles NSF music files (the music
+(including the Famicom cartridges' extra sound chips), up to four players
+on the keyboard or game controllers, a Zapper light gun or an Arkanoid
+paddle on the mouse, bank switching for the common cartridge types, and
+battery saves. It also recompiles NSF music files (the music
 program from a game or a homebrew album) into a player.
 
 ## How it works
@@ -115,8 +115,9 @@ mapper a ROM uses.
   the real CPU checks (from each opcode's cycle map, `cycles.c`),
   including the one-instruction delay after CLI/PLP and taken branches,
   an NMI taking over a BRK or IRQ entry, and the reset button.
-- **Cartridge** (`cart.c`, including battery saves), **controllers and
-  Arkanoid paddles** (`input.c`), and the **CPU bus** and command line (`main.c`).
+- **Cartridge** (`cart.c`, including battery saves), **controllers,
+  four-player adapters, Arkanoid paddles and the Zapper** (`input.c`),
+  and the **CPU bus** and command line (`main.c`).
 
 ## On a Mac
 
@@ -163,8 +164,9 @@ Sound plays through the speakers unless you pass `--mute` (or press M).
 
 Game controllers (Xbox, PlayStation, Switch Pro and others SDL knows)
 work too, alongside the keyboard: the first one connected plays
-controller 1, the second controller 2, and they can be plugged in or out
-while the game runs. The buttons go by position, as on the NES pad:
+controller 1, the second controller 2, and so on up to four (players 3
+and 4 need a four-player adapter, below, and have no keyboard keys);
+they can be plugged in or out while the game runs. The buttons go by position, as on the NES pad:
 
 | NES button | Game controller |
 |---|---|
@@ -188,9 +190,13 @@ The built program takes options after the ROM path:
     --scale N          window size, N times 256x240 (default 3)
     --mmc3-rev A|B     which MMC3 chip to act like (default B)
     --song N           NSF: start on song N (from 1)
-    --port1 pad|vaus   what controller port 1 holds (default pad);
-    --port2 pad|vaus     vaus is the NES Arkanoid paddle
+    --port1 pad|vaus|zapper   what controller port 1 or 2 holds (default
+    --port2 pad|vaus|zapper     pad): the NES Arkanoid paddle or a Zapper
     --famicom-vaus     a Famicom Arkanoid paddle in the expansion port
+    --famicom-zapper   a Famicom Zapper in the expansion port
+    --four-score       controllers 3 and 4 through an NES Four Score
+    --famicom-4p       controllers 3 and 4 in the Famicom expansion port
+    --hori-4p          controllers 1-4 through Hori's Famicom adapter
     --vaus-left N      paddle: the knob's value at the window's left
                        edge, 0-255 (default 77, $4D)
     --info             print the cartridge or NSF header and exit
@@ -200,19 +206,22 @@ The built program takes options after the ROM path:
     --start HEX        start here instead of the reset vector
 
 An input script holds one change per line: from frame N on, hold these
-buttons (`a b select start up down left right`, with `2:` in front for
-controller 2). A frame number on its own releases everything.
+buttons (`a b select start up down left right`, with `2:`, `3:` or `4:`
+in front for controllers 2 to 4). A frame number on its own releases everything.
 `tests/inputs/` has examples.
 
     120 start      # press Start at frame 120
     126            # release it
     200 a 2:start  # A on controller 1, Start on controller 2
     300 knob=160 fire  # paddle: knob at 160, its button held
+    400 aim=128,100 trigger  # Zapper: aimed at pixel (128, 100), fired
 
 `knob=N` (0-255) and `fire` set the first paddle, `2:knob=N` and
 `2:fire` the second (paddles count in the order port 1, port 2,
 Famicom). The knob stays where it was on lines that don't mention it;
-the button, like the others, is released.
+the button, like the others, is released. For the Zapper, `aim=X,Y`
+(0-255, 0-239) points it at a pixel and `aim=off` away from the screen;
+the aim stays put like the knob, and `trigger` is held only on its line.
 
 `make run` passes options to the program with `ARGS`:
 
@@ -239,6 +248,43 @@ most significant bit first, 9 bits (reads after the 9th repeat it); the
 button reads 1 when pressed. A real paddle takes up to 7 ms to measure,
 so a game reads the previous strobe's value; here it is measured at
 the strobe itself, a frame sooner, which no game should notice.
+
+## The Zapper
+
+Plug the light gun in with `--port2 zapper` (where most games look for
+it), `--port1 zapper` or `--famicom-zapper`. It aims where the mouse
+points: the pointer turns into a cross over the window, the left button
+pulls the trigger, and outside the window the gun points away from the
+screen. `tests/zapper_demo.nes` is a target to try:
+
+    make run ROM=tests/zapper_demo.nes ARGS="--port2 zapper"
+
+From the nesdev wiki's "Zapper" page: bit 3 of the port's register
+reads 0 while the sensor sees light, and bit 4 is the trigger, here 1
+while pulled (as on the simpler guns; the official one's half pull isn't
+copied). The sensor sees the picture as the beam draws it: a bright
+pixel keeps it lit for about 26 scanlines if white, 24 if light grey,
+19 if dark grey. The wiki doesn't say how wide an area the sensor sees
+or how bright a colour must be, so nesrecomp's choice is the 5 x 5
+pixels around the aim, and the colour's brightness sorted against the
+greys: white and the pale colours ($31-$3C) count as white, the light
+greys and the middle row ($21-$2C) as light grey, dark grey ($00) as
+dark grey, and the darker rows ($01-$0C, $11-$1C) aren't seen. Each read
+of the gun's port brings the picture up to that exact moment first.
+
+## Four players
+
+`--four-score` plugs in the NES Four Score, `--famicom-4p` puts
+controllers 3 and 4 in the Famicom's expansion port, and `--hori-4p`
+plugs in Hori's Famicom adapter. The third and fourth game controllers
+play controllers 3 and 4, and scripts set them with `3:` and `4:`.
+
+From the nesdev wiki's "Four player adapters": with the Four Score,
+`$4016` sends controller 1's buttons, then controller 3's, then a
+signature, and `$4017` the same for 2 and 4 with a different signature;
+the Famicom wiring sends controllers 3 and 4 on bit 1 beside 1 and 2;
+Hori's adapter sends the Four Score's sequence on bit 1 with the
+signatures swapped. A paddle on the same line as an adapter is refused.
 
 ## Play music (NSF files)
 
@@ -345,6 +391,15 @@ own. Each `tests/make_*.py` writes a small ROM into `tests/`:
   Famicom, and two at once) read at set frames against one input
   script: the knob's 8 bits, the reads after them, the button (also
   with the strobe held), controllers alongside, and bits nothing drives.
+- `make_four_test.py`: one ROM per four-player wiring, reading every
+  line through its whole sequence and beyond, after a strobe that
+  restarts it part way.
+- `make_zapper_test.py`: one ROM per Zapper wiring that draws white,
+  grey and blue boxes and reads the light sensor once a scanline for a
+  whole frame with the gun aimed at each, comparing when the light
+  starts and stops with the model; and the trigger.
+- `make_zapper_demo.py`: the Zapper target to try by hand, with a
+  scripted hit and miss as a picture check.
 - `make_mmc2_test.py`: MMC2 and MMC4's tile-triggered CHR latches,
   driven through `$2007` reads.
 - `make_vrc4_test.py`: one ROM per VRC4 mapper number (21, 23, 25):
@@ -360,7 +415,7 @@ own. Each `tests/make_*.py` writes a small ROM into `tests/`:
 Each check in these was confirmed by breaking that part of the runtime or
 recompiler on purpose and seeing the test report it.
 
-Current results: 168 of 169 graded tests pass, and the 26 pictures and 8
+Current results: 174 of 175 graded tests pass, and the 28 pictures and 8
 sound recordings match. That includes all 16 `instr_test-v5` CPU tests
 and the 11 built as NSFs (`nes_instr_test/nsf_singles`),
 all of `ppu_vbl_nmi`, `vbl_nmi_timing`, the sprite 0 hit and sprite
@@ -370,7 +425,8 @@ CNROM tests, all 12 MMC3 tests (the two for the older chip run with
 `--mmc3-rev=A`), all of `cpu_interrupts_v2`, all of
 `dmc_dma_during_read4`, both `sprdma_and_dmc_dma` tests,
 `ppu_open_bus`, pictures of the paddle programs `vaus-test` and
-`PaddleTest3` with scripted knob positions, and recordings of "The Amazing Engine Test" NSF's songs.
+`PaddleTest3` with scripted knob positions and of `vaus-test` with
+Famicom controller 3, and recordings of "The Amazing Engine Test" NSF's songs.
 The one failure is `other/test28`, a 2012 Action 53 test whose
 expectations contradict the nesdev wiki's reference
 implementation; the Action 53 collection it was written for (Streemerz)
@@ -411,7 +467,9 @@ or display-only `read_joy3` tests are left out of the suite, and so is
       the header's play rate, and the expansion sound chips (not FDS)
 - [ ] NES 2.0 headers, so board variants (submappers) can be told apart
 - [x] Arkanoid paddles (NES and Famicom), on the mouse or in scripts
-- [ ] Other input devices: Zapper, Four Score
+- [x] The Zapper (NES and Famicom) on the mouse or in scripts
+- [x] Four players: the Four Score, the Famicom's expansion port, Hori's
+      adapter
 - [ ] MMC5's vertical split screen
 - [ ] The Famicom Disk System: its sound chip (for NSFs too) and disks
 - [ ] NSF2 and NSFe music files (track names and lengths, songs that end
@@ -419,8 +477,8 @@ or display-only `read_joy3` tests are left out of the suite, and so is
 
 `PLAN.md`, `PLAN-mappers.md`, `PLAN-sound.md`, `PLAN-cycles.md`,
 `PLAN-render.md`, `PLAN-mappers2.md`, `PLAN-expansion.md`,
-`PLAN-input.md`, `PLAN-nsf.md` and `PLAN-paddle.md` have the step-by-step notes for each
+`PLAN-input.md`, `PLAN-nsf.md`, `PLAN-paddle.md` and `PLAN-zapper.md` have the step-by-step notes for each
 stage (graphics, mappers, sound, per-cycle timing, rendering, more
-mappers, expansion sound, controllers, NSF music, the paddle), including how each timing value was tuned, what
+mappers, expansion sound, controllers, NSF music, the paddle, the Zapper and four players), including how each timing value was tuned, what
 was tried for what still fails, and where the documentation left a
 choice to make.
