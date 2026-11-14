@@ -113,10 +113,13 @@ void video_init(int scale, const char *title) {
     next_frame_at = SDL_GetPerformanceCounter() + ticks_per_frame;
 }
 
+static int mouse_seen;                  /* the mouse has moved over the window */
+
 static void handle_events(void) {
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
         if (e.type == SDL_QUIT) exit(0);
+        if (e.type == SDL_MOUSEMOTION) mouse_seen = 1;
         gamepad_event(&e);
         if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_ESCAPE) exit(0);
         if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_m && !e.key.repeat)
@@ -152,6 +155,17 @@ uint8_t video_buttons(int player) {
     if ((b & (BTN_LEFT | BTN_RIGHT)) == (BTN_LEFT | BTN_RIGHT))
         b &= ~(BTN_LEFT | BTN_RIGHT);
     return b;
+}
+
+int video_mouse(double *x, int *button) {
+    if (!window || !mouse_seen) return 0;
+    int mx, w, h;
+    Uint32 b = SDL_GetMouseState(&mx, NULL);
+    SDL_GetWindowSize(window, &w, &h);
+    double f = w > 1 ? (double)mx / (w - 1) : 0.5;
+    *x = f < 0 ? 0 : f > 1 ? 1 : f;
+    *button = (b & SDL_BUTTON(SDL_BUTTON_LEFT)) != 0;
+    return 1;
 }
 
 static void wait_for_next_frame(void) {

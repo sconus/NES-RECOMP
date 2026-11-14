@@ -1,0 +1,3 @@
+# For PaddleTest3/PaddleTest.nes, paddle in port 1: shows the knob value
+# (here $A5) in hex, and the button held.
+10 knob=165 fire

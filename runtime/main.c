@@ -207,7 +207,7 @@ static struct {
     int knob[2];                    /* -1: unchanged */
 } script[MAX_SCRIPT];
 static int script_len, script_pos;
-static uint8_t script_buttons[2];
+static uint8_t script_buttons[2], script_fire[2];
 
 static void load_input_script(const char *path) {
     static const char *names[8] =
@@ -313,6 +313,25 @@ static void nsf_controls(void) {
     cpu_request_reset();
 }
 
+/* The first paddle from the mouse: its position across the window turns
+   the knob over VAUS_STEPS counts, from vaus_left at the left edge
+   (wrapping past 255, as a real knob's reading can), and the left
+   button is the paddle's button, as well as any scripted press. The
+   knob only follows the mouse once it has moved over the window. Games
+   expect different ranges (nesdev wiki): Arkanoid II $4D-$E2, the first
+   Arkanoid $62 round to $02; --vaus-left moves the range. */
+#define VAUS_STEPS 160
+static int vaus_left = 0x4D;
+
+static void paddle_mouse(void) {
+    double x;
+    int button;
+    if (headless || !(port_device[0] || port_device[1] || famicom_vaus)) return;
+    if (!video_mouse(&x, &button)) return;
+    vaus[0].knob = (uint8_t)(vaus_left + (int)(x * VAUS_STEPS + 0.5));
+    vaus[0].fire |= (uint8_t)button;
+}
+
 static void frame_done(const uint16_t *ppu_fb) {
     /* An NSF has no picture of its own: show its screen instead. */
     static uint16_t nsf_screen[256 * 240];
@@ -330,7 +349,7 @@ static void frame_done(const uint16_t *ppu_fb) {
     while (script_pos < script_len && script[script_pos].frame <= (long)ppu.frame) {
         for (int p = 0; p < 2; p++) {
             script_buttons[p] = script[script_pos].buttons[p];
-            vaus[p].fire = script[script_pos].fire[p];
+            script_fire[p] = script[script_pos].fire[p];
             if (script[script_pos].knob[p] >= 0)
                 vaus[p].knob = (uint8_t)script[script_pos].knob[p];
         }
@@ -338,6 +357,8 @@ static void frame_done(const uint16_t *ppu_fb) {
     }
     for (int p = 0; p < 2; p++)
         pad_buttons[p] = script_buttons[p] | (headless ? 0 : video_buttons(p));
+    for (int p = 0; p < 2; p++) vaus[p].fire = script_fire[p];
+    paddle_mouse();
     if (cart.mapper == MAPPER_NSF) nsf_controls();
     if (stop_after_frames && (long)ppu.frame >= stop_after_frames)
         finish_run(fb);
@@ -372,6 +393,8 @@ static void usage(const char *prog) {
         "  --port1 pad|vaus   what controller port 1 holds (default pad);\n"
         "  --port2 pad|vaus     vaus is the NES Arkanoid paddle\n"
         "  --famicom-vaus     a Famicom Arkanoid paddle in the expansion port\n"
+        "  --vaus-left N      paddle: the knob at the window's left edge, 0-255\n"
+        "                     (default 77; the right edge is 160 more)\n"
         "  --song N           NSF: play song N (from 1; default: the file's own)\n"
         "  --info             print the cartridge header and exit\n"
         "(or, with no ROM: --test-gamepads checks the game controller mapping)\n"
@@ -423,6 +446,12 @@ int main(int argc, char **argv) {
             else usage(argv[0]);
         }
         else if (!strcmp(a, "--famicom-vaus")) famicom_vaus = 1;
+        else if (!strcmp(a, "--vaus-left") && more) {
+            char *end;
+            long n = strtol(argv[++i], &end, 0);
+            if (*end || n < 0 || n > 255) usage(argv[0]);
+            vaus_left = (int)n;
+        }
         else if (!strcmp(a, "--info")) { cart_print_info(rom_path); return 0; }
         else usage(argv[0]);
     }

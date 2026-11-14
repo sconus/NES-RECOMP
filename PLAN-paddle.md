@@ -81,7 +81,7 @@ From the test ROMs' notes (`vaus-test/README.txt`) and the nesdev wiki's
   169 (test28 the expected failure); nestest exact; `recomp.py`
   unchanged, so generated C is the same.
 
-### 2. Playing it with the mouse
+### 2. Playing it with the mouse (done)
 - With a paddle plugged in, the mouse's left-right position across the
   window turns the knob over its real range of about 160 counts, and
   the left mouse button is the paddle's button. The keyboard and game
@@ -90,6 +90,22 @@ From the test ROMs' notes (`vaus-test/README.txt`) and the nesdev wiki's
   at set positions, saved as pictures (their hex value and marker
   checked by eye, then kept as regression checks); a try by hand with
   the mouse.
+- Done: the mouse turns the first paddle's knob over 160 counts, from
+  `--vaus-left` (default $4D, Arkanoid II's low end per the wiki) at the
+  window's left edge; it only takes over once it has moved over the
+  window, and its button adds to any scripted press. The wiki gives
+  the first Arkanoid as "$62-$02" (wrapping, or a typo: PaddleTest3's
+  own screen says $62-$F2); `--vaus-left 98` covers it either way.
+  `make run` passes `ARGS="..."` to the program.
+  Pictures, checked by eye: PaddleTest3 shows "Value: A5" and the
+  button lit for `knob=165 fire`; vaus-test, with either wiring, shows
+  the observed range's brackets at 77 and 237, the knob marker at 197,
+  and the character walked to its target (frame 600: it walks at a
+  third of a pixel a frame). Breaks caught: knob not inverted, each
+  wiring's button off or on the wrong bit, script knob ignored. 168 of
+  169, 26 pictures; nestest exact.
+  Not checked by the suite: the mouse itself (tests run without a
+  window). Tried by hand with vaus-test and PaddleTest3: it works.
 
 ### 3. Suite, README, notes
 Accept the new checks, document the options, the mouse and the script

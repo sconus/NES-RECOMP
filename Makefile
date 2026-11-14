@@ -4,7 +4,7 @@
 #   make test-ppu           run tests/suite.txt (needs the test ROM clone)
 #   make test-all           both
 #   make game ROM=x.nes     recompile any NROM game into build/<name>
-#   make run ROM=x.nes      ...and run it in a window
+#   make run ROM=x.nes      ...and run it in a window (options: ARGS="...")
 #   make clean
 # ROM paths with spaces are not supported.
 CC      ?= cc
@@ -48,7 +48,7 @@ game:
 	$(CC) $(CFLAGS) $(SDL_CFLAGS) -Iruntime -o build/$(NAME) build/$(NAME).c $(RT_SRC) $(LDLIBS)
 
 run: game
-	./build/$(NAME) $(ROM)
+	./build/$(NAME) $(ROM) $(ARGS)
 
 clean:
 	rm -rf build $(NESTEST).missed

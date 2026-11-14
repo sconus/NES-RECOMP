@@ -19,6 +19,11 @@ int video_audio_queued(void);           /* samples waiting, or -1 */
    arrows, X = A, Z = B, Return = Start, Right Shift = Select. */
 uint8_t video_buttons(int player);    /* 0 or 1 */
 
+/* The mouse, as of the last video_present, for a paddle: *x from 0 at
+   the window's left edge to 1 at its right, *button the left button.
+   Returns 0 (and sets nothing) until the mouse has moved over the window. */
+int video_mouse(double *x, int *button);
+
 /* Save a frame as a PNG file. Returns 0 on success. */
 int video_save_png(const uint16_t *framebuffer, const char *path);
 

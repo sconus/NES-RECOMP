@@ -191,6 +191,9 @@ tests/vaus_port1.nes +vaus.txt --port1=vaus	pass
 tests/vaus_port2.nes +vaus.txt --port2=vaus	pass
 tests/vaus_famicom.nes +vaus.txt --famicom-vaus	pass
 tests/vaus_two.nes +vaus.txt --port1=vaus --port2=vaus	pass
+vaus-test/vaus-test.nes +vaus_test_demo.txt --port2=vaus	frame:b2ff3d3b
+vaus-test/vaus-test.nes +vaus_test_demo.txt --famicom-vaus	frame:b2ff3d3b
+PaddleTest3/PaddleTest.nes +paddletest3.txt --port1=vaus	frame:29fb01bf
 apu_reset/4015_cleared.nes	pass
 apu_reset/4017_timing.nes	pass
 apu_reset/4017_written.nes	pass

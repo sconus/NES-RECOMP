@@ -1,0 +1,9 @@
+# For vaus-test/vaus-test.nes with a paddle plugged in: the button picks
+# paddle control, then the character walks to where the knob points.
+# Paddle values per the nesdev wiki (raw, left = low).
+10 knob=77
+40 knob=77 fire
+46
+60 knob=237
+120 knob=237
+121 knob=197
