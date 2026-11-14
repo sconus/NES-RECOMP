@@ -625,6 +625,16 @@ the same C as before.
     Its script loads, saves twice and stops the music, as a picture
     check. The sound was checked too: it plays, and goes quiet after
     Select.
+
+    Tried in a window afterwards. The saved count survived between runs
+    (19, then 28 in the `.sav`). One glitch was found, in the demo
+    itself: after each load or save, the picture jumped up for a frame.
+    The demo turned rendering back on mid-frame, and its VRAM writes had
+    moved the PPU's address, which the PPU then drew the rest of that
+    frame from. A real console would do the same. The demo now waits
+    for vblank (VINTWait) and calls SetScroll before turning rendering
+    on. Screenshots of the frames around each disk action now show one
+    blank frame, then the picture back in place.
   - **README:**
     - a Famicom Disk System section: the BIOS and what it leaves out,
       the drive, code in RAM, sides and saving, keys;

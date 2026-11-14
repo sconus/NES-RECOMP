@@ -142,10 +142,16 @@ def program():
     a.jsr(VRAMSTRUCT); word("screen")
     a.jsr(VRAMSTRUCT); word("msg_ram")          # MSG1, loaded at boot
     jsr("draw_count")
+    # Back on: at the start of a vblank, with the scroll set again (the
+    # VRAM writes moved the PPU's address, which it would otherwise draw
+    # the rest of the frame from).
     a.label("show")
     zp(0xFC, 0); zp(0xFD, 0)
+    zp(0xFF, 0x00)
     a.b(0x2C, 0x02, 0x20)                       # BIT $2002
-    a.lda(0x80); a.b(0x85, 0xFF); a.sta(0x2000) # NMIs on
+    a.jsr(VINTWAIT)
+    zp(0xFF, 0x80)
+    a.jsr(SETSCROLL)                            # $2005 x2, $2000 = $80: NMIs on
     a.jsr(ENPFOBJ)
     a.b(0x58)                                   # CLI (the timer IRQ)
     a.label("main")
