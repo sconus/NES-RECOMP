@@ -122,7 +122,7 @@ else is tested with headers written by the project's own generators:
     - the runtime's truncation check.
   - 174 of 175; nestest exact.
 
-### 2. RAM sizes
+### 2. RAM sizes (done)
 - CHR RAM: the size the header gives. Without CHR RAM or ROM, pattern
   reads are 0.
 - PRG RAM at `$6000`: none when the header says 0, so reads give the
@@ -140,6 +140,57 @@ else is tested with headers written by the project's own generators:
   - Also `pulsar` and `oam3` before and after, and battery saves of
     the right length.
   - Break each part.
+- Done:
+  - The `$6000` RAM is the header's PRG RAM, then its PRG NVRAM. At
+    least 8 KB is always allocated, so the `$6000` protocol readers
+    and MMC5's first bank have memory. `mapper.ram6000_size` says how
+    much the CPU sees: smaller RAM repeats through the 8 KB.
+  - With none, a read gives the address's high byte. That is the
+    open bus after an absolute read, the usual case. RAM that a mapper
+    switches off still reads 0, as before, so iNES 1.0 files don't
+    change.
+  - MMC1 with more than 8 KB picks the bank from CHR bank 0: bits 2-3
+    for 32 KB (bit 2 is A13, bit 3 is A14, as the wiki gives, so save
+    files match), bit 3 alone for 16 KB. MMC5 keeps its own 64 KB, and
+    FME-7's RAM is the header's.
+  - The `.sav` file holds only the NVRAM part, and nothing is saved
+    when the header declares none. For SOROM, the second 8 KB is
+    saved: the wiki says the battery is on the second chip, and the
+    plain RAM is laid out first.
+  - CHR RAM is the declared size (at least 1 KB, repeated by the bank
+    arithmetic). With neither CHR ROM nor CHR RAM, 8 KB of zeros that
+    can't be written. Action 53 still grows its CHR RAM to 32 KB, but
+    only for iNES 1.0 headers.
+  - `make_ram_test.py` writes six ROMs:
+    - `ram_none`, `ram_2k`, `chr_none`;
+    - `mmc1_ram32`, `mmc1_ram16`, `mmc1_chr16`.
+    Each writes PASSED or FAILED n into the nametable (a `text` test),
+    since a RAM test can't count on RAM to report. All six pass. With
+    iNES 1.0 headers (`--ines1 DIR`), all six fail.
+  - Saves, checked by hand: SXROM saves 32 KB with banks 0-3 in order,
+    SOROM saves 8 KB holding bank 1, and `pulsar` saves 32 KB.
+  - The five NES 2.0 files in the collection give the same picture at
+    frame 600 as before the change. `oam3` now has 1 KB of CHR RAM
+    and the plain NROM files have no `$6000` RAM, with no visible
+    difference.
+  - Breaks, 10 tried, all caught:
+    - no RAM read as 8 KB;
+    - open bus as 0;
+    - small RAM not repeated;
+    - CHR RAM always 8 KB;
+    - no CHR made writable;
+    - MMC1 banking off;
+    - SOROM decoded like SXROM;
+    - SXROM's two bits swapped;
+    - the whole RAM saved;
+    - the save always 8 KB.
+    Swapping SXROM's bits only shows in the save file's layout: a
+    program can't tell, so the first save check (one byte) missed it.
+    It now checks all four banks, but the save checks aren't in the
+    suite.
+  - Not checked: loading a `.sav` back into the NVRAM part, and Action
+    53 with an NES 2.0 header (the collection's are iNES 1.0).
+  - 180 of 181; nestest exact; all 319 earlier files give the same C.
 
 ### 3. Board variants (submappers)
 Use the submapper where the runtime guesses today. Submapper 0 keeps

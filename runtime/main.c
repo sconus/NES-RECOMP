@@ -39,6 +39,21 @@ static void oam_dma(uint8_t page) {
     cycles = apu_oam_dma() - 1;
 }
 
+/* The byte at $6000-$7FFF that address a reaches, or NULL: RAM switched
+   off, or none there. Smaller RAM repeats through the 8 KB. */
+static uint8_t *ram6000_at(uint16_t a) {
+    if (mapper.prg_ram_disabled || !mapper.ram6000_size) return NULL;
+    return &mapper.ram6000[(size_t)(a - 0x6000) % mapper.ram6000_size];
+}
+
+/* A read of $6000-$7FFF. Switched-off RAM reads 0, as it always has
+   here; where there is no RAM at all the data bus keeps the last byte
+   the CPU fetched, for an absolute read the address's high byte. */
+static uint8_t rd6000(uint16_t a) {
+    uint8_t *p = ram6000_at(a);
+    return p ? *p : mapper.prg_ram_disabled ? 0 : (uint8_t)(a >> 8);
+}
+
 uint8_t rd(uint16_t a) {
     if (a < 0x2000) return ram[a & 0x7FF];
     if (a < 0x4020 && cycles + DMA_CHECK_AHEAD >= dmc_dma_due) apu_dma_point(a);
@@ -47,7 +62,7 @@ uint8_t rd(uint16_t a) {
     if (a == 0x4016 || a == 0x4017) return input_read(a & 1);
     if (a >= 0x8000) return prg_read(a);
     if (a >= 0x6000)
-        return mapper.prg_ram_disabled ? 0 : mapper.ram6000[a - 0x6000];
+        return rd6000(a);
     if (a >= 0x4020) return mapper_read_low(a);
     return 0;                 /* APU and unmapped space: not wired up yet */
 }
@@ -56,7 +71,7 @@ uint8_t peek(uint16_t a) {
     if (a < 0x2000) return ram[a & 0x7FF];
     if (a >= 0x8000) return prg_read(a);
     if (a >= 0x6000)
-        return mapper.prg_ram_disabled ? 0 : mapper.ram6000[a - 0x6000];
+        return rd6000(a);
     return 0;
 }
 
@@ -69,8 +84,8 @@ void wr(uint16_t a, uint8_t v) {
     else if (a >= 0x8000) mapper_write(a, v);
     else if (a >= 0x4020 && a < 0x6000) mapper_write_low(a, v);
     else if (a >= 0x6000) {
-        if (!mapper.prg_ram_disabled && !mapper.prg_ram_readonly)
-            mapper.ram6000[a - 0x6000] = v;
+        uint8_t *p = ram6000_at(a);
+        if (p && !mapper.prg_ram_readonly) *p = v;
     }
 }
 
@@ -83,7 +98,7 @@ static long song_frames;            /* how long the song has played */
 uint16_t cpu_reset_target(void) {
     if (cart.mapper != MAPPER_NSF) return rd(0xFFFC) | (rd(0xFFFD) << 8);
     memset(ram, 0, sizeof ram);
-    memset(cart.prg_ram, 0, sizeof cart.prg_ram);
+    memset(cart.prg_ram, 0, cart.prg_ram_alloc);
     song_frames = 0;
     return nsf_start(nsf_next_song ? nsf_next_song : nsf.song);
 }
@@ -546,7 +561,7 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    if (cart.battery && !no_save) {
+    if (cart.battery && cart.prg_nvram_size && !no_save) {
         cart_load_save(rom_path);
         use_save_file = 1;
     }

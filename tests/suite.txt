@@ -375,3 +375,13 @@ result 3000 apu_reset/len_ctrs_enabled.nes
 result 3000 apu_reset/works_immediately.nes
 result 3000 cpu_reset/ram_after_reset.nes
 result 3000 cpu_reset/registers.nes
+
+# --- NES 2.0 headers (PLAN-nes2.md). RAM sizes from bytes 10-11
+# (make_ram_test.py): each ROM writes PASSED or FAILED n into the
+# nametable, since it can't count on RAM to report a RAM test.
+text 30 tests/ram_none.nes
+text 30 tests/ram_2k.nes
+text 30 tests/chr_none.nes
+text 30 tests/mmc1_ram32.nes
+text 30 tests/mmc1_ram16.nes
+text 30 tests/mmc1_chr16.nes

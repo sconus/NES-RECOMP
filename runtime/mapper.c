@@ -22,6 +22,15 @@ static int (*read_low)(uint16_t addr);                  /* -1: open bus */
 static int prg_banks_8k(void) { return (int)(cart.prg_size / 0x2000); }
 static int chr_banks_1k(void) { return (int)(cart.chr_size / 0x400); }
 
+/* Put 8 KB bank n of the cartridge's PRG RAM at $6000 (the header's
+   size: less than 8 KB repeats, none leaves open bus). */
+static void set_ram_8k(int bank) {
+    size_t total = cart.prg_ram_size + cart.prg_nvram_size;
+    size_t banks = total / 0x2000;
+    mapper.ram6000 = cart.prg_ram + (banks > 1 ? (size_t)bank % banks * 0x2000 : 0);
+    mapper.ram6000_size = total < 0x2000 ? total : 0x2000;
+}
+
 /* Negative bank numbers count from the end: -1 is the last bank. */
 static int wrap(int n, int count) { n %= count; return n < 0 ? n + count : n; }
 
@@ -164,7 +173,8 @@ static void a53_reset(void) {
     a53.outer = 0xFF;
     a53.mode = 0x02;
     a53.inner = a53.chr = a53.select = 0;
-    if (cart.chr_is_ram && cart.chr_size < 0x8000) {   /* 32 KB of CHR RAM */
+    /* 32 KB of CHR RAM, unless an NES 2.0 header says how much. */
+    if (cart.chr_is_ram && !cart.nes2 && cart.chr_size < 0x8000) {
         cart.chr = realloc(cart.chr, 0x8000);
         memset(cart.chr, 0, 0x8000);
         cart.chr_size = 0x8000;
@@ -439,6 +449,7 @@ static void mmc5_prg_slot(int slot, int value, int rom) {
 static void mmc5_apply_prg(void) {
     uint8_t *r = mmc5.prg;          /* r[0] = $5113 ... r[4] = $5117 */
     mapper.ram6000 = mmc5_ram_bank(r[0]);
+    mapper.ram6000_size = 0x2000;         /* MMC5 keeps its own 64 KB */
     mapper.prg_ram_readonly = !(mmc5.protect1 == 2 && mmc5.protect2 == 1);
     switch (mmc5.prg_mode & 3) {
     case 0:
@@ -934,11 +945,12 @@ static void fme_irq_schedule(void) {
 
 static void fme_set_6000(uint8_t v) {
     if (v & 0x40) {                             /* RAM */
-        mapper.ram6000 = cart.prg_ram;
+        set_ram_8k(0);
         mapper.prg_ram_disabled = !(v & 0x80);
         mapper.prg_ram_readonly = 0;
     } else {                                    /* ROM, read-only */
         mapper.ram6000 = cart.prg + (size_t)((v & 0x3F) % prg_banks_8k()) * 0x2000;
+        mapper.ram6000_size = 0x2000;
         mapper.prg_ram_disabled = 0;
         mapper.prg_ram_readonly = 1;
     }
@@ -1488,6 +1500,12 @@ static void mmc1_apply(void) {
     case 3: set_prg_16k(0, bank); set_prg_16k(1, outer | 0x0F); break;
     }
     mapper.prg_ram_disabled = (mmc1.prg & 0x10) != 0;
+    /* 16 KB of PRG RAM (SOROM) or 32 KB (SXROM), from an NES 2.0 header:
+       bits 2-3 of CHR bank 0 pick the 8 KB at $6000 (SOROM wires only bit
+       3). The wiki asks for the same bits in CHR bank 1 in 4 KB mode. */
+    size_t ram = cart.prg_ram_size + cart.prg_nvram_size;
+    if (ram > 0x2000)
+        set_ram_8k(ram > 0x4000 ? (mmc1.chr0 >> 2) & 3 : (mmc1.chr0 >> 3) & 1);
 }
 
 static void mmc1_write(uint16_t addr, uint8_t val) {
@@ -1679,7 +1697,7 @@ void mapper_init(void) {
        reset may then change it. */
     for (int i = 0; i < 4; i++) set_prg_8k(i, i);
     set_chr_8k(0);
-    mapper.ram6000 = cart.prg_ram;
+    set_ram_8k(0);
     mapper.bank_changed = 0;
 
     switch (cart.mapper) {

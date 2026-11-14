@@ -15,8 +15,13 @@ struct cart {
     size_t prg_size;
     uint8_t *chr;          /* pattern data, seen by the PPU at $0000-$1FFF */
     size_t chr_size;
-    int chr_is_ram;        /* 1 when the header lists no CHR ROM */
-    uint8_t prg_ram[0x2000];   /* $6000-$7FFF work RAM (test ROMs report here) */
+    size_t chr_rom_size;   /* what the header lists (chr_size may be RAM) */
+    int chr_is_ram;        /* 1 when the pattern data is CHR RAM */
+    /* $6000-$7FFF work RAM (test ROMs report here): prg_ram_size bytes
+       of plain RAM, then prg_nvram_size bytes of battery-backed RAM.
+       At least 8 KB is allocated, zeroed, whatever the header says. */
+    uint8_t *prg_ram;
+    size_t prg_ram_alloc;
     enum mirroring mirroring;      /* current mode; mappers may change it */
     int mapper;
     int battery;

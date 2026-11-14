@@ -25,7 +25,9 @@ struct mapper {
     int power_on_bank[4];   /* prg_bank[] after reset (old .missed files) */
     int prg_ram_disabled;   /* $6000-$7FFF switched off by the mapper */
     int prg_ram_readonly;   /* $6000-$7FFF write-protected (MMC5) */
-    uint8_t *ram6000;       /* what $6000-$7FFF reads and writes (8 KB) */
+    uint8_t *ram6000;       /* what $6000-$7FFF reads and writes */
+    size_t ram6000_size;    /* bytes there, repeated through the 8 KB;
+                               0: nothing (open bus) */
     /* Mappers that watch the PPU's A12 address line (MMC3) set this; the
        PPU calls it when A12 changes. `dot` is in ppu.dots units. */
     void (*a12)(int level, uint64_t dot);

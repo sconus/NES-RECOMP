@@ -210,3 +210,9 @@ apu_reset/len_ctrs_enabled.nes	pass
 apu_reset/works_immediately.nes	pass
 cpu_reset/ram_after_reset.nes	pass
 cpu_reset/registers.nes	pass
+tests/ram_none.nes	pass
+tests/ram_2k.nes	pass
+tests/chr_none.nes	pass
+tests/mmc1_ram32.nes	pass
+tests/mmc1_ram16.nes	pass
+tests/mmc1_chr16.nes	pass

@@ -70,6 +70,7 @@ static void read_header(const char *path, const uint8_t *h, long file_size) {
         cart.chr_ram_size = h[5] ? 0 : 0x2000;
         cart.chr_nvram_size = 0;
     }
+    cart.chr_rom_size = cart.chr_size;
     if (cart.prg_size == 0) fail(path, "header lists no PRG ROM");
     if (cart.prg_size % 0x2000)
         fail(path, "PRG ROM is not a whole number of 8 KB banks");
@@ -90,6 +91,14 @@ static void read_header(const char *path, const uint8_t *h, long file_size) {
                 path, cart.misc_roms);
 }
 
+/* Allocate the $6000 RAM the header declared (at least 8 KB, so the
+   $6000 protocol readers and MMC5's first bank always have memory). */
+static void alloc_prg_ram(void) {
+    size_t n = cart.prg_ram_size + cart.prg_nvram_size;
+    cart.prg_ram_alloc = n < 0x2000 ? 0x2000 : n;
+    cart.prg_ram = calloc(1, cart.prg_ram_alloc);
+}
+
 void cart_load(const char *path) {
     FILE *f = fopen(path, "rb");
     if (!f) { perror(path); exit(1); }
@@ -98,6 +107,8 @@ void cart_load(const char *path) {
     if (!memcmp(h, "NESM\x1a", 5)) {            /* an NSF music file */
         nsf_load(path, f);
         fclose(f);
+        cart.prg_ram_size = 0x2000;             /* NSF players have 8 KB */
+        alloc_prg_ram();
         return;
     }
     if (memcmp(h, "NES\x1a", 4)) fail(path, "not an iNES or NSF file");
@@ -111,17 +122,28 @@ void cart_load(const char *path) {
     if (fread(cart.prg, 1, cart.prg_size, f) != cart.prg_size)
         fail(path, "truncated PRG data");
 
-    cart.chr_is_ram = cart.chr_size == 0;
-    if (cart.chr_is_ram) cart.chr_size = 0x2000;
+    alloc_prg_ram();
+    /* Without CHR ROM: the CHR RAM the header declares (iNES 1.0: 8 KB),
+       at least 1 KB (the smallest bank), mirrored by the mapper's bank
+       arithmetic. With neither, 8 KB of zeros that can't be written. */
+    int no_chr = cart.chr_size == 0;
+    if (no_chr) {
+        size_t ram = cart.chr_ram_size + cart.chr_nvram_size;
+        cart.chr_is_ram = ram != 0;
+        cart.chr_size = !ram ? 0x2000 : ram < 0x400 ? 0x400 : ram;
+    } else {
+        cart.chr_is_ram = 0;
+    }
     cart.chr = calloc(1, cart.chr_size);
-    if (!cart.chr_is_ram &&
+    if (!cart.chr_is_ram && !no_chr &&
         fread(cart.chr, 1, cart.chr_size, f) != cart.chr_size)
         fail(path, "truncated CHR data");
     fclose(f);
 }
 
-/* Battery-backed carts keep the 8 KB at $6000-$7FFF when switched off;
-   we keep it in <rom>.sav next to the ROM. */
+/* Battery-backed carts keep their NVRAM (the part of the $6000 RAM after
+   the plain RAM; iNES 1.0: all 8 KB) when switched off; we keep it in
+   <rom>.sav next to the ROM. */
 static void save_path(char *out, size_t size, const char *rom_path) {
     snprintf(out, size, "%s.sav", rom_path);
 }
@@ -131,7 +153,7 @@ void cart_load_save(const char *rom_path) {
     save_path(path, sizeof path, rom_path);
     FILE *f = fopen(path, "rb");
     if (!f) return;                 /* first run: nothing saved yet */
-    size_t n = fread(cart.prg_ram, 1, sizeof cart.prg_ram, f);
+    size_t n = fread(cart.prg_ram + cart.prg_ram_size, 1, cart.prg_nvram_size, f);
     fclose(f);
     fprintf(stderr, "loaded %zu bytes of saved RAM from %s\n", n, path);
 }
@@ -144,7 +166,8 @@ void cart_write_save(const char *rom_path) {
     snprintf(tmp, sizeof tmp, "%s.tmp", path);
     FILE *f = fopen(tmp, "wb");
     if (!f) { perror(tmp); return; }
-    int ok = fwrite(cart.prg_ram, 1, sizeof cart.prg_ram, f) == sizeof cart.prg_ram;
+    int ok = fwrite(cart.prg_ram + cart.prg_ram_size, 1, cart.prg_nvram_size, f)
+             == cart.prg_nvram_size;
     ok &= fclose(f) == 0;
     if (ok && rename(tmp, path) == 0)
         fprintf(stderr, "saved RAM to %s\n", path);
@@ -187,13 +210,14 @@ void cart_print_info(const char *path) {
     printf("%s\n  mapper %d, PRG %s, CHR %s %s, %s mirroring%s\n",
            path, cart.mapper, size_text(a, cart.prg_size),
            size_text(b, cart.chr_size),
-           cart.chr_is_ram ? "RAM" : "ROM", mir[cart.mirroring],
+           cart.chr_is_ram ? "RAM" : cart.chr_rom_size ? "ROM" : "(none)",
+           mir[cart.mirroring],
            cart.battery ? ", battery" : "");
     printf("  %s header: submapper %d\n", cart.nes2 ? "NES 2.0" : "iNES 1.0",
            cart.submapper);
     printf("  PRG ROM %s, CHR ROM %s; PRG RAM %s, PRG NVRAM %s, CHR RAM %s,"
            " CHR NVRAM %s\n",
-           size_text(a, cart.prg_size), size_text(b, cart.chr_is_ram ? 0 : cart.chr_size),
+           size_text(a, cart.prg_size), size_text(b, cart.chr_rom_size),
            size_text(c, cart.prg_ram_size), size_text(d, cart.prg_nvram_size),
            size_text(e, cart.chr_ram_size), size_text(g, cart.chr_nvram_size));
     printf("  timing %s, console %s (byte 13 $%02X), extra ROMs %d,"
