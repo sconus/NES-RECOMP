@@ -1,0 +1,8 @@
+# For tests/mmc5_split_demo.nes (make_split_demo.py): scroll the panel
+# down 50 lines, move it to the left, stop the playfield for a while.
+100 down
+150
+170 a
+176
+200 left
+230

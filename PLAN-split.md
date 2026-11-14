@@ -192,10 +192,35 @@ by hand.
   - 206 of 207, 29 pictures; nestest exact; all 319 earlier files give
     the same C.
 
-### 3. A demo
+### 3. A demo (done)
 - `make_split_demo.py`: a playfield scrolling sideways with a split
   status panel on one side and its own vertical scroll. For a try by
   hand, and as a picture check in the suite.
+- Done:
+  - `make_split_demo.py` writes `mmc5_split_demo.nes` and
+    `tests/inputs/mmc5_split_demo.txt`. Pillars and clouds scroll
+    sideways across two nametables, one pixel a frame. The panel, 8
+    tiles wide, is the split (CHR bank 1). It shows the playfield's
+    scroll (X) and its own (Y) in hex, then numbered rows with coloured
+    blocks. Up/Down scroll the panel, Left holds the playfield, and A
+    moves the panel to the other side. Its digits are written in
+    vblank in ExRAM mode 2, since modes 0 and 1 only take CPU writes
+    while the PPU renders.
+  - Two pictures in the suite, at frame 300:
+    - with no input, X 127 and the panel on the right;
+    - with the script, the panel scrolled 50 lines and moved left, and
+      X 30 behind (Left held for 30 frames).
+    Both checked by eye: the panel's edge sits fine X pixels left of
+    the tile line, and its rows wrap.
+  - The same slip as in step 1, in my own demo: the controller loop's
+    branch distance was worked out before its `DEX` was placed. It
+    showed at once, as numbers stuck at 0. Fixed, by placing the `DEX`
+    first.
+  - The demo pictures change under the breaks the demo exercises
+    (split never drawn, colours, coarse X, pattern row). The rest (mode
+    1, `$5201` 240-255, CHR modes, the restart) leave it unchanged, as
+    the test ROMs cover them.
+  - No change to the runtime or `recomp.py`. 206 of 207, 31 pictures.
 
 ### 4. Suite, README, notes
 Accept the new checks, document the split and the choices above,

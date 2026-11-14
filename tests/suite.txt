@@ -231,6 +231,10 @@ frame 300 mmc5test/mmc5test.nes
 # the split's colours, next to extended attributes.
 result 200 tests/mmc5_split.nes
 frame 30 tests/mmc5_split_pic.nes
+# make_split_demo.py: a sideways-scrolling playfield with the split as a
+# status panel; then scrolled 50 lines, moved left, the playfield paused.
+frame 300 tests/mmc5_split_demo.nes
+frame 300 tests/mmc5_split_demo.nes tests/inputs/mmc5_split_demo.txt
 
 # --- PPU, result on screen only (power_up_palette is left out: it checks
 #     values unique to its author's console)
