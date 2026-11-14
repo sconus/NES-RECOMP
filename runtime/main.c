@@ -200,15 +200,19 @@ static void at_exit(void) {
        300 a 2:start    A on controller 1 and Start on controller 2
                         (3: and 4: for controllers 3 and 4)
        400 knob=160 fire  paddle: knob at 160, button down (2: for the
-                        second paddle); the knob stays put until moved */
+                        second paddle); the knob stays put until moved
+       500 aim=128,100 trigger   Zapper: aimed at pixel (128, 100), the
+                        trigger pulled; the aim stays put until moved, and
+                        aim=off points it away from the screen */
 #define MAX_SCRIPT 4096
 static struct {
     long frame;
-    uint8_t buttons[4], fire[2];
+    uint8_t buttons[4], fire[2], trigger;
     int knob[2];                    /* -1: unchanged */
+    int aim_x, aim_y;               /* aim_x: -2 unchanged, -1 off */
 } script[MAX_SCRIPT];
 static int script_len, script_pos;
-static uint8_t script_buttons[4], script_fire[2];
+static uint8_t script_buttons[4], script_fire[2], script_trigger;
 
 static void load_input_script(const char *path) {
     static const char *names[8] =
@@ -230,7 +234,8 @@ static void load_input_script(const char *path) {
             exit(1);
         }
         uint8_t b[4] = { 0, 0, 0, 0 }, fire[2] = { 0, 0 };
-        int knob[2] = { -1, -1 };
+        int knob[2] = { -1, -1 }, aim_x = -2, aim_y = 0;
+        uint8_t trigger = 0;
         while ((tok = strtok(NULL, " \t\r\n"))) {
             int pad = 0;
             const char *name = tok;
@@ -240,6 +245,19 @@ static void load_input_script(const char *path) {
             }
             int paddle = pad < 2;           /* knob and fire: 1 or 2 only */
             if (!strcmp(name, "fire") && paddle) { fire[pad] = 1; continue; }
+            if (!strcmp(tok, "trigger")) { trigger = 1; continue; }
+            if (!strcmp(tok, "aim=off")) { aim_x = -1; continue; }
+            if (!strncmp(tok, "aim=", 4)) {
+                int x, y, n = 0;
+                if (sscanf(tok + 4, "%d,%d%n", &x, &y, &n) != 2 || tok[4 + n] ||
+                    x < 0 || x >= 256 || y < 0 || y >= 240) {
+                    fprintf(stderr, "%s:%d: aim needs X,Y (0-255, 0-239) or off: '%s'\n",
+                            path, lineno, tok);
+                    exit(1);
+                }
+                aim_x = x; aim_y = y;
+                continue;
+            }
             if (!strncmp(name, "knob=", 5) && paddle) {
                 char *end;
                 long n = strtol(name + 5, &end, 10);
@@ -261,6 +279,9 @@ static void load_input_script(const char *path) {
         }
         script[script_len].frame = frame;
         for (int p = 0; p < 4; p++) script[script_len].buttons[p] = b[p];
+        script[script_len].trigger = trigger;
+        script[script_len].aim_x = aim_x;
+        script[script_len].aim_y = aim_y;
         for (int p = 0; p < 2; p++) {
             script[script_len].fire[p] = fire[p];
             script[script_len].knob[p] = knob[p];
@@ -331,7 +352,8 @@ static int vaus_left = 0x4D;
 static void paddle_mouse(void) {
     double x;
     int button;
-    if (headless || !(port_device[0] || port_device[1] || famicom_vaus)) return;
+    if (headless || !(port_device[0] == DEV_VAUS || port_device[1] == DEV_VAUS ||
+                      famicom_vaus)) return;
     if (!video_mouse(&x, &button)) return;
     vaus[0].knob = (uint8_t)(vaus_left + (int)(x * VAUS_STEPS + 0.5));
     vaus[0].fire |= (uint8_t)button;
@@ -353,6 +375,11 @@ static void frame_done(const uint16_t *ppu_fb) {
     /* Buttons for the next frame: the script, plus the keyboard. */
     while (script_pos < script_len && script[script_pos].frame <= (long)ppu.frame) {
         for (int p = 0; p < 4; p++) script_buttons[p] = script[script_pos].buttons[p];
+        script_trigger = script[script_pos].trigger;
+        if (script[script_pos].aim_x != -2) {
+            zapper.x = script[script_pos].aim_x;
+            zapper.y = script[script_pos].aim_y;
+        }
         for (int p = 0; p < 2; p++) {
             script_fire[p] = script[script_pos].fire[p];
             if (script[script_pos].knob[p] >= 0)
@@ -363,6 +390,7 @@ static void frame_done(const uint16_t *ppu_fb) {
     for (int p = 0; p < 4; p++)
         pad_buttons[p] = script_buttons[p] | (headless ? 0 : video_buttons(p));
     for (int p = 0; p < 2; p++) vaus[p].fire = script_fire[p];
+    zapper.trigger = script_trigger;
     paddle_mouse();
     if (cart.mapper == MAPPER_NSF) nsf_controls();
     if (stop_after_frames && (long)ppu.frame >= stop_after_frames)
@@ -395,8 +423,9 @@ static void usage(const char *prog) {
         "  --input FILE       scripted button presses (see README.md)\n"
         "  --scale N          window size, N times 256x240 (default 3)\n"
         "  --mmc3-rev A|B     which MMC3 chip to act like (default B)\n"
-        "  --port1 pad|vaus   what controller port 1 holds (default pad);\n"
-        "  --port2 pad|vaus     vaus is the NES Arkanoid paddle\n"
+        "  --port1 pad|vaus|zapper  what controller port 1 holds (default\n"
+        "  --port2 pad|vaus|zapper    pad); vaus is the NES Arkanoid paddle\n"
+        "  --famicom-zapper   a Famicom Zapper in the expansion port\n"
         "  --famicom-vaus     a Famicom Arkanoid paddle in the expansion port\n"
         "  --four-score       controllers 3 and 4 through an NES Four Score\n"
         "  --famicom-4p       controllers 3 and 4 in the Famicom expansion port\n"
@@ -451,9 +480,11 @@ int main(int argc, char **argv) {
             int port = a[6] - '1';
             if (!strcmp(d, "pad")) port_device[port] = DEV_PAD;
             else if (!strcmp(d, "vaus")) port_device[port] = DEV_VAUS;
+            else if (!strcmp(d, "zapper")) port_device[port] = DEV_ZAPPER;
             else usage(argv[0]);
         }
         else if (!strcmp(a, "--famicom-vaus")) famicom_vaus = 1;
+        else if (!strcmp(a, "--famicom-zapper")) famicom_zapper = 1;
         else if (!strcmp(a, "--four-score")) four_players = FOUR_SCORE;
         else if (!strcmp(a, "--famicom-4p")) four_players = FOUR_FAMICOM;
         else if (!strcmp(a, "--hori-4p")) four_players = FOUR_HORI;
@@ -473,10 +504,17 @@ int main(int argc, char **argv) {
     }
     /* The Four Score holds both ports; the Famicom's players 3 and 4 use
        the expansion port's bit 1, as its paddle does. */
-    if ((four_players == FOUR_SCORE && (port_device[0] || port_device[1])) ||
-        (four_players >= FOUR_FAMICOM && famicom_vaus)) {
-        fprintf(stderr, "%s and a paddle can't be plugged in together\n",
-                four_players == FOUR_SCORE ? "--four-score" : "a Famicom 4-player wiring");
+    if (four_players == FOUR_SCORE && (port_device[0] || port_device[1])) {
+        fprintf(stderr, "--four-score takes both ports: no --port1/--port2 with it\n");
+        return 1;
+    }
+    if (four_players >= FOUR_FAMICOM && famicom_vaus) {
+        fprintf(stderr, "a Famicom 4-player wiring and a paddle can't be plugged in together\n");
+        return 1;
+    }
+    if ((port_device[0] == DEV_ZAPPER) + (port_device[1] == DEV_ZAPPER) +
+        famicom_zapper > 1) {
+        fprintf(stderr, "only one Zapper can be plugged in\n");
         return 1;
     }
     if ((screenshot_path || dump_text) && !stop_after_frames) {

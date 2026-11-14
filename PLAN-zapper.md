@@ -90,7 +90,7 @@ try by hand.
   reads 10), a strobe mid-sequence ignored, script `3:` or `4:` wrong.
   171 of 172; nestest exact; `recomp.py` unchanged.
 
-### 2. The Zapper on the bus, and in scripts
+### 2. The Zapper on the bus, and in scripts (done)
 - Options: `--port1 zapper`, `--port2 zapper`, `--famicom-zapper`.
 - The sensor: at each read, bring the PPU up to date and look at the
   pixels drawn around the aim in the last few scanlines; it sees light
@@ -107,6 +107,27 @@ try by hand.
   sensor before, during and after the beam passes them, timed with
   sprite 0 hit; plus the trigger and the bits nothing drives. Break
   each part.
+- Done: each read of the gun's port brings the PPU up to the CPU and
+  looks at the 5 x 5 pixels around the aim (`ppu_dots_since_pixel`
+  says how long ago the beam drew each this frame). Brightness comes
+  from the RGB palette: at least 218 (white, $31-$3C) stays lit 26
+  lines, 146 (light greys, $21-$2C, $3D) 24, 105 (dark grey $00) 19;
+  the colours of rows $01-$0C and $11-$1C, at 101 or less, are too
+  dark. Script words `aim=X,Y`, `aim=off`, `trigger`; two guns are
+  refused. `make_zapper_test.py` writes one ROM per wiring: it
+  samples the sensor every 114 cycles (one scanline) from a vblank
+  instead of with sprite 0 hit, which needs no sprites and gives a
+  whole frame's readings. Nine aims, the trigger, and bits nothing
+  drives; the first and last lit samples are printed as text. All
+  three pass and fail without their option. Two slips in the test
+  ROM on the way: a branch to itself, and a sampling loop crossing a
+  page (an extra cycle per branch, so it drifted); the loop is now one
+  routine checked to stay in a page.
+  Breaks, all 13 caught: light and trigger bits inverted, every colour
+  26 lines, light grey as white, blue seen, radius 1 and 3, the PPU not
+  brought up to date, last frame's pixels counted, the Famicom gun on
+  `$4016`, the gun driving bit 0, the script's trigger ignored, aim=off
+  read as aimed. 174 of 175; nestest exact; `recomp.py` unchanged.
 
 ### 3. The Zapper on the mouse
 - With a Zapper plugged in, it aims where the mouse points in the

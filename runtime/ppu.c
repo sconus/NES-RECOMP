@@ -267,6 +267,15 @@ static void output_pixel(int line, int x) {
     ppu.line_entry[x] = (uint8_t)((sp && (ppu.sp_front[x] || !bg)) ? sp : bg);
 }
 
+/* For the Zapper: how many dots ago pixel (x, y) left the PPU in the
+   frame being drawn, or -1 if the beam hasn't reached it yet this frame
+   (the framebuffer still holds the last frame's colour there). */
+long ppu_dots_since_pixel(int x, int y) {
+    long now = (long)ppu.scanline * 341 + ppu.dot;
+    long at = (long)y * 341 + x + 1 + PIXEL_OUTPUT_DELAY;
+    return now >= at ? now - at : -1;
+}
+
 /* Pixel x leaves the PPU: palette, greyscale and emphasis as they are now. */
 static void finish_pixel(int line, int x) {
     uint8_t entry = ppu.line_entry[x];

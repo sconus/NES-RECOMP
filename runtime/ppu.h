@@ -66,6 +66,8 @@ extern void (*ppu_frame_done)(const uint16_t *framebuffer);
 /* Run the PPU forward to the CPU's current cycle. Called before every CPU
    access that the PPU could see or affect, and from runtime_event. */
 void ppu_catch_up(void);
+/* Dots since pixel (x, y) was drawn this frame, or -1 if not yet. */
+long ppu_dots_since_pixel(int x, int y);
 /* The reset button: $2000 and $2001 cleared, the write toggle reset. */
 void ppu_soft_reset(void);
 /* Tell the event system when the PPU next needs to run on its own

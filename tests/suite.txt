@@ -348,6 +348,11 @@ result 200 tests/vaus_two.nes tests/inputs/vaus.txt --port1=vaus --port2=vaus
 result 200 tests/four_score.nes tests/inputs/four.txt --four-score
 result 200 tests/four_famicom.nes tests/inputs/four.txt --famicom-4p
 result 200 tests/four_hori.nes tests/inputs/four.txt --hori-4p
+# --- The Zapper (PLAN-zapper.md). tests/zapper_*.nes (make_zapper_test.py)
+# sample the light sensor every scanline with the gun aimed at each box.
+result 300 tests/zapper_port2.nes tests/inputs/zapper.txt --port2=zapper
+result 300 tests/zapper_port1.nes tests/inputs/zapper.txt --port1=zapper
+result 300 tests/zapper_famicom.nes tests/inputs/zapper.txt --famicom-zapper
 # vaus-test reads Famicom controller 3 (bit 1 of $4016): a picture.
 frame 200 vaus-test/vaus-test.nes tests/inputs/vaus_test_pad3.txt --famicom-4p
 

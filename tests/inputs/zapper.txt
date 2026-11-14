@@ -1,0 +1,14 @@
+# For tests/zapper_*.nes (make_zapper_test.py): the aim for
+# each case, set 8 frames before it (the ROM's frame count
+# runs a few frames behind), then the trigger.
+12 aim=off
+28 aim=128,200
+44 aim=40,40
+60 aim=104,40
+76 aim=168,40
+92 aim=40,136
+108 aim=49,40
+124 aim=51,40
+140 aim=40,31
+164 trigger
+174

@@ -29,14 +29,60 @@
                            $4017 bit 1, 8 buttons each then 1s, beside 1
                            and 2 on bit 0
      Hori 4 Players:       the Four Score's sequence on bit 1, with the two
-                           signatures swapped; 1 and 2 stay on bit 0 */
+                           signatures swapped; 1 and 2 stay on bit 0
+
+   The Zapper (nesdev wiki, "Zapper"): no shift register; every read of
+   its port shows bit 3 = 0 while the sensor sees light and bit 4 = 1
+   while the trigger is pulled (the simpler guns' trigger, which the
+   wiki says games accept; the official one's half pull isn't copied).
+   The Famicom Zapper reads like one in port 2. The sensor sees the TV:
+   it lights up as the beam draws a bright pixel under the aim and stays
+   lit for about 26 scanlines for white, 24 for light grey and 19 for
+   dark grey. The wiki gives no area or brightness threshold, so here:
+   the 5 x 5 pixels around the aim, and the colour's brightness (from
+   the RGB palette) sorted against the greys: at least $30's and $10's
+   midway point 26 lines, $10's and $00's 24, a little under $00's 19,
+   darker nothing (the colours of rows $01-$0C and $11-$1C). */
 #include "input.h"
+#include "palette.h"
+#include "ppu.h"
 
 uint8_t pad_buttons[4];
 int port_device[2];             /* DEV_PAD or DEV_VAUS */
 int famicom_vaus;
 int four_players;               /* FOUR_NONE, FOUR_SCORE, ... */
 struct vaus vaus[2];
+int famicom_zapper;
+struct zapper zapper = { -1, -1, 0 };
+
+#define ZAPPER_RADIUS 2                 /* pixels each side of the aim */
+
+/* Scanlines a pixel of this colour keeps the sensor lit for. */
+static int light_lines(uint16_t colour) {
+    uint32_t c = nes_rgb[colour & 0x1FF];
+    int luma = (int)(((c >> 16 & 255) * 299 + (c >> 8 & 255) * 587 +
+                      (c & 255) * 114) / 1000);
+    return luma >= 218 ? 26 : luma >= 146 ? 24 : luma >= 105 ? 19 : 0;
+}
+
+static int zapper_sees_light(void) {
+    if (zapper.x < 0) return 0;
+    ppu_catch_up();
+    for (int dy = -ZAPPER_RADIUS; dy <= ZAPPER_RADIUS; dy++)
+        for (int dx = -ZAPPER_RADIUS; dx <= ZAPPER_RADIUS; dx++) {
+            int x = zapper.x + dx, y = zapper.y + dy;
+            if (x < 0 || x >= NES_WIDTH || y < 0 || y >= NES_HEIGHT) continue;
+            long since = ppu_dots_since_pixel(x, y);
+            if (since < 0) continue;
+            if (since < light_lines(ppu.framebuffer[y * NES_WIDTH + x]) * 341L)
+                return 1;
+        }
+    return 0;
+}
+
+static uint8_t zapper_bits(void) {
+    return (uint8_t)((zapper.trigger ? 0x10 : 0) | (zapper_sees_light() ? 0 : 0x08));
+}
 
 /* What each port sends next on bit 0 and on bit 1, lowest bit first.
    Every read shifts in a 1 from the top, so the reads after a sequence
@@ -113,6 +159,9 @@ uint8_t input_read(int port) {
         v |= (uint8_t)(vaus_bit(i) << 4 | vaus[i].fire << 3);
     else if (port_device[port] == DEV_PAD)
         v |= next_bit(&shift[port]);
+    else if (port_device[port] == DEV_ZAPPER)
+        v |= zapper_bits();
+    if (port == 1 && famicom_zapper) v |= zapper_bits();
     int f = vaus_index(2);
     if (f >= 0)
         v |= (uint8_t)((port ? vaus_bit(f) : vaus[f].fire) << 1);

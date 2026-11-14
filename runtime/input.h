@@ -10,7 +10,7 @@ enum {
 };
 
 /* What a controller port holds (--port1 / --port2). */
-enum { DEV_PAD, DEV_VAUS };
+enum { DEV_PAD, DEV_VAUS, DEV_ZAPPER };
 extern int port_device[2];
 /* A Famicom Arkanoid paddle in the expansion port (--famicom-vaus). */
 extern int famicom_vaus;
@@ -26,6 +26,13 @@ extern uint8_t pad_buttons[4];
    in): the knob's position 0-255 and the button, 0 or 1. */
 struct vaus { uint8_t knob, fire; };
 extern struct vaus vaus[2];
+
+/* The Zapper (one gun: --port1 zapper, --port2 zapper or
+   --famicom-zapper): the pixel it points at (x < 0: away from the
+   screen) and the trigger, 0 or 1. */
+extern int famicom_zapper;
+struct zapper { int x, y; uint8_t trigger; };
+extern struct zapper zapper;
 
 void input_write_strobe(uint8_t val);       /* CPU write to $4016 */
 uint8_t input_read(int port);               /* CPU read of $4016 / $4017 */
