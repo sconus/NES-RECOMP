@@ -387,9 +387,16 @@ class Rom:
         m = MAPPERS[self.mapper]
         self.mapper_name = m["name"]
         self.unit = m["unit"]
+        sub = self.header["submapper"]
+        if self.mapper == 34 and sub == 1:
+            sys.exit("mapper 34 submapper 1 (NINA-001) is not supported")
         # Do stores to $8000-$FFFF (or low_regs) reach anything? Yes for a
         # mapper that switches banks; for an NSF, when it has sound chips.
         self.high_writes = self.unit is not None
+        if self.mapper == 1 and sub == 5:
+            # SEROM, SHROM: 32 KB that never moves, though the MMC1's
+            # other registers (CHR, mirroring) still take writes.
+            self.unit = None
         self.low_regs = m.get("low_regs")
         if self.unit is None:                    # nothing moves: NROM layout
             self.power_on = {s: s % self.banks for s in range(4)}

@@ -63,6 +63,14 @@ static uint8_t bus_conflict(uint16_t addr, uint8_t val) {
     return val & prg_read(addr);
 }
 
+/* UxROM, CNROM and AxROM: NES 2.0 submapper 1 says the board has no bus
+   conflicts, 2 that it has them; 0 leaves the usual guess (yes for UxROM
+   and CNROM, no for AxROM). Set by mapper_init. */
+static int conflicts;
+static uint8_t maybe_conflict(uint16_t addr, uint8_t val) {
+    return conflicts ? bus_conflict(addr, val) : val;
+}
+
 /* ---- 0: NROM. No registers. ------------------------------------------ */
 
 static void nrom_write(uint16_t addr, uint8_t val) { (void)addr; (void)val; }
@@ -70,19 +78,19 @@ static void nrom_write(uint16_t addr, uint8_t val) { (void)addr; (void)val; }
 /* ---- 3: CNROM. One register: which 8 KB of CHR ROM. ------------------ */
 
 static void cnrom_write(uint16_t addr, uint8_t val) {
-    set_chr_8k(bus_conflict(addr, val));
+    set_chr_8k(maybe_conflict(addr, val));
 }
 
 /* ---- 2: UxROM. 16 KB at $8000 switches; the last 16 KB is fixed. ---- */
 
 static void uxrom_write(uint16_t addr, uint8_t val) {
-    set_prg_16k(0, bus_conflict(addr, val));
+    set_prg_16k(0, maybe_conflict(addr, val));
 }
 
 /* ---- 7: AxROM. 32 KB PRG switching and one-screen mirroring. --------- */
 
 static void axrom_write(uint16_t addr, uint8_t val) {
-    (void)addr;
+    val = maybe_conflict(addr, val);
     set_prg_32k(val & 7);
     cart.mirroring = (val & 0x10) ? MIRROR_SINGLE_HIGH : MIRROR_SINGLE_LOW;
 }
@@ -191,7 +199,14 @@ static void a53_reset(void) {
      25  VRC2c/VRC4b (A1, A0) and VRC4d (A3, A2)
    An iNES 1.0 header can't say which wiring, and the two wirings of each
    number don't overlap, so both are decoded at once. Mappers 21, 23 and
-   25 are treated as VRC4 (a superset of VRC2), 22 as VRC2.
+   25 are treated as VRC4 (a superset of VRC2), 22 as VRC2. An NES 2.0
+   submapper picks one (nesdev wiki "NES 2.0 submappers"):
+     1  the first wiring above: VRC4a, VRC4f, VRC4b
+     2  the second: VRC4c, VRC4e, VRC4d
+     3  23 and 25 only: VRC2b, VRC2c (the first wiring, and a VRC2)
+   A VRC2 has no IRQ, no swap mode, two mirroring modes, 4-bit CHR high
+   registers and, on boards without PRG RAM, a 1-bit latch at
+   $6000-$6FFF (bit 0 reads back what was written; Contra (J) checks it).
    Registers, by chip select (0-3) within each $1000 range:
      $8000      PRG bank for $8000 (or $C000 in swap mode), 5 bits
      $9000/1    mirroring: vertical, horizontal (VRC4 also one-screen
@@ -206,7 +221,9 @@ static void a53_reset(void) {
    and $E000 the last. ----------------------------------------------- */
 
 static struct {
-    int vrc2;                   /* mapper 22: VRC2a */
+    int vrc2;                   /* a VRC2 chip (mapper 22, or submapper 3) */
+    int chr_shift;              /* VRC2a (22) drops CHR's lowest bit */
+    int wiring;                 /* 0 both, 1 the first, 2 the second */
     uint8_t prg0, prg1, swap, mirror;
     uint16_t chr[8];
     /* IRQ: latch, counter, control bits, and the scanline prescaler,
@@ -216,13 +233,32 @@ static struct {
     uint64_t irq_time;
 } vrc;
 
+/* The address lines each wiring uses for A0 and A1: [mapper][wiring]. */
+static int vrc_lines(int wiring, int *a0, int *a1) {
+    static const int lines[3][2][2] = {
+        { {1, 2}, {6, 7} },             /* 21: VRC4a, VRC4c */
+        { {0, 1}, {2, 3} },             /* 23: VRC4f/VRC2b, VRC4e */
+        { {1, 0}, {3, 2} },             /* 25: VRC4b/VRC2c, VRC4d */
+    };
+    int m = cart.mapper == 21 ? 0 : cart.mapper == 23 ? 1 : 2;
+    *a0 = lines[m][wiring][0];
+    *a1 = lines[m][wiring][1];
+    return 0;
+}
+
 static int vrc_select(uint16_t addr) {
-    int a0, a1;
-    switch (cart.mapper) {
-    case 21: a0 = (addr >> 1 | addr >> 6) & 1; a1 = (addr >> 2 | addr >> 7) & 1; break;
-    case 22: a0 = (addr >> 1) & 1;              a1 = addr & 1;                   break;
-    case 23: a0 = (addr | addr >> 2) & 1;       a1 = (addr >> 1 | addr >> 3) & 1; break;
-    default: a0 = (addr >> 1 | addr >> 3) & 1;  a1 = (addr | addr >> 2) & 1;      break;
+    int a0 = 0, a1 = 0;
+    if (cart.mapper == 22) {                    /* VRC2a: A1, A0 */
+        a0 = (addr >> 1) & 1;
+        a1 = addr & 1;
+    } else {
+        for (int w = 0; w < 2; w++) {
+            if (vrc.wiring && vrc.wiring != w + 1) continue;
+            int l0, l1;
+            vrc_lines(w, &l0, &l1);
+            a0 |= (addr >> l0) & 1;
+            a1 |= (addr >> l1) & 1;
+        }
     }
     return a1 << 1 | a0;
 }
@@ -233,7 +269,7 @@ static void vrc_apply(void) {
     set_prg_8k(1, vrc.prg1);
     set_prg_8k(3, -1);
     for (int i = 0; i < 8; i++)
-        set_chr_1k(i, vrc.vrc2 ? vrc.chr[i] >> 1 : vrc.chr[i]);
+        set_chr_1k(i, vrc.chr_shift ? vrc.chr[i] >> 1 : vrc.chr[i]);
     static const enum mirroring mir[4] = {
         MIRROR_VERTICAL, MIRROR_HORIZONTAL, MIRROR_SINGLE_LOW, MIRROR_SINGLE_HIGH };
     cart.mirroring = mir[vrc.vrc2 ? vrc.mirror & 1 : vrc.mirror & 3];
@@ -326,7 +362,11 @@ static void vrc_write(uint16_t addr, uint8_t val) {
 
 static void vrc_reset(void) {
     memset(&vrc, 0, sizeof vrc);
-    vrc.vrc2 = cart.mapper == 22;
+    vrc.chr_shift = cart.mapper == 22;
+    vrc.vrc2 = cart.mapper == 22 || cart.submapper == 3;
+    vrc.wiring = cart.mapper == 22 ? 0 : cart.submapper == 3 ? 1 : cart.submapper;
+    /* The VRC2's latch, where there's no PRG RAM to answer at $6000. */
+    mapper.latch6000 = vrc.vrc2 && !(cart.prg_ram_size + cart.prg_nvram_size);
     vrc.prg1 = 1;
     vrc.prescaler = 341;
     vrc.irq_time = cycles;
@@ -1149,6 +1189,12 @@ static void n163_irq_schedule(void) {
         schedule_event(n163.irq_time + (0x7FFFu - n163.irq_counter));
 }
 
+/* How much louder than an APU square a full one-channel square is: 16.5
+   dB (6.683 times), or what an NES 2.0 submapper says (nesdev wiki "NES
+   2.0 submappers"): 2 no sound (1, deprecated, also has none), 3 11-13
+   dB, 4 16-17 dB, 5 18-19.5 dB; the middle of each range. */
+static float n163_gain = 6.683f;
+
 static float n163_audio_step(uint64_t cycle) {
     (void)cycle;
     uint8_t *w = n163.ram;
@@ -1173,7 +1219,7 @@ static float n163_audio_step(uint64_t cycle) {
     for (int c = 8 - count; c < 8; c++) sum += n163.out[c];
     /* 15 * 15 from top to bottom of a full square = 16.5 dB over an APU
        square at 0.1494. */
-    return (float)sum / (float)count * (0.1494f * 6.683f / 225.0f);
+    return (float)sum / (float)count * (0.1494f * n163_gain / 225.0f);
 }
 
 static void n163_write_low(uint16_t addr, uint8_t val) {
@@ -1242,6 +1288,8 @@ static void n163_reset(void) {
     mapper.catch_up = n163_irq_catch_up;
     mapper.schedule = n163_irq_schedule;
     mapper.audio_step = n163_audio_step;
+    static const float gain[6] = { 6.683f, 0, 0, 3.981f, 6.683f, 8.660f };
+    n163_gain = cart.submapper <= 5 ? gain[cart.submapper] : 6.683f;
     write_low = n163_write_low;
     read_low = n163_read_low;
 }
@@ -1424,7 +1472,9 @@ static void vrc7_sound_reset(void) {
 }
 
 static void vrc7_write(uint16_t addr, uint8_t val) {
-    int second = ((addr >> 4) | (addr >> 3)) & 1;   /* A4 (7a) or A3 (7b) */
+    /* A4 (VRC7a, submapper 2), A3 (VRC7b, submapper 1), or either. */
+    int second = (cart.submapper == 1 ? addr >> 3 : cart.submapper == 2 ? addr >> 4
+                  : (addr >> 4) | (addr >> 3)) & 1;
     switch (addr & 0xF000) {
     case 0x8000: set_prg_8k(second, val & 0x3F); break;
     case 0x9000:
@@ -1494,7 +1544,9 @@ static void mmc1_apply(void) {
     /* 512 KB boards (SUROM) use CHR bit 4 to pick the 256 KB half. */
     int outer = cart.prg_size > 0x40000 ? (mmc1.chr0 & 0x10) : 0;
     int bank = outer | (mmc1.prg & 0x0F);
-    switch ((mmc1.control >> 2) & 3) {
+    if (cart.submapper == 5)                 /* SEROM, SHROM: 32 KB, fixed */
+        set_prg_32k(0);
+    else switch ((mmc1.control >> 2) & 3) {
     case 0: case 1: set_prg_16k(0, bank & ~1); set_prg_16k(1, bank | 1); break;
     case 2: set_prg_16k(0, outer); set_prg_16k(1, bank); break;
     case 3: set_prg_16k(0, bank); set_prg_16k(1, outer | 0x0F); break;
@@ -1691,6 +1743,31 @@ int nsf_chip_read_low(uint16_t addr) {
     return -1;
 }
 
+/* The NES 2.0 submappers this runtime tells apart (nesdev wiki "NES 2.0
+   submappers"); others run as submapper 0, with a warning. */
+static void check_submapper(void) {
+    int s = cart.submapper, known;
+    switch (cart.mapper) {
+    case 1:  known = s == 5; break;                         /* fixed PRG */
+    case 2: case 3: case 7: known = s == 1 || s == 2; break;  /* conflicts */
+    case 4:  known = s == 4; break;                         /* MMC3A/NEC */
+    case 19: known = s >= 1 && s <= 5; break;               /* sound level */
+    case 21: known = s == 1 || s == 2; break;               /* wiring */
+    case 23: case 25: known = s >= 1 && s <= 3; break;      /* wiring, VRC2 */
+    case 34:
+        if (s == 1) {
+            fprintf(stderr, "mapper 34 submapper 1 (NINA-001) is not supported\n");
+            exit(1);
+        }
+        known = s == 2; break;                              /* BNROM */
+    case 85: known = s == 1 || s == 2; break;               /* wiring */
+    default: known = 0;
+    }
+    if (s && !known)
+        fprintf(stderr, "mapper %d submapper %d isn't modelled: running it as"
+                        " submapper 0\n", cart.mapper, s);
+}
+
 void mapper_init(void) {
     /* Power-on layout for every board: ROM laid out from the start and
        repeated to fill 32 KB (so 16 KB NROM appears twice). Each mapper's
@@ -1699,6 +1776,8 @@ void mapper_init(void) {
     set_chr_8k(0);
     set_ram_8k(0);
     mapper.bank_changed = 0;
+    conflicts = cart.submapper == 2 || (cart.submapper != 1 && cart.mapper != 7);
+    check_submapper();
 
     switch (cart.mapper) {
     case 0: mapper.name = "NROM"; write_reg = nrom_write; break;
@@ -1708,7 +1787,12 @@ void mapper_init(void) {
         set_prg_16k(1, -1);
         break;
     case 3: mapper.name = "CNROM"; write_reg = cnrom_write; break;
-    case 4: mapper.name = "MMC3"; write_reg = mmc3_write; mmc3_reset(); break;
+    case 4:
+        mapper.name = "MMC3"; write_reg = mmc3_write; mmc3_reset();
+        /* Submapper 4: the older MMC3A (NEC); --mmc3-rev, read after
+           this, can still choose. */
+        if (cart.submapper == 4) mmc3_revision = 'A';
+        break;
     case 7:
         mapper.name = "AxROM"; write_reg = axrom_write;
         set_prg_32k(0);
@@ -1724,7 +1808,8 @@ void mapper_init(void) {
     case 9: mapper.name = "MMC2"; write_reg = mmc2_write; mmc2_reset(); break;
     case 10: mapper.name = "MMC4"; write_reg = mmc2_write; mmc2_reset(); break;
     case 21: case 23: case 25:
-        mapper.name = "VRC4"; write_reg = vrc_write; vrc_reset();
+        mapper.name = cart.submapper == 3 ? "VRC2" : "VRC4";
+        write_reg = vrc_write; vrc_reset();
         break;
     case 19: mapper.name = "Namco 163"; write_reg = n163_write; n163_reset(); break;
     case 85: mapper.name = "VRC7"; write_reg = vrc7_write; vrc7_reset(); break;

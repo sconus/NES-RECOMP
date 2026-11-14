@@ -192,7 +192,7 @@ else is tested with headers written by the project's own generators:
     53 with an NES 2.0 header (the collection's are iNES 1.0).
   - 180 of 181; nestest exact; all 319 earlier files give the same C.
 
-### 3. Board variants (submappers)
+### 3. Board variants (submappers) (done)
 Use the submapper where the runtime guesses today. Submapper 0 keeps
 today's behaviour.
 - UxROM, CNROM, AxROM: 1 = no bus conflicts, 2 = bus conflicts.
@@ -211,6 +211,69 @@ today's behaviour.
   For example, a write that only the other wiring would decode, and a
   bus conflict that changes the bank. Each fails with the wrong
   submapper. Break each one.
+- Done, as planned, plus two things the plan didn't list:
+  - MMC3 submapper 4 (NEC's MMC3, whose reload of 0 disables the IRQ)
+    selects the runtime's existing MMC3A behaviour; `--mmc3-rev` still
+    wins.
+  - Namco 163 submapper 1 (deprecated) has no sound, as the wiki says.
+  - A submapper the runtime doesn't tell apart (MMC6, MC-ACC, ...)
+    runs as submapper 0, with a warning.
+  - In the recompiler, MMC1 submapper 5 has no switching PRG, so it
+    drops the bank-change checks after mapper writes. NINA-001 is
+    refused by both the recompiler and the runtime.
+  - The VRC2 chip (mapper 22, or 23/25 submapper 3) is now separate
+    from VRC2a's CHR shift, which stays mapper 22 only. The latch
+    exists only when the header declares no PRG RAM, so iNES 1.0 files
+    (8 KB of RAM) don't change. It answers at `$6000-$6FFF` with bit 0
+    and the open bus's other bits.
+  - `make_variant_test.py` writes 17 `text` ROMs and two `tones` ROMs:
+    - bus conflicts for UxROM, CNROM, AxROM (submappers 1, 2);
+    - MMC1 submapper 5;
+    - VRC4 21/23/25 submappers 1 and 2;
+    - VRC2b/VRC2c;
+    - VRC7 submappers 1 and 2;
+    - Namco 163 at 12 and 18.75 dB.
+    All pass. With submapper 0 (`--ines1 DIR`), each fails, except the
+    ones whose variant is the old default (UxROM/CNROM 2, AxROM 1).
+  - Found on the way: at 18.75 dB, a full-volume Namco 163 square clips
+    in the runtime's 16-bit output (7.874 measured for 8.659). Those
+    two notes aren't checked; the others are checked against the APU
+    note. A slip in my own test (CHR bank $43 of 64) was caught because
+    the ROM failed with every submapper.
+  - By hand, on patched copies in the scratchpad:
+    - blargg's MMC3 rev A test with submapper 4 passes with no option;
+      rev B with submapper 4 fails, and passes with `--mmc3-rev B`;
+    - NINA-001 is refused by both;
+    - mapper 4 submapper 1 gives the warning;
+    - Namco 163 submapper 2 plays only the APU note.
+  - Breaks, 18 tried, all caught in the end:
+    - bus conflicts: submapper 1 ignored, submapper 2 ignored, AxROM
+      never conflicting;
+    - MMC1 submapper 5 ignored;
+    - VRC wirings: both decoded, 1 and 2 swapped;
+    - VRC2 run as VRC4;
+    - VRC2: IRQ writes reaching the IRQ, IRQ left on;
+    - the latch: off, other bits 0, through `$7FFF`;
+    - VRC7 wirings swapped;
+    - Namco 163: submapper ignored, 3 and 5 swapped, 2 still
+      sounding;
+    - MMC3 submapper 4 ignored;
+    - the recompiler ignoring submapper 5.
+
+    Two of them needed work first:
+    - The latch through `$7FFF` was first missed, because the test read
+      `$7000` while the latch held 0. It now reads it while the latch
+      holds 1.
+    - The IRQ break first changed only the writes, which do nothing
+      without the IRQ's timer, so it is now one break of both.
+
+    Two are caught in other ways:
+    - The recompiler ignoring submapper 5 only changes the generated C
+      (22 lines of bank-change checks), not behaviour, so it was
+      checked by comparing the C.
+    - The MMC3 and Namco 163 submapper 2 breaks were caught by the
+      by-hand checks, which aren't in the suite.
+  - 199 of 200; nestest exact; all 319 earlier files give the same C.
 
 ### 4. The expected controller
 - With no input options, plug in what byte 15 names:
@@ -235,8 +298,8 @@ update the status list, and write where the stage ended.
 - PAL and Dendy timing (a different CPU/PPU clock and frame), the Vs.
   System and PlayChoice-10 hardware, and the extended console types.
   These are read and reported only.
-- MMC3 variants (MMC6, MC-ACC, NEC's IRQ), NINA-001, and other
-  submappers of boards the runtime doesn't have.
+- MMC3 variants other than NEC's (MMC6, MC-ACC, T9552), NINA-001, and
+  other submappers of boards the runtime doesn't have.
 - CHR NVRAM saves (no supported board has it).
 
 ## Risks

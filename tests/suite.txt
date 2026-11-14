@@ -385,3 +385,25 @@ text 30 tests/chr_none.nes
 text 30 tests/mmc1_ram32.nes
 text 30 tests/mmc1_ram16.nes
 text 30 tests/mmc1_chr16.nes
+# Board variants from NES 2.0 submappers (make_variant_test.py): bus
+# conflicts, MMC1's fixed 32 KB, one VRC2/VRC4 or VRC7 wiring each, the
+# VRC2 chip and its latch, and Namco 163's loudness.
+text 30 tests/uxrom_s1.nes
+text 30 tests/uxrom_s2.nes
+text 30 tests/cnrom_s1.nes
+text 30 tests/cnrom_s2.nes
+text 30 tests/axrom_s1.nes
+text 30 tests/axrom_s2.nes
+text 30 tests/mmc1_s5.nes
+text 30 tests/vrc_21_s1.nes
+text 30 tests/vrc_21_s2.nes
+text 30 tests/vrc_23_s1.nes
+text 30 tests/vrc_23_s2.nes
+text 30 tests/vrc_23_s3.nes
+text 30 tests/vrc_25_s1.nes
+text 30 tests/vrc_25_s2.nes
+text 30 tests/vrc_25_s3.nes
+text 30 tests/vrc7_s1.nes
+text 30 tests/vrc7_s2.nes
+tones 700 tests/n163_tones_s3.nes 440.4@1,440.0@3.980,440.0@0.467/2,440.0@0.500/2,440.0@0.500/2,440.0@0.649/2,440.0@0.927/2
+tones 700 tests/n163_tones_s5.nes 440.4@1,440.0@-,440.0@4.044,440.0@4.329,440.0@4.329,440.0@5.619,440.0@-

@@ -28,6 +28,9 @@ struct mapper {
     uint8_t *ram6000;       /* what $6000-$7FFF reads and writes */
     size_t ram6000_size;    /* bytes there, repeated through the 8 KB;
                                0: nothing (open bus) */
+    int latch6000;          /* VRC2 without PRG RAM: a 1-bit latch at
+                               $6000-$6FFF, kept in latch_bit */
+    uint8_t latch_bit;
     /* Mappers that watch the PPU's A12 address line (MMC3) set this; the
        PPU calls it when A12 changes. `dot` is in ppu.dots units. */
     void (*a12)(int level, uint64_t dot);

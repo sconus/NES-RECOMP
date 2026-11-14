@@ -50,6 +50,8 @@ static uint8_t *ram6000_at(uint16_t a) {
    here; where there is no RAM at all the data bus keeps the last byte
    the CPU fetched, for an absolute read the address's high byte. */
 static uint8_t rd6000(uint16_t a) {
+    if (mapper.latch6000 && a < 0x7000)         /* VRC2: bit 0 answers */
+        return (uint8_t)(((a >> 8) & 0xFE) | mapper.latch_bit);
     uint8_t *p = ram6000_at(a);
     return p ? *p : mapper.prg_ram_disabled ? 0 : (uint8_t)(a >> 8);
 }
@@ -85,7 +87,8 @@ void wr(uint16_t a, uint8_t v) {
     else if (a >= 0x4020 && a < 0x6000) mapper_write_low(a, v);
     else if (a >= 0x6000) {
         uint8_t *p = ram6000_at(a);
-        if (p && !mapper.prg_ram_readonly) *p = v;
+        if (mapper.latch6000 && a < 0x7000) mapper.latch_bit = v & 1;
+        else if (p && !mapper.prg_ram_readonly) *p = v;
     }
 }
 
