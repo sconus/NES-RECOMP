@@ -89,7 +89,17 @@ void wr(uint16_t a, uint8_t v) {
     else if (a >= 0x6000) {
         uint8_t *p = ram6000_at(a);
         if (mapper.latch6000 && a < 0x7000) mapper.latch_bit = v & 1;
-        else if (p && !mapper.prg_ram_readonly) *p = v;
+        else if (p && !mapper.prg_ram_readonly) code_ram_write(p, a, v);
+    }
+}
+
+uint8_t code_owner[0x8000];
+uint64_t ram_native, ram_interp;
+
+void code_owner_set(uint16_t addr, unsigned len, uint8_t tag) {
+    for (unsigned i = 0; i < len; i++) {
+        uint16_t a = (uint16_t)(addr + i);
+        if (a >= 0x6000 && a < 0xE000) code_owner[a - 0x6000] = tag;
     }
 }
 
@@ -117,34 +127,43 @@ void untranslated(uint16_t a) {
     fprintf(stderr, "stopped: unknown opcode $%02X at $%04X\n", rd(a), a);
 }
 
-/* Places where native code handed off to the interpreter, as (8 KB bank,
+/* Places where native code handed off to the interpreter, as (bank,
    address): the same address can hold different code in different banks.
    Saved on exit as "BB:AAAA" lines so the recompiler can translate them
-   natively on the next pass. Addresses below $8000 (code in RAM) are
-   counted but not saved, since they can't be translated ahead of time. */
-static uint8_t *missed;             /* one byte per bank * 32 KB of addresses */
+   natively on the next pass. Addresses in RAM are counted but not saved,
+   except an FDS program's, which are saved by the file holding them
+   (code_owner; fds.h numbers the files as banks). */
+static uint8_t *missed;             /* one byte per bank and address */
 static int missed_count;
 
 /* Banks as the recompiler counts them: 8 KB, or 4 KB for a bank-switched
-   NSF (mapper.code_4k). */
+   NSF (mapper.code_4k), or an FDS's files. */
 static int code_banks(void) {
+    if (cart.mapper == MAPPER_FDS) return fds_code_banks();
     return (int)(cart.prg_size / (mapper.code_4k ? 0x1000 : 0x2000));
 }
+/* The lowest address saved: $8000, or an FDS's RAM at $6000. */
+static unsigned code_base(void) { return cart.mapper == MAPPER_FDS ? 0x6000 : 0x8000; }
 static int code_bank_at(uint16_t a) {
+    if (cart.mapper == MAPPER_FDS && a < 0xE000) return code_owner[a - 0x6000];
     return mapper.code_4k ? mapper.prg_bank_4k[(a >> 12) & 7]
                           : mapper.prg_bank[(a >> 13) & 3];
 }
 
 static uint8_t *missed_slot(int bank, uint16_t a) {
-    if (!missed) missed = calloc((size_t)code_banks() * 0x8000, 1);
-    return &missed[(size_t)bank * 0x8000 + (a - 0x8000)];
+    size_t span = 0x10000 - code_base();
+    if (!missed) missed = calloc((size_t)code_banks() * span, 1);
+    return &missed[(size_t)bank * span + (a - code_base())];
 }
 
 void note_missed(uint16_t a) {
     /* The NSF driver (nsf.h) is always interpreted: not worth counting. */
     if (cart.mapper == MAPPER_NSF && a >= NSF_DRIVER && a < 0x4200) return;
-    /* Code in RAM can't be translated ahead (an FDS has RAM up to $DFFF). */
-    if (a < 0x8000 || (cart.mapper == MAPPER_FDS && a < 0xE000)) { missed_count++; return; }
+    /* Code in RAM can't be translated ahead, except an FDS file's. */
+    if (a < code_base() || (cart.mapper == MAPPER_FDS && a < 0xE000 && !code_owner[a - 0x6000])) {
+        missed_count++;
+        return;
+    }
     uint8_t *m = missed_slot(code_bank_at(a), a);
     if (!*m) { *m = 1; missed_count++; }
 }
@@ -165,7 +184,7 @@ static void save_missed(void) {
             else if (sscanf(line, "%x", &a) == 1 && !mapper.code_4k)
                 b = (unsigned)mapper.power_on_bank[(a >> 13) & 3];
             else continue;
-            if (a >= 0x8000 && a <= 0xFFFF) *missed_slot((int)(b % banks), (uint16_t)a) = 1;
+            if (a >= code_base() && a <= 0xFFFF) *missed_slot((int)(b % banks), (uint16_t)a) = 1;
         }
         fclose(f);
     }
@@ -173,7 +192,7 @@ static void save_missed(void) {
     f = fopen(path, "w");
     if (!f) return;
     for (int b = 0; b < banks; b++)
-        for (int a = 0x8000; a <= 0xFFFF; a++)
+        for (int a = (int)code_base(); a <= 0xFFFF; a++)
             if (*missed_slot(b, (uint16_t)a)) fprintf(f, "%02X:%04X\n", b, a);
     fclose(f);
     fprintf(stderr, "%d spot(s) ran in the interpreter; listed in %s\n",
@@ -192,7 +211,7 @@ static void print_test_result(void) {
 
 static int use_save_file;
 static const char *wav_path;
-static int speakers, audio_stats;
+static int speakers, audio_stats, ram_stats;
 
 /* Hand the APU's finished samples to the speakers and/or WAV file. */
 static void drain_sound(void) {
@@ -208,6 +227,9 @@ static void drain_sound(void) {
 static void at_exit(void) {
     if (wav_path) { drain_sound(); wav_close(); }
     save_missed();
+    if (ram_stats)
+        fprintf(stderr, "code in RAM: %llu instruction(s) ran translated, %llu interpreted\n",
+                (unsigned long long)ram_native, (unsigned long long)ram_interp);
     print_test_result();
     if (use_save_file) cart_write_save(rom_path);
 }
@@ -464,6 +486,8 @@ static void usage(const char *prog) {
         "  --wav FILE         write the sound to a WAV file\n"
         "  --mute             no sound from the speakers (M toggles it)\n"
         "  --audio-stats      print the sound queue depth once a second\n"
+        "  --ram-stats        on exit, count the instructions in RAM ($6000-$DFFF)\n"
+        "                     that ran translated and interpreted (FDS, FDS NSFs)\n"
         "  --input FILE       scripted button presses (see README.md)\n"
         "  --scale N          window size, N times 256x240 (default 3)\n"
         "  --mmc3-rev A|B     which MMC3 chip to act like (default B)\n"
@@ -533,6 +557,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "--wav") && more) wav_path = argv[++i];
         else if (!strcmp(a, "--mute")) mute = 1;
         else if (!strcmp(a, "--audio-stats")) audio_stats = 1;
+        else if (!strcmp(a, "--ram-stats")) ram_stats = 1;
         else if (!strcmp(a, "--mmc3-rev") && more) {
             char r = (char)toupper((unsigned char)argv[++i][0]);
             if (r != 'A' && r != 'B') usage(argv[0]);

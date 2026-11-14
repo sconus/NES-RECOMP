@@ -277,6 +277,80 @@ the same C as before.
     routine), and one that loads a second file over the first.
   - Break the guard.
 
+- Done:
+  - The guard, `code_owner` in `rt.h`: one tag per byte of
+    `$6000-$DFFF`.
+    - An FDS file's tag is its number. The recompiler and the runtime
+      both count every file of every side in disk order, starting at 4
+      (`FDS_FIRST_TAG`); bank 3 is the BIOS. Files past number 255 aren't
+      translated.
+    - The boot load tags each PRG file's bytes.
+    - Any write that changes a byte clears its tag. Writes reach RAM
+      three ways (`$6000-$7FFF`, the FDS's `$8000-$DFFF`, an FDS NSF's
+      `$8000-$DFFF`), and all three go through one helper,
+      `code_ram_write`.
+  - It works differently from the plan, and it is simpler and safer:
+    every translated instruction in RAM checks its own bytes' tags
+    first. If one doesn't match, the interpreter runs that instruction.
+    - The plan's `bank_changed` exit only covered a write made by code
+      running at that moment.
+    - With the check at each instruction, a direct jump inside compiled
+      code to a changed spot is caught too, wherever the change came
+      from.
+  - `dispatch` keys RAM code by the tag at `pc`. Spots the interpreter
+    ran are saved to `.missed` by file ("05:8020"), so the feedback
+    loop works for disk programs as it does for cartridges.
+  - `recomp.py`:
+    - reads every file of every side;
+    - traces from the BIOS and from the vectors that the boot files
+      leave at `$DFF6-$DFFF`;
+    - keeps a jump direct only while it stays in the same file.
+  - FDS NSFs: `$8000-$DFFF` is RAM there too, so their code gets the
+    same check, with tag 1. A bank-switched one is tagged again each
+    time a bank is copied in. The part below `$8000` is still
+    interpreted.
+  - Counting: the program option `--ram-stats` prints how many RAM
+    instructions ran translated and how many interpreted. The runner
+    option `--translated=P` fails a test unless at least P% ran
+    translated. All six FDS tests here use 99%.
+    - `fdsirqtests`: 5,903,690 translated, 0 interpreted.
+  - `make_fds_code_test.py` writes three tests:
+    - `fds_code.fds`, 10 checks:
+      - a boot file loaded over part of another, reached by a direct
+        jump inside the old file and by a call;
+      - rewritten operands, both through `$6000-$7FFF` and through
+        `$8000-$DFFF`;
+      - code that rewrites the next instruction while it runs;
+      - JMP targets rewritten, one by the low byte and another by the
+        high byte;
+      - a routine copied over with new opcodes;
+      - writing the value already there;
+      - a change and then a change back;
+      - an opcode changed, reached through `JMP ($0010)`.
+
+      9,510 of its instructions in RAM ran translated; the 13 changed
+      ones ran interpreted.
+    - `fds_nsf_code.nsf` and `fds_nsf_code_banks.nsf`: the same kinds
+      of rewrite in FDS NSFs, plus a bank copied in again holding its
+      original code.
+  - A file loaded while the program runs (not during the boot) is left
+    for step 4, which adds the BIOS's file routines. The boot overlap
+    already covers a file replacing another's bytes.
+  - Breaks, 19 tried:
+    - 18 caught. One needed a better test first: "the guard skips an
+      instruction's third byte" passed until the high-byte rewrite got
+      a JMP of its own. The first version rewrote a JMP whose low byte
+      had already sent it to the interpreter.
+    - One isn't caught, and doesn't need to be: the recompiler
+      skipping the boot vectors only costs speed, because the `.missed`
+      feedback finds those spots anyway.
+  - A slip in the test itself: a branch distance computed before the
+    DEX byte was emitted (the same slip as twice before). It showed as
+    check 7 failing in the interpreter too.
+  - 216 of 217 (test28 as always); nestest exact; all 319 earlier
+    files give the same C. Only the four FDS NSFs from step 1 change,
+    by gaining the check.
+
 ### 4. The BIOS's file routines and disk sides
 - The documented file routines (LoadFiles, AppendFile, WriteFile,
   CheckFileCount, AdjustFileCount, SetFileCount, GetDiskInfo and the

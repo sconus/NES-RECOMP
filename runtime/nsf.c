@@ -184,10 +184,17 @@ static void set_slot_4k(int slot, int bank) {
     if (mapper.prg_bank_4k[slot] != bank) mapper.bank_changed = 1;
     mapper.prg_bank_4k[slot] = bank;
     memcpy(window + slot * 0x1000, cart.prg + (size_t)bank * 0x1000, 0x1000);
+    /* With the FDS this is RAM, now holding the bank as translated. */
+    if (nsf.chips & NSF_FDS) code_owner_set((uint16_t)(0x8000 + slot * 0x1000), 0x1000, 1);
 }
 
 void nsf_mapper_reset(void) {
-    if (!nsf.banked) return;
+    if (!nsf.banked) {
+        /* With the FDS, $8000-$DFFF is RAM holding the program as
+           translated (until a write changes it). Once, at power-on. */
+        if (nsf.chips & NSF_FDS) code_owner_set(0x8000, 0x6000, 1);
+        return;
+    }
     mapper.code_4k = 1;
     for (int s = 0; s < 4; s++) {
         mapper.prg[s] = window + s * 0x2000;
@@ -221,6 +228,7 @@ void nsf_write_low(uint16_t addr, uint8_t val) {
         int count = (int)(cart.prg_size / 0x1000);
         memcpy(cart.prg_ram + (addr - 0x5FF6) * 0x1000,
                cart.prg + (size_t)(val % count) * 0x1000, 0x1000);
+        code_owner_set((uint16_t)(0x6000 + (addr - 0x5FF6) * 0x1000), 0x1000, 0);
     }
     else nsf_chip_write_low(addr, val);
 }

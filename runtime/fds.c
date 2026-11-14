@@ -371,7 +371,27 @@ static void boot_load(void) {
                 ppu_mem_write(a & 0x3FFF, f->data[i]);
             }
         }
+        /* The RAM now holds this file's bytes, as translated. */
+        if (f->type == 0) code_owner_set(f->addr, f->size, fds_file_tag(fds.side, k));
     }
+}
+
+/* Files are numbered for code_owner (rt.h) as the recompiler numbers
+   them: every file of every side in disk order, from FDS_FIRST_TAG;
+   0 (untranslated) past 255. */
+int fds_file_tag(int side, int index) {
+    struct fds_file files[256];
+    int tag = FDS_FIRST_TAG;
+    for (int i = 0; i < side; i++) tag += side_files(i, files, 256);
+    tag += index;
+    return tag <= 255 ? tag : 0;
+}
+
+int fds_code_banks(void) {
+    struct fds_file files[256];
+    int tag = FDS_FIRST_TAG;
+    for (int i = 0; i < fds.sides; i++) tag += side_files(i, files, 256);
+    return tag < 256 ? tag : 256;
 }
 
 /* ---- the timer IRQ ---- */
@@ -476,7 +496,7 @@ int fds_read_low(uint16_t addr) {
 
 /* CPU writes to $8000-$FFFF: RAM below $E000; the BIOS is ROM. */
 void fds_write(uint16_t addr, uint8_t val) {
-    if (addr < 0xE000) mapper.prg[(addr >> 13) & 3][addr & 0x1FFF] = val;
+    if (addr < 0xE000) code_ram_write(&mapper.prg[(addr >> 13) & 3][addr & 0x1FFF], addr, val);
 }
 
 void fds_reset(void) {

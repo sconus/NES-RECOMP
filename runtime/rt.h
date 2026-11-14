@@ -46,6 +46,26 @@ void cpu_irq_poll(int delay);
    instruction, `len` its length in cycles (see event.c). */
 void cpu_i_change(int old_i, int len);
 
+/* Code in RAM, $6000-$DFFF: an FDS disk program, an FDS NSF's code.
+   The recompiler translates it from the bytes it knows (a disk file, the
+   NSF), so the runtime keeps a tag per byte saying whose bytes are there
+   now: an FDS file's number (fds.h), 1 for an FDS NSF's own code, 0 for
+   none (never loaded, or changed by a write since). Every translated
+   instruction there first checks the tags of its own bytes and leaves
+   the instruction to the interpreter when one doesn't match, so code
+   that was rewritten or replaced never runs from its old translation. */
+extern uint8_t code_owner[0x8000];          /* $6000-$DFFF */
+void code_owner_set(uint16_t addr, unsigned len, uint8_t tag);
+/* A write to RAM at $6000-$DFFF that may change code: `p` is the byte. */
+static inline void code_ram_write(uint8_t *p, uint16_t addr, uint8_t val) {
+    if (*p != val) {
+        if (addr >= 0x6000 && addr < 0xE000) code_owner[addr - 0x6000] = 0;
+        *p = val;
+    }
+}
+/* Instructions in RAM run translated and interpreted (--ram-stats). */
+extern uint64_t ram_native, ram_interp;
+
 /* Runs before every instruction: optional trace output. */
 #define STEP(addr) do { if (trace_on) trace_step(addr); } while (0)
 /* Interrupts are checked between instructions, as on the real CPU. The

@@ -254,12 +254,19 @@ frame 300 tests/mmc5_split_demo.nes tests/inputs/mmc5_split_demo.txt
 # itself (LDA #$2E) where the original reads the BIOS's copy of $4025 at
 # $FA (LDA $FA). Its results don't depend on that byte (with $FA left 0
 # both still pass); fds_boot checks it.
-marks 600 fdsirqtests/fdsirqtests.fds 21
-marks 600 fdsirqtests/fdsirqtestsV7_patched.fds 21
+marks 600 fdsirqtests/fdsirqtests.fds 21 --translated=99
+marks 600 fdsirqtests/fdsirqtestsV7_patched.fds 21 --translated=99
 # tests/fds_boot.fds (make_fds_test.py): the boot load (which files,
 # where each type goes), the BIOS's state, the NMI that skips the license
 # check, mirroring, NMI and IRQ dispatch, and a soft reset.
-result 300 tests/fds_boot.fds
+result 300 tests/fds_boot.fds --translated=99
+# tests/fds_code.fds (make_fds_code_test.py): code in RAM that changes
+# (rewritten operands, opcodes and jump targets, a routine copied over,
+# a boot file loaded over another) must never run from its old
+# translation; and the two FDS NSFs, whose $8000-$DFFF is RAM too.
+result 300 tests/fds_code.fds --translated=99
+result 60 tests/fds_nsf_code.nsf --translated=99
+result 60 tests/fds_nsf_code_banks.nsf --translated=99
 
 # --- PPU, result on screen only (power_up_palette is left out: it checks
 #     values unique to its author's console)

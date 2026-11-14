@@ -17,6 +17,12 @@ void fds_reset(void);
 void fds_write(uint16_t addr, uint8_t val);         /* $8000-$FFFF */
 void fds_write_low(uint16_t addr, uint8_t val);     /* $4020-$5FFF */
 int fds_read_low(uint16_t addr);                    /* -1: open bus */
+/* Code in RAM (rt.h's code_owner): the tag of a side's file (its index
+   on that side), and how many "banks" translated code is keyed by: the
+   BIOS's bank 3, then one per file from FDS_FIRST_TAG. */
+#define FDS_FIRST_TAG 4
+int fds_file_tag(int side, int index);
+int fds_code_banks(void);
 
 /* The sound channel ($4040-$408A, read-backs $4040-$407F, $4090-$4097).
    fds_sound_on mirrors $4023 bit 1: while it is 0 the channel is held

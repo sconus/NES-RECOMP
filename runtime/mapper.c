@@ -1776,10 +1776,10 @@ void nsf_chips_reset(uint8_t chips) {
 }
 
 static void nsf_chip_write(uint16_t addr, uint8_t val) {
-    /* With the FDS, $8000-$DFFF is RAM (nesdev wiki "NSF"). Code the
-       recompiler translated from there doesn't see such writes. */
+    /* With the FDS, $8000-$DFFF is RAM (nesdev wiki "NSF"); code the
+       recompiler translated from there checks code_owner (rt.h). */
     if ((nsf_chips & NSF_FDS) && addr < 0xE000)
-        mapper.prg[(addr >> 13) & 3][addr & 0x1FFF] = val;
+        code_ram_write(&mapper.prg[(addr >> 13) & 3][addr & 0x1FFF], addr, val);
     if ((nsf_chips & NSF_VRC6) && addr >= 0x9000 && addr < 0xC000 &&
         (addr & 0x0FFC) == 0 && addr != 0xB003)
         vrc6_sound_write(addr, val);

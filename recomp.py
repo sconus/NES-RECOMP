@@ -294,9 +294,9 @@ MAPPERS = {
     # An NSF music file (not an iNES mapper; the runtime uses the same
     # number): 32 KB at $8000 that never moves.
     NSF_MAPPER: dict(name="NSF", unit=None),
-    # A Famicom Disk System image: RAM at $6000-$DFFF (its code is loaded
-    # from disk, so it runs in the interpreter for now) and the project's
-    # BIOS at $E000 (runtime/fds_bios.h), which never moves.
+    # A Famicom Disk System image: RAM at $6000-$DFFF, where the program
+    # is loaded from disk, and the project's BIOS at $E000
+    # (runtime/fds_bios.h), which never moves. See Rom.load_fds.
     FDS_MAPPER: dict(name="FDS", unit=None),
 }
 
@@ -312,6 +312,29 @@ def fds_bios():
     if len(data) != 0x2000:
         sys.exit("%s: expected 8 KB" % path)
     return data
+
+
+FDS_SIDE = 65500
+FDS_FIRST_TAG = 4                    # runtime/fds.h
+
+
+def fds_side_files(side):
+    """The files of one disk side, as runtime/fds.c's side_files reads
+    them: dicts of number, id, addr, type, data."""
+    if side[56] != 2:
+        return []
+    count, at, out = side[57], 58, []
+    while len(out) < count and len(out) < 256 and at + 17 <= FDS_SIDE and side[at] == 3:
+        h = side[at:at + 16]
+        f = dict(number=h[1], id=h[2], addr=h[11] | h[12] << 8,
+                 size=h[13] | h[14] << 8, type=h[15])
+        at += 16
+        if side[at] != 4 or at + 1 + f["size"] > FDS_SIDE:
+            break
+        f["data"] = side[at + 1:at + 1 + f["size"]]
+        at += 1 + f["size"]
+        out.append(f)
+    return out
 
 
 def rom_size(lsb, msb, unit):
@@ -384,11 +407,12 @@ class Rom:
         data = open(path, "rb").read()
         self.nsf = None
         self.ram_top = 0x8000               # code below this is RAM
+        self.files = None                   # an FDS's files (load_fds)
         if data[:5] == b"NESM\x1a":
             self.load_nsf(data)
             return
         if data[:4] == b"FDS\x1a" or data[:15] == b"\x01*NINTENDO-HVC*":
-            self.load_fds()
+            self.load_fds(data)
             return
         if data[:4] != b"NES\x1a":
             sys.exit("not an iNES, NSF or FDS file")
@@ -431,20 +455,62 @@ class Rom:
                 # "last" bank at power-on is the last of that half.
                 self.power_on.update({2: 30, 3: 31})
 
-    def load_fds(self):
-        """A disk image: only the BIOS is known ahead; the program comes
-        from disk into RAM at run time."""
+    def load_fds(self, data):
+        """A disk image. Its program comes from disk into RAM at run time,
+        so each PRG file is a "bank" of its own, placed at its load
+        address ($6000-$DFFF only) and numbered as runtime/fds.h numbers
+        them: every file of every side in disk order, from FDS_FIRST_TAG
+        (files past 255 aren't translated). The BIOS is bank 3, at $E000.
+        The runtime tags RAM by file (code_owner), so translated code runs
+        only where its file's bytes still are. Tracing starts from the
+        BIOS's vectors and from the program's, at $DFF6-$DFFF, as the boot
+        files leave them."""
         self.mapper = FDS_MAPPER
         self.mapper_name = "FDS"
         self.prg = bytes(0x6000) + fds_bios()
         self.slot_bits = 13
-        self.banks = 4
         self.unit = None
         self.low_regs = None
         self.high_writes = False
         self.power_on = {s: s for s in range(4)}
         self.fixed = dict(self.power_on)
         self.ram_top = 0xE000
+        body = data[16:] if data[:4] == b"FDS\x1a" else data
+        sides = [body[i:i + FDS_SIDE] for i in range(0, len(body) - FDS_SIDE + 1, FDS_SIDE)]
+        self.files = {}                      # tag -> (first address, bytes)
+        self.boot_owner = [0] * 0x8000       # $6000-$DFFF after the boot load
+        boot = bytearray(0x8000)
+        tag = FDS_FIRST_TAG
+        for n, side in enumerate(sides):
+            for f in fds_side_files(side):
+                t = tag if tag <= 255 else 0
+                tag += 1
+                if f["type"] != 0:
+                    continue
+                lo, hi = max(f["addr"], 0x6000), min(f["addr"] + f["size"], 0xE000)
+                if t and lo < hi:
+                    self.files[t] = (lo, f["data"][lo - f["addr"]:hi - f["addr"]])
+                if n == 0 and f["id"] <= side[0x19]:      # a boot file
+                    for i, b in enumerate(f["data"]):
+                        a = (f["addr"] + i) & 0xFFFF
+                        if 0x6000 <= a < 0xE000:
+                            boot[a - 0x6000] = b
+                            self.boot_owner[a - 0x6000] = t
+        self.banks = 256
+        self.boot_ram = bytes(boot)
+        self.files_count = tag - FDS_FIRST_TAG
+
+    def fds_entries(self):
+        """The program's vectors at $DFF6-$DFFF after the boot load, as
+        locations: in the file whose byte is there."""
+        out = []
+        for v in range(0xDFF6, 0xE000, 2):
+            t = self.boot_ram[v - 0x6000] | self.boot_ram[v + 1 - 0x6000] << 8
+            if t >= 0xE000:
+                out.append((3, t))
+            elif 0x6000 <= t < 0xE000 and self.boot_owner[t - 0x6000]:
+                out.append((self.boot_owner[t - 0x6000], t))
+        return out
 
     def load_nsf(self, data):
         """An NSF: the init and play routines are the entry points (see
@@ -456,7 +522,7 @@ class Rom:
         starting bank of each."""
         h = data[:0x80]
         load, init, play = (h[i] | h[i + 1] << 8 for i in (8, 10, 12))
-        self.nsf = dict(load=load, init=init, play=play)
+        self.nsf = dict(load=load, init=init, play=play, chips=h[0x7B] & 0x3F)
         self.mapper = NSF_MAPPER
         self.mapper_name = "NSF"
         chips = h[0x7B] & 0x3F
@@ -500,6 +566,9 @@ class Rom:
 
     def read(self, bank, addr):
         """A program ROM byte, with `bank` in the slot that holds addr."""
+        if self.files and bank in self.files:
+            lo, data = self.files[bank]
+            return data[addr - lo]
         size = 1 << self.slot_bits
         return self.prg[bank * size + (addr & (size - 1))]
 
@@ -507,6 +576,13 @@ class Rom:
         """The bank that code at location frm = (bank, address) will find at
         CPU address `addr`, or None if it depends on the mapper's state at
         that moment (then the jump must go through dispatch)."""
+        if self.files is not None:
+            # An FDS: the BIOS, or the same file while it lasts.
+            if addr >= 0xE000:
+                return 3
+            if frm[0] in self.files and self.in_file(frm[0], addr):
+                return frm[0]
+            return None
         if addr < self.ram_top:
             return None                      # RAM: not translated ahead
         fbank, faddr = frm
@@ -519,6 +595,33 @@ class Rom:
                 s_from // self.unit == s_to // self.unit:
             return (fbank + s_to - s_from) % self.banks
         return None
+
+    def in_file(self, tag, addr):
+        lo, data = self.files[tag]
+        return lo <= addr < lo + len(data)
+
+    def translatable(self, loc):
+        """Can code at loc be translated ahead?"""
+        bank, addr = loc
+        if self.files is not None:
+            if bank in self.files:
+                return self.in_file(bank, addr)
+            return bank == 3 and addr >= 0xE000
+        return addr >= self.ram_top
+
+    def guard_tag(self, loc):
+        """For code in RAM that the runtime tags (code_owner in rt.h): the
+        tag its bytes must have, else None (ROM)."""
+        bank, addr = loc
+        if self.files is not None:
+            return bank if 0x6000 <= addr < 0xE000 else None
+        if self.nsf and self.nsf["chips"] & 4 and 0x8000 <= addr < 0xE000:
+            return 1                         # an FDS NSF's code in RAM
+        return None
+
+    def guarded(self):
+        """Does any code here run from RAM that can change?"""
+        return self.files is not None or bool(self.nsf and self.nsf["chips"] & 4)
 
     def power_on_loc(self, addr):
         return (self.power_on[self.slot(addr)], addr)
@@ -766,7 +869,17 @@ def gen_insn(loc, opc, operand, rom, insns):
     mnem, mode, cyc, pen = OPS[opc]
     size = SIZE[mode]
     nxt = (addr + size) & 0xFFFF
-    out = ["%s: EVENT_CHECK(0x%04X); STEP(0x%04X);" % (lbl(loc), addr, addr)]
+    tag = rom.guard_tag(loc)
+    if tag is None:
+        out = ["%s: EVENT_CHECK(0x%04X); STEP(0x%04X);" % (lbl(loc), addr, addr)]
+    else:
+        # Code in RAM: only while its bytes are the ones translated.
+        own = [(addr + i) & 0xFFFF for i in range(size)]
+        cond = " || ".join("code_owner[0x%04X] != %d" % (a - 0x6000, tag)
+                           for a in own if 0x6000 <= a < 0xE000)
+        out = ["%s: EVENT_CHECK(0x%04X);" % (lbl(loc), addr),
+               "    if (%s) { pc = 0x%04X; goto changed; }" % (cond, addr),
+               "    ram_native++; STEP(0x%04X);" % addr]
     body = []
     falls = True
 
@@ -942,6 +1055,11 @@ def generate(rom, insns, unknown, src_name):
     ]
     lines += gen_interpreter()
     lines += gen_cycle_maps()
+    bank_now = ("mapper.prg_bank[(pc >> 13) & 3]" if rom.slot_bits == 13
+                else "mapper.prg_bank_4k[(pc >> 12) & 7]")
+    if rom.files is not None:          # an FDS: RAM is keyed by file
+        bank_now = ("(pc >= 0x6000 && pc < 0xE000 ? code_owner[pc - 0x6000] : %s)"
+                    % bank_now)
     lines += [
         "void recomp_run(uint16_t start) {",
         "    uint16_t ea, base; uint8_t v;",
@@ -951,9 +1069,7 @@ def generate(rom, insns, unknown, src_name):
         "dispatch:",
         "    INTERRUPT_CHECK();",
         "    /* Look up the bank mapped at pc right now, as well as pc. */",
-        "    switch ((uint32_t)%s << 16 | pc) {" % (
-            "mapper.prg_bank[(pc >> 13) & 3]" if rom.slot_bits == 13
-            else "mapper.prg_bank_4k[(pc >> 12) & 7]"),
+        "    switch ((uint32_t)%s << 16 | pc) {" % bank_now,
     ]
     for loc in sorted(insns):
         lines.append("    case %s: in_interp = 0; goto %s;" % (key(loc), lbl(loc)))
@@ -961,10 +1077,29 @@ def generate(rom, insns, unknown, src_name):
         "    default:",
         "        if (!in_interp) note_missed(pc);",
         "        in_interp = 1;",
-        "        if (!interp_step()) { untranslated(pc); return; }",
-        "        goto dispatch;",
-        "    }",
-        "",
+    ]
+    if rom.guarded():
+        lines += [
+            "        if (pc >= 0x6000 && pc < 0xE000) ram_interp++;",
+            "        if (!interp_step()) { untranslated(pc); return; }",
+            "        goto dispatch;",
+            "    }",
+            "",
+            "changed:  /* code in RAM that isn't what was translated any more */",
+            "    ram_interp++;",
+            "    in_interp = 1;",
+            "    if (!interp_step()) { untranslated(pc); return; }",
+            "    goto dispatch;",
+            "",
+        ]
+    else:
+        lines += [
+            "        if (!interp_step()) { untranslated(pc); return; }",
+            "        goto dispatch;",
+            "    }",
+            "",
+        ]
+    lines += [
         "event: {  /* hardware needs attention; pc holds the next address */",
         "        uint16_t vector = runtime_event();",
         "        if (vector) take_interrupt(vector);",
@@ -998,6 +1133,8 @@ def main():
     if rom.nsf:                  # no reset: the runtime calls init and play
         entries += [rom.power_on_loc(rom.nsf[k]) for k in ("init", "play")
                     if rom.nsf[k] >= 0x8000]  # an FDS NSF's code in RAM: interpreted
+    if rom.files is not None:
+        entries += rom.fds_entries()
     entries += [rom.power_on_loc(int(e, 16)) for e in args.entry]
     for path in args.missed:
         for line in open(path):
@@ -1009,15 +1146,15 @@ def main():
                 entries.append((int(b, 16) % rom.banks, int(a, 16)))
             else:                                # old format: AAAA
                 entries.append(rom.power_on_loc(int(line, 16)))
-    entries = [e for e in entries if e[1] >= rom.ram_top]
+    entries = [e for e in entries if rom.translatable(e)]
     insns, unknown = trace(rom, entries)
 
     with open(args.out, "w") as f:
         f.write(generate(rom, insns, unknown, args.rom.split("/")[-1]))
 
     if rom.mapper == FDS_MAPPER:
-        print("FDS disk image: the BIOS at $E000 translated, the program "
-              "(in RAM) interpreted")
+        print("FDS disk image, %d file(s): the BIOS and %d PRG file(s) in RAM"
+              " can be translated" % (rom.files_count, len(rom.files)))
     elif not rom.nsf:
         print("mapper %d (%s), %d KB program ROM" % (
             rom.mapper, rom.mapper_name, len(rom.prg) // 1024))

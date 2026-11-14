@@ -63,11 +63,16 @@ def load_suite():
             name += " " + " ".join(options)
         if kind == "audio":
             name += " (sound)"          # may share a ROM and script with a picture
-        args = []
+        args, translated = [], None
         for o in options:
-            args += o.split("=", 1)
+            if o.startswith("--translated="):   # for the runner, see judge_ram
+                translated = float(o.split("=", 1)[1])
+                args.append("--ram-stats")
+            else:
+                args += o.split("=", 1)
         tests.append(dict(kind=kind, frames=frames, rom=rom, script=script,
-                          name=name, crcs=crcs, args=args, notes=notes))
+                          name=name, crcs=crcs, args=args, notes=notes,
+                          translated=translated))
     return tests
 
 
@@ -285,6 +290,24 @@ def judge(test, out, err, png):
     return "fail: unknown kind " + test["kind"]
 
 
+def judge_ram(test, err, result):
+    """--translated=P: besides passing, at least P% of the instructions
+    run in RAM ($6000-$DFFF) ran translated, not interpreted."""
+    if test["translated"] is None or result != "pass":
+        return result
+    m = re.search(r"code in RAM: (\d+) instruction\(s\) ran translated, (\d+) interpreted", err)
+    if not m:
+        return "fail: no RAM code count"
+    native, interp = int(m.group(1)), int(m.group(2))
+    if native + interp == 0:
+        return "fail: no code ran in RAM"
+    share = 100.0 * native / (native + interp)
+    if share < test["translated"]:
+        return "fail: %.2f%% of RAM code ran translated (%d interpreted), expected %g%%" % (
+            share, interp, test["translated"])
+    return result
+
+
 def run_one(test, cflags, libs, rt_objs):
     # ROMs made for this project live in tests/; the rest are in the clone.
     rom = os.path.join(ROOT if test["rom"].startswith("tests/") else ROMS,
@@ -327,7 +350,7 @@ def run_one(test, cflags, libs, rt_objs):
             return test, "fail: timed out", passes
         if read_missed() == before:
             break                       # nothing new learned: final result
-    return test, judge(test, r.stdout, r.stderr, png), passes
+    return test, judge_ram(test, r.stderr, judge(test, r.stdout, r.stderr, png)), passes
 
 
 def main():
