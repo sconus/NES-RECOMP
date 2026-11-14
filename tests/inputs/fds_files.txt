@@ -1,0 +1,4 @@
+# tests/fds_files.fds (make_fds_files_test.py): take the disk out,
+# then put in side B.
+120 disk=eject
+150 disk=2

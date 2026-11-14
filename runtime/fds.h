@@ -23,6 +23,17 @@ int fds_read_low(uint16_t addr);                    /* -1: open bus */
 #define FDS_FIRST_TAG 4
 int fds_file_tag(int side, int index);
 int fds_code_banks(void);
+/* The drive: eject; put in side n (0 = disk 1 side A, 1 = its side B,
+   ...); a key: 0 ejects, n ejects and puts in side n-1 half a second
+   later. fds_frame runs once a frame. */
+int fds_sides(void);
+void fds_eject(void);
+void fds_insert(int side);
+void fds_key(int n);
+void fds_frame(void);
+/* What the program wrote to the disk, in <image>.sav (main.c). */
+void fds_load_save(const char *rom_path);
+void fds_write_save(const char *rom_path);
 
 /* The sound channel ($4040-$408A, read-backs $4040-$407F, $4090-$4097).
    fds_sound_on mirrors $4023 bit 1: while it is 0 the channel is held

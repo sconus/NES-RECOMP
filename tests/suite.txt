@@ -267,6 +267,11 @@ result 300 tests/fds_boot.fds --translated=99
 result 300 tests/fds_code.fds --translated=99
 result 60 tests/fds_nsf_code.nsf --translated=99
 result 60 tests/fds_nsf_code_banks.nsf --translated=99
+# tests/fds_files.fds (make_fds_files_test.py): the BIOS's file routines
+# (LoadFiles, AppendFile, WriteFile, the file count routines,
+# GetDiskInfo) against a two-side disk, their error numbers, code loaded
+# over code, and a side change from the input script.
+result 300 tests/fds_files.fds tests/inputs/fds_files.txt --translated=99
 
 # --- PPU, result on screen only (power_up_palette is left out: it checks
 #     values unique to its author's console)

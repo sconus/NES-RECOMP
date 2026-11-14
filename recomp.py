@@ -316,6 +316,10 @@ def fds_bios():
 
 FDS_SIDE = 65500
 FDS_FIRST_TAG = 4                    # runtime/fds.h
+# The FDS BIOS's file routines take pointers in the bytes after the JSR
+# and return past them (tools/make_fds_bios.py): entry -> how many.
+FDS_INLINE_POINTERS = {0xE1F8: 2, 0xE237: 2, 0xE239: 2, 0xE2B7: 1, 0xE2BB: 1,
+                       0xE301: 1, 0xE305: 1, 0xE32A: 1}
 
 
 def fds_side_files(side):
@@ -408,6 +412,7 @@ class Rom:
         self.nsf = None
         self.ram_top = 0x8000               # code below this is RAM
         self.files = None                   # an FDS's files (load_fds)
+        self.inline = {}                    # JSR targets that return later
         if data[:5] == b"NESM\x1a":
             self.load_nsf(data)
             return
@@ -475,6 +480,7 @@ class Rom:
         self.power_on = {s: s for s in range(4)}
         self.fixed = dict(self.power_on)
         self.ram_top = 0xE000
+        self.inline = FDS_INLINE_POINTERS
         body = data[16:] if data[:4] == b"FDS\x1a" else data
         sides = [body[i:i + FDS_SIDE] for i in range(0, len(body) - FDS_SIDE + 1, FDS_SIDE)]
         self.files = {}                      # tag -> (first address, bytes)
@@ -676,6 +682,9 @@ def trace(rom, entries):
                     work.append((b, t))
             if mnem in ("JMP", "RTS", "RTI", "BRK"):
                 break
+            if mnem == "JSR" and targets[0] in rom.inline:
+                # It returns past the pointers that follow the JSR.
+                nxt = (nxt + 2 * rom.inline[targets[0]]) & 0xFFFF
             b = rom.resolve(loc, nxt)
             if b is None:
                 break

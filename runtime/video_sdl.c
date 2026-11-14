@@ -126,6 +126,9 @@ static void handle_events(void) {
             toggle_mute();
         if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_r && !e.key.repeat)
             cpu_request_reset();
+        if (e.type == SDL_KEYDOWN && e.key.keysym.sym >= SDLK_0 &&
+            e.key.keysym.sym <= SDLK_9 && !e.key.repeat)
+            runtime_disk_key(e.key.keysym.sym - SDLK_0);
     }
 }
 

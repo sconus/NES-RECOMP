@@ -10,7 +10,10 @@ void video_init(int scale, const char *title);
 void video_present(const uint16_t *framebuffer);
 
 /* Sound: open the audio device, then hand it each frame's samples.
-   M in the window toggles mute; R presses the reset button. */
+   M in the window toggles mute; R presses the reset button; the number
+   keys change an FDS disk's side (0 ejects it, 1-9 put in that side),
+   through runtime_disk_key in main.c. */
+void runtime_disk_key(int n);
 void video_init_audio(void);
 void video_queue_audio(const int16_t *samples, int n);
 int video_audio_queued(void);           /* samples waiting, or -1 */

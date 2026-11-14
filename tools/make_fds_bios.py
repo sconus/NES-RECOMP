@@ -33,6 +33,18 @@ uses it: turn NMIs off and return), 01 $DFF6, 10 $DFF8, 11 $DFFA.
 IRQ: $0101 bits 7-6: 11 $DFFE, 10 acknowledge ($E1EF), 00 and 01 the
 disk transfer handlers ($E1D9, $E1CE), which for now also only
 acknowledge.
+The file routines, at the wiki's addresses, with their pointers after
+the JSR and their error number in A (Z set when 0):
+  $E1F8 LoadFiles (Y = files loaded), $E237 AppendFile (LDA #$FF, then
+  WriteFile), $E239 WriteFile, $E2B7 CheckFileCount, $E2BB
+  AdjustFileCount, $E301 SetFileCount1, $E305 SetFileCount, $E32A
+  GetDiskInfo.
+Each stores A in $4029 and asks the runtime ($4028), which does the
+work against the disk image at once (runtime/fds.c), moves the return
+address past the pointers, and leaves A (and LoadFiles' Y) in $4029
+and $402A. The lower-level routines they use on the real BIOS
+(CheckDiskHeader, GetNumFiles, FileMatchTest, ...) aren't here: those
+read the disk byte by byte.
 """
 import os
 import sys
@@ -42,8 +54,17 @@ ROOT = os.path.dirname(HERE)
 sys.path.insert(0, os.path.join(ROOT, "tests"))
 from make_mmc1_test import Asm  # noqa: E402
 
-SERVICE = 0x4028        # BIOS -> runtime requests
+SERVICE = 0x4028        # BIOS -> runtime requests (runtime/fds.c)
+ARG = 0x4029            # a routine's A; after it, the result A
+RESULT_Y = 0x402A       # after LoadFiles, Y
 BOOT_LOAD = 1
+# The file routines: (name, entry, request, gives Y), the requests as in
+# runtime/fds.c.
+ROUTINES = [("LoadFiles", 0xE1F8, 2, True), ("WriteFile", 0xE239, 3, False),
+            ("CheckFileCount", 0xE2B7, 4, False), ("AdjustFileCount", 0xE2BB, 5, False),
+            ("SetFileCount1", 0xE301, 6, False), ("SetFileCount", 0xE305, 7, False),
+            ("GetDiskInfo", 0xE32A, 8, False)]
+APPEND_FILE = 0xE237    # LDA #$FF, into WriteFile
 STOP = 0x02             # a 6502 opcode that halts the CPU
 
 
@@ -78,6 +99,22 @@ def bios():
     ack_rti()
     org(a, 0xE1EF)                      # IRQ 10: acknowledge and delay
     ack_rti()
+
+    for name, entry, _, _ in ROUTINES:
+        if entry == 0xE239:
+            org(a, APPEND_FILE)
+            a.lda(0xFF)                     # AppendFile = WriteFile at $FF
+        org(a, entry)
+        a.b(0x4C); a.fix.append((len(a.code), name)); a.b(0, 0)
+    org(a, 0xE600)
+    for name, _, req, gives_y in ROUTINES:
+        a.label(name)
+        a.sta(ARG)
+        w(SERVICE, req)
+        if gives_y:
+            a.b(0xAC, RESULT_Y & 0xFF, RESULT_Y >> 8)   # LDY $402A
+        a.lda_abs(ARG)
+        a.rts()
 
     org(a, 0xF000)
     a.label("reset")

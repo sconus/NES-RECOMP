@@ -363,6 +363,98 @@ the same C as before.
 - Check: a two-side test image that loads, appends and rewrites files,
   checks error codes, and asks for side B. Break each part.
 
+- Done:
+  - The BIOS has the eight file routines at the wiki's addresses:
+    - `$E1F8` LoadFiles;
+    - `$E237` AppendFile, which is `LDA #$FF` followed by WriteFile;
+    - `$E239` WriteFile;
+    - `$E2B7` CheckFileCount;
+    - `$E2BB` AdjustFileCount;
+    - `$E301` SetFileCount1;
+    - `$E305` SetFileCount;
+    - `$E32A` GetDiskInfo.
+
+    Each one stores A in `$4029` and makes its request through `$4028`.
+    The runtime then:
+    - does the work against the disk image, at once;
+    - moves the return address past the pointers that follow the JSR;
+    - leaves the error number in `$4029` and LoadFiles' count in
+      `$402A`. The routine loads them back, so Z is set when there was
+      no error.
+  - The wiki's rules, in `runtime/fds.c`:
+    - **Disk ID:** 10 bytes, checked against disk info `$0F-$18`, with
+      error numbers `$04-$10`. `$FF` in the expected ID skips that byte;
+      I read the wildcard as applying to each byte, which the wiki
+      leaves open for the 4-byte name.
+    - **No disk:** error `$01`. A wrong `*NINTENDO-HVC*` is error `$21`.
+    - **LoadFiles:** a list of up to 20 IDs ending in `$FF` (only `$FF`
+      means the boot files), loaded in disk order. Y counts dummy loads
+      too.
+    - **Dummy loads:** a PRG file below `$2000` (except to `$0200-$07FF`
+      and `$1200-$17FF`), or any file running past `$FFFF`. The boot
+      load now goes through the same code.
+  - **WriteFile:** the file goes in as file A (`$FF` appends), and the
+    count becomes A+1, hiding any files after it. The wiki only says
+    the count becomes "the A value". A+1 is what keeps the written file
+    visible, and it fits AppendFile adding one file. Its data comes
+    from RAM or VRAM, as the header says. Errors:
+    - `$24`: A is past the last file;
+    - `$29`: the side is full.
+  - **The count routines:** CheckFileCount and AdjustFileCount give
+    error `$31` when A is more than the count.
+  - **GetDiskInfo:** the disk ID, the file count, each file's ID and
+    name, then the size. The size is every file's size plus 261 per
+    file, high byte first.
+  - **Not here:** the lower-level routines (CheckDiskHeader,
+    FileMatchTest, ...). They read the disk byte by byte, so they wait
+    for step 5. Calling one stops with the usual message.
+  - **Sides:** `disk=eject` and `disk=N` in input scripts. In the
+    window, 0 ejects and 1-9 eject and then put in that side half a
+    second later, so the program sees the disk come out. `$4032` shows
+    a missing disk. The keys aren't tried in the window yet.
+  - **Saving:** a disk the program wrote to goes to `<image>.sav` (the
+    whole disk) when it stops. That file is loaded instead the next
+    time, and the image itself is left alone. Checked by hand: the
+    image's checksum didn't change, the `.sav` held the written file,
+    and a second run started from it and passed. The suite runs with
+    `--no-save`.
+  - **The guard and written files:** a file keeps its translation only
+    while it matches the image file's version of it, byte for byte.
+    A file the program rewrote (or a `.sav` changed) gets tag 0.
+  - **Recompiler:** it knows how many pointers follow a JSR to each
+    file routine, and traces past them. Before this, it read the
+    pointers as code and stopped there.
+  - **`make_fds_files_test.py`** writes `fds_files.fds`, two sides with
+    18 checks:
+    - LoadFiles: lists, the boot list, Y, dummy loads, CHR files;
+    - code loaded over code while the program runs (step 3's open
+      item);
+    - each disk ID error and the wildcard;
+    - GetDiskInfo;
+    - AppendFile from RAM and from VRAM;
+    - WriteFile hiding later files;
+    - the three count routines;
+    - error `$01` with the disk out;
+    - side B by its ID;
+    - a WriteFile over side B's code, so the new code runs and not the
+      old translation.
+
+    Its input script takes the disk out at frame 120 and puts in side
+    B at 150. 1,458,564 instructions ran translated, 0 interpreted.
+  - **Slips found by testing:**
+    - Y for IDs 8 and 9 is 3, not 2: three files match.
+    - While waiting for the side change, the test reported `$81`,
+      which makes the runtime press reset. It stays at `$80` now.
+  - **Breaks, 27 tried:**
+    - 26 caught. One only after a fix: the check for a file wrapping
+      past `$FFFF` looked at `$FFF0`, which is ROM. It looks at zero
+      page now, where the bytes would land.
+    - One isn't caught, and doesn't need to be: the recompiler not
+      skipping the pointers only costs speed, because the `.missed`
+      feedback finds the code after them.
+  - 217 of 218 (test28 as always); nestest exact; all 319 earlier
+    files give the same C.
+
 ### 5. The disk drive itself
 - `$4024-$4026`, `$4030-$4033` byte by byte. Each byte crosses every
   149 1/3 cycles, with:

@@ -107,6 +107,11 @@ void code_owner_set(uint16_t addr, unsigned len, uint8_t tag) {
    RAM cleared as an NSF player clears it before init. Changing song
    sets nsf_next_song and resets. */
 static int nsf_next_song;
+
+/* The number keys in the window: an FDS disk side (video.h). */
+void runtime_disk_key(int n) {
+    if (cart.mapper == MAPPER_FDS) fds_key(n);
+}
 static long song_frames;            /* how long the song has played */
 
 uint16_t cpu_reset_target(void) {
@@ -231,7 +236,8 @@ static void at_exit(void) {
         fprintf(stderr, "code in RAM: %llu instruction(s) ran translated, %llu interpreted\n",
                 (unsigned long long)ram_native, (unsigned long long)ram_interp);
     print_test_result();
-    if (use_save_file) cart_write_save(rom_path);
+    if (use_save_file)
+        cart.mapper == MAPPER_FDS ? fds_write_save(rom_path) : cart_write_save(rom_path);
 }
 
 /* Scripted input: from frame N on, the controllers hold these buttons.
@@ -245,13 +251,17 @@ static void at_exit(void) {
                         second paddle); the knob stays put until moved
        500 aim=128,100 trigger   Zapper: aimed at pixel (128, 100), the
                         trigger pulled; the aim stays put until moved, and
-                        aim=off points it away from the screen */
+                        aim=off points it away from the screen
+       600 disk=eject   FDS: take the disk out
+       660 disk=2       FDS: put in side 2 (disk 1 side B; side 3 is disk
+                        2 side A, ...) */
 #define MAX_SCRIPT 4096
 static struct {
     long frame;
     uint8_t buttons[4], fire[2], trigger;
     int knob[2];                    /* -1: unchanged */
     int aim_x, aim_y;               /* aim_x: -2 unchanged, -1 off */
+    int disk;                       /* -2 unchanged, -1 eject, else a side */
 } script[MAX_SCRIPT];
 static int script_len, script_pos;
 static uint8_t script_buttons[4], script_fire[2], script_trigger;
@@ -278,7 +288,20 @@ static void load_input_script(const char *path) {
         uint8_t b[4] = { 0, 0, 0, 0 }, fire[2] = { 0, 0 };
         int knob[2] = { -1, -1 }, aim_x = -2, aim_y = 0;
         uint8_t trigger = 0;
+        int disk = -2;
         while ((tok = strtok(NULL, " \t\r\n"))) {
+            if (!strncmp(tok, "disk=", 5)) {
+                char *end;
+                long n = strtol(tok + 5, &end, 10);
+                if (!strcmp(tok + 5, "eject")) disk = -1;
+                else if (!*end && end != tok + 5 && n >= 1 && n <= 255) disk = (int)n - 1;
+                else {
+                    fprintf(stderr, "%s:%d: disk needs eject or a side number: '%s'\n",
+                            path, lineno, tok);
+                    exit(1);
+                }
+                continue;
+            }
             int pad = 0;
             const char *name = tok;
             if (tok[0] >= '2' && tok[0] <= '4' && tok[1] == ':') {
@@ -324,6 +347,7 @@ static void load_input_script(const char *path) {
         script[script_len].trigger = trigger;
         script[script_len].aim_x = aim_x;
         script[script_len].aim_y = aim_y;
+        script[script_len].disk = disk;
         for (int p = 0; p < 2; p++) {
             script[script_len].fire[p] = fire[p];
             script[script_len].knob[p] = knob[p];
@@ -437,10 +461,15 @@ static void frame_done(const uint16_t *ppu_fb) {
         fprintf(stderr, "frame %llu: %d samples queued\n",
                 (unsigned long long)ppu.frame, video_audio_queued());
     if (!headless) video_present(fb);
+    if (cart.mapper == MAPPER_FDS) fds_frame();
     /* Buttons for the next frame: the script, plus the keyboard. */
     while (script_pos < script_len && script[script_pos].frame <= (long)ppu.frame) {
         for (int p = 0; p < 4; p++) script_buttons[p] = script[script_pos].buttons[p];
         script_trigger = script[script_pos].trigger;
+        if (cart.mapper == MAPPER_FDS && script[script_pos].disk != -2) {
+            if (script[script_pos].disk == -1) fds_eject();
+            else fds_insert(script[script_pos].disk);
+        }
         if (script[script_pos].aim_x != -2) {
             zapper.x = script[script_pos].aim_x;
             zapper.y = script[script_pos].aim_y;
@@ -616,6 +645,10 @@ int main(int argc, char **argv) {
 
     if (cart.battery && cart.prg_nvram_size && !no_save) {
         cart_load_save(rom_path);
+        use_save_file = 1;
+    }
+    if (cart.mapper == MAPPER_FDS && !no_save) {
+        fds_load_save(rom_path);
         use_save_file = 1;
     }
 
