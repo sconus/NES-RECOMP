@@ -225,8 +225,12 @@ frame 300 other/firefly.nes
 frame 300 mmc5test/mmc5test.nes
 # MMC5's vertical split (make_split_test.py, PLAN-split.md): sprite 0 hit
 # probes where the split is drawn: sides, threshold, $5201 scroll and its
-# wrap, the $5202 bank, and when it's off.
+# wrap (also from 240-255), the $5202 bank (whatever the CHR mode, $5130
+# and 8x16 sprites say), fine and coarse X, ExRAM mode 1, a restart when
+# rendering comes back mid-frame, and when it's off. mmc5_split_pic is
+# the split's colours, next to extended attributes.
 result 200 tests/mmc5_split.nes
+frame 30 tests/mmc5_split_pic.nes
 
 # --- PPU, result on screen only (power_up_palette is left out: it checks
 #     values unique to its author's console)

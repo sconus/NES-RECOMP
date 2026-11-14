@@ -472,6 +472,7 @@ static struct {
     uint8_t exram[0x400];
     uint8_t split_ctrl, split_scroll, split_bank;   /* $5200-$5202 */
     uint8_t split_start;            /* $5201 as loaded for this frame */
+    int split_base;                 /* the line the split's count starts on */
 } mmc5;
 
 static uint8_t *mmc5_ram_bank(int n) {
@@ -789,15 +790,22 @@ static int mmc5_split_y(int line) {
 
 static int mmc5_split_tile(int tile, uint8_t *name, uint8_t *palette,
                            const uint8_t **chr4k, int *fine_y) {
+    /* The line this tile will be drawn on. Until the MMC5 has seen the
+       frame start (its in-frame flag, as for the IRQ counter), that line
+       is the first one: the split's count starts there, from $5201 as it
+       is then. So rendering turned off and on again mid-frame restarts
+       the split from its scroll value at the line where it came back. */
+    int line = tile >= 2 ? ppu.scanline : ppu.scanline == 261 ? 0 : ppu.scanline + 1;
+    if (!mmc5.in_frame) {
+        mmc5.split_base = line;
+        mmc5.split_start = mmc5.split_scroll;
+    }
     if (!(mmc5.split_ctrl & 0x80) || mmc5.exram_mode >= 2 || !(ppu.mask & 0x18))
         return 0;
-    if (ppu.scanline == 261) mmc5.split_start = mmc5.split_scroll;
     int threshold = mmc5.split_ctrl & 0x1F;
     int inside = (mmc5.split_ctrl & 0x40) ? tile >= threshold : tile < threshold;
     if (!inside) return 0;
-    /* The line this tile will be drawn on. */
-    int line = tile >= 2 ? ppu.scanline : ppu.scanline == 261 ? 0 : ppu.scanline + 1;
-    int y = mmc5_split_y(line);
+    int y = mmc5_split_y(line - mmc5.split_base);
     int row = y >> 3, col = tile & 31;
     *name = mmc5.exram[(row * 32 + col) & 0x3FF];
     uint8_t attr = mmc5.exram[0x3C0 + ((row >> 2) & 7) * 8 + (col >> 2)];

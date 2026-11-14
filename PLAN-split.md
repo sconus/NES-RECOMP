@@ -45,8 +45,11 @@ Programs that never turn the split on draw exactly as before, and
   `$3C0 + (r / 4) * 8 + (n & 31) / 4`, using the same quarter-of-a-byte
   choice as the PPU.
 - **The counter.** It is loaded from `$5201` at the start of the frame
-  (the pre-render line) and moves one line on each rendered line. Row
-  30 wraps to row 0.
+  and moves one line on each rendered line. Row 30 wraps to row 0.
+  (Step 2: "the start of the frame" is when the MMC5 sees the frame
+  start, as for its IRQ counter. The wiki says that count restarts
+  when rendering is turned back on, so the split restarts from `$5201`
+  at that line too.)
 
 These match how the split is usually described. With no free program
 in the collection using the split, only the project's own test ROMs
@@ -134,7 +137,7 @@ by hand.
   - 206 of 207; the MMC5 pictures are unchanged; nestest exact; all
     319 earlier files give the same C.
 
-### 2. The edges
+### 2. The edges (done)
 - Extended attributes (ExRAM mode 1) outside the split and plain ones
   inside.
 - Fine X: the threshold moves with it and the split doesn't scroll.
@@ -145,6 +148,49 @@ by hand.
 - Check: more cases in the same test ROM (palettes probed through
   which pattern bits are solid, or by picture where sprite 0 can't
   tell). Break each part.
+- Done:
+  - One change to the runtime: the split's line count now starts where
+    the MMC5 sees the frame start (its in-frame flag), not at the top of
+    the screen. A frame drawn throughout is unchanged. When rendering is
+    turned off mid-frame and back on, the split restarts from `$5201` at
+    the line where it came back, as the wiki says the scanline count
+    does. `$5201` is read then too (just before line 0, as before).
+  - The rest already worked as planned; 19 more checks in
+    `mmc5_split.nes` (44 in all):
+    - ExRAM mode 1: extended attributes outside the split, `$5202` (not
+      the ExRAM byte) inside it;
+    - fine X 4 with coarse X 3: the split's edge moves 4 pixels, its
+      columns don't move, on both sides;
+    - `$5201` 248 and 252: the attribute rows as tiles, their fine Y,
+      and the wrap to row 0 after them;
+    - CHR mode 0 and 3, `$5130` = 1 (the ROM now has 512 KB of CHR so an
+      upper bit would land on a blank bank), 8x16 sprites with the B set
+      on a blank bank: the split keeps `$5202`'s bank;
+    - rendering off at line 20 (polling the MMC5's IRQ flag) and on at
+      line 55: row 5 lands on lines 95-98 (a sprite anywhere on 88-98
+      touches it; the check uses 92), and not on 74-77, where it would
+      be if the count only paused.
+  - `mmc5_split_pic.nes`: a picture of the split's colours. ExRAM mode
+    1, the split on the left half with `$5201` = 20, every split
+    attribute byte different, and extended attributes on the right. The
+    tiles have colours 1, 2 and 3 in bands, so the pattern row shows
+    too. I checked every pixel against a model of the wiki's rules (all
+    12 colours, none wrong) and looked at it; the suite keeps its CRC.
+  - Breaks, 15 tried, all caught:
+    - the split taking the extended palette (picture);
+    - its attribute byte a column off, or from the screen line, or the
+      wrong quarter (picture);
+    - columns or threshold following coarse X;
+    - `$5201` 240-255 taken mod 240; fine Y 0 on the attribute rows;
+    - the bank scaled by CHR mode, given `$5130`, or taken from the
+      PPU's banks with 8x16 sprites;
+    - no restart (the old count), or a count that only pauses (case 44
+      alone also catches it);
+    - extended attributes dropped while the split is on; the split
+      taking the extended bank.
+  - On the step 1 runtime only the restart check fails.
+  - 206 of 207, 29 pictures; nestest exact; all 319 earlier files give
+    the same C.
 
 ### 3. A demo
 - `make_split_demo.py`: a playfield scrolling sideways with a split
