@@ -187,6 +187,10 @@ sprdma_and_dmc_dma/sprdma_and_dmc_dma_512.nes	pass
 read_joy3/thorough_test.nes	pass
 read_joy3/test_buttons.nes +read_joy3_buttons.txt	pass
 tests/joy2.nes +joy2.txt	pass
+tests/vaus_port1.nes +vaus.txt --port1=vaus	pass
+tests/vaus_port2.nes +vaus.txt --port2=vaus	pass
+tests/vaus_famicom.nes +vaus.txt --famicom-vaus	pass
+tests/vaus_two.nes +vaus.txt --port1=vaus --port2=vaus	pass
 apu_reset/4015_cleared.nes	pass
 apu_reset/4017_timing.nes	pass
 apu_reset/4017_written.nes	pass

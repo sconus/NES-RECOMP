@@ -197,9 +197,15 @@ static void at_exit(void) {
        120 start        press Start on controller 1 at frame 120
        126              release everything at frame 126
        200 a right      hold A and Right from frame 200
-       300 a 2:start    A on controller 1 and Start on controller 2 */
+       300 a 2:start    A on controller 1 and Start on controller 2
+       400 knob=160 fire  paddle: knob at 160, button down (2: for the
+                        second paddle); the knob stays put until moved */
 #define MAX_SCRIPT 4096
-static struct { long frame; uint8_t buttons[2]; } script[MAX_SCRIPT];
+static struct {
+    long frame;
+    uint8_t buttons[2], fire[2];
+    int knob[2];                    /* -1: unchanged */
+} script[MAX_SCRIPT];
 static int script_len, script_pos;
 static uint8_t script_buttons[2];
 
@@ -222,11 +228,24 @@ static void load_input_script(const char *path) {
             fprintf(stderr, "%s:%d: frames must go up\n", path, lineno);
             exit(1);
         }
-        uint8_t b[2] = { 0, 0 };
+        uint8_t b[2] = { 0, 0 }, fire[2] = { 0, 0 };
+        int knob[2] = { -1, -1 };
         while ((tok = strtok(NULL, " \t\r\n"))) {
             int pad = 0;
             const char *name = tok;
             if (!strncmp(tok, "2:", 2)) { pad = 1; name = tok + 2; }
+            if (!strcmp(name, "fire")) { fire[pad] = 1; continue; }
+            if (!strncmp(name, "knob=", 5)) {
+                char *end;
+                long n = strtol(name + 5, &end, 10);
+                if (*end || end == name + 5 || n < 0 || n > 255) {
+                    fprintf(stderr, "%s:%d: knob needs 0-255: '%s'\n",
+                            path, lineno, tok);
+                    exit(1);
+                }
+                knob[pad] = (int)n;
+                continue;
+            }
             int k = 0;
             while (k < 8 && strcmp(name, names[k])) k++;
             if (k == 8) {
@@ -236,8 +255,12 @@ static void load_input_script(const char *path) {
             b[pad] |= (uint8_t)(1 << k);
         }
         script[script_len].frame = frame;
-        script[script_len].buttons[0] = b[0];
-        script[script_len++].buttons[1] = b[1];
+        for (int p = 0; p < 2; p++) {
+            script[script_len].buttons[p] = b[p];
+            script[script_len].fire[p] = fire[p];
+            script[script_len].knob[p] = knob[p];
+        }
+        script_len++;
     }
     fclose(f);
 }
@@ -305,8 +328,13 @@ static void frame_done(const uint16_t *ppu_fb) {
     if (!headless) video_present(fb);
     /* Buttons for the next frame: the script, plus the keyboard. */
     while (script_pos < script_len && script[script_pos].frame <= (long)ppu.frame) {
-        script_buttons[0] = script[script_pos].buttons[0];
-        script_buttons[1] = script[script_pos++].buttons[1];
+        for (int p = 0; p < 2; p++) {
+            script_buttons[p] = script[script_pos].buttons[p];
+            vaus[p].fire = script[script_pos].fire[p];
+            if (script[script_pos].knob[p] >= 0)
+                vaus[p].knob = (uint8_t)script[script_pos].knob[p];
+        }
+        script_pos++;
     }
     for (int p = 0; p < 2; p++)
         pad_buttons[p] = script_buttons[p] | (headless ? 0 : video_buttons(p));
@@ -341,6 +369,9 @@ static void usage(const char *prog) {
         "  --input FILE       scripted button presses (see README.md)\n"
         "  --scale N          window size, N times 256x240 (default 3)\n"
         "  --mmc3-rev A|B     which MMC3 chip to act like (default B)\n"
+        "  --port1 pad|vaus   what controller port 1 holds (default pad);\n"
+        "  --port2 pad|vaus     vaus is the NES Arkanoid paddle\n"
+        "  --famicom-vaus     a Famicom Arkanoid paddle in the expansion port\n"
         "  --song N           NSF: play song N (from 1; default: the file's own)\n"
         "  --info             print the cartridge header and exit\n"
         "(or, with no ROM: --test-gamepads checks the game controller mapping)\n"
@@ -384,6 +415,14 @@ int main(int argc, char **argv) {
             mmc3_revision = r;
         }
         else if (!strcmp(a, "--song") && more) song = atoi(argv[++i]);
+        else if ((!strcmp(a, "--port1") || !strcmp(a, "--port2")) && more) {
+            const char *d = argv[++i];
+            int port = a[6] - '1';
+            if (!strcmp(d, "pad")) port_device[port] = DEV_PAD;
+            else if (!strcmp(d, "vaus")) port_device[port] = DEV_VAUS;
+            else usage(argv[0]);
+        }
+        else if (!strcmp(a, "--famicom-vaus")) famicom_vaus = 1;
         else if (!strcmp(a, "--info")) { cart_print_info(rom_path); return 0; }
         else usage(argv[0]);
     }

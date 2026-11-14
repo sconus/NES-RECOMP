@@ -336,6 +336,14 @@ text 600 read_joy3/test_buttons.nes tests/inputs/read_joy3_buttons.txt
 # both controllers at set frames and compares them with its script.
 result 200 tests/joy2.nes tests/inputs/joy2.txt
 
+# --- Arkanoid paddles (PLAN-paddle.md). tests/vaus_*.nes
+# (make_vaus_test.py), one per wiring, read the paddles and controllers
+# at set frames and compare them with the shared script.
+result 200 tests/vaus_port1.nes tests/inputs/vaus.txt --port1=vaus
+result 200 tests/vaus_port2.nes tests/inputs/vaus.txt --port2=vaus
+result 200 tests/vaus_famicom.nes tests/inputs/vaus.txt --famicom-vaus
+result 200 tests/vaus_two.nes tests/inputs/vaus.txt --port1=vaus --port2=vaus
+
 # --- The reset button (step 5 of PLAN-sound.md). These ask for reset
 # (status $81); the runtime presses it 10 frames later when headless.
 result 3000 apu_reset/4015_cleared.nes

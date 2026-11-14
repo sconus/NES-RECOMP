@@ -1,0 +1,7 @@
+# For tests/vaus_*.nes (make_vaus_test.py): the paddles and
+# controllers, changed 10 frames before each of the ROMs' checks.
+20 knob=0 fire 2:knob=255 a 2:b
+40 knob=255 2:knob=0 2:fire up start 2:left 2:select
+60 knob=165 fire 2:knob=60 2:fire 2:a 2:b 2:select 2:start 2:up 2:down 2:left 2:right
+80 a b select start up down left right
+100 knob=98 fire 2:knob=242 b 2:a
