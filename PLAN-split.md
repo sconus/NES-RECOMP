@@ -222,9 +222,43 @@ by hand.
     the test ROMs cover them.
   - No change to the runtime or `recomp.py`. 206 of 207, 31 pictures.
 
-### 4. Suite, README, notes
+### 4. Suite, README, notes (done)
 Accept the new checks, document the split and the choices above,
 update the status list, and write where the stage ended.
+- Done: the README has an "MMC5's vertical split" section (the
+  registers, the three choices, the demo, what's not done). It also
+  lists both generators under the tests, gives the new results, and
+  ticks the status list. The mapper list no longer says "without its
+  split screen". The new checks were accepted into `tests/expected.txt`
+  at each step. The list of plan files now names `PLAN-nes2.md` (it
+  had been left out) and this one.
+
+## Where the stage ended
+- MMC5 draws its vertical split: `$5200-$5202`, tiles, attributes and
+  pattern rows from ExRAM and `$5202`'s bank. The split is on only in
+  ExRAM modes 0 and 1. In mode 1 it sits beside extended attributes.
+- The PPU's background hook (`mapper.bg_tile`) now gets each tile's
+  number in the line, and can replace the tile and its pattern row as
+  well as its palette and CHR. Programs that never turn the split on
+  draw exactly as before, and every earlier file recompiles to the same
+  C (`recomp.py` didn't change).
+- The three choices the wiki leaves open are in the README. The third
+  (the line count) changed in step 2: it restarts with the
+  MMC5's frame detection, after the wiki's note that its scanline count
+  restarts when rendering comes back.
+- Checked by:
+  - `mmc5_split.nes`, 44 sprite-0 checks;
+  - `mmc5_split_pic.nes`, every pixel compared with a model of the
+    wiki's rules when it was made;
+  - two demo pictures.
+
+  28 deliberate breaks were tried (13 in step 1, 15 in step 2), all
+  caught; the demo pictures change under the ones the demo exercises.
+- The open risk is unchanged: no free program in the collection uses
+  the split. So the choices are checked only against my own reading of
+  the wiki, not against hardware.
+- 206 of 207 graded tests (test28 as always), 31 pictures, 8 sounds;
+  nestest exact.
 
 ## Not in this stage
 - The MMC5A's extras (`$5207-$520A`, `$5800` CL3/SL3), and the split's

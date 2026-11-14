@@ -51,7 +51,7 @@ mapper). So the same address can hold different code at different times:
   through `dispatch` if it's set.
 
 Supported mappers: 0 NROM, 1 MMC1, 2 UxROM, 3 CNROM, 4 MMC3 (with its
-scanline IRQ), 5 MMC5 (with its sound, without its split screen), 7 AxROM,
+scanline IRQ), 5 MMC5 (with its sound and vertical split), 7 AxROM,
 9 MMC2, 10 MMC4, 11 Color Dreams, 19 Namco 163 (with its sound),
 21/22/23/25 Konami VRC2 and VRC4 (with VRC4's IRQ), 24/26 Konami VRC6
 (with its sound), 28 Action 53, 34 BNROM, 66 GxROM, 69 Sunsoft FME-7
@@ -109,8 +109,9 @@ mapper a ROM uses.
   it has. Other boards hook in where they need to: VRC4's IRQ counter
   keeps its own time (`catch_up`/`schedule`), MMC2 and MMC4 watch which
   tiles the PPU reads, and MMC5 also maps nametables, sees whether the
-  PPU is fetching sprites or background, detects scanlines, and has
-  registers and RAM at `$5000-$5FFF`.
+  PPU is fetching sprites or background, detects scanlines, supplies
+  background tiles itself (extended attributes and the vertical split),
+  and has registers and RAM at `$5000-$5FFF`.
 - **Interrupts** (`event.c`). NMI and IRQ timing, decided on the cycle
   the real CPU checks (from each opcode's cycle map, `cycles.c`),
   including the one-instruction delay after CLI/PLP and taken branches,
@@ -342,6 +343,49 @@ iNES 1.0, as the wiki says. iNES 1.0 files behave as they always have.
   Dendy program runs at NTSC speed, and a Vs. System or PlayChoice-10
   program as an NES, each with a warning.
 
+## MMC5's vertical split
+
+MMC5 can draw part of each line's background (the left or right side,
+from a tile column the program picks) from its own 1 KB of ExRAM, with
+its own vertical scroll and its own 4 KB of CHR, while the rest of the
+screen scrolls as usual. Games used it for a status panel beside a
+playfield. Following the nesdev wiki ("MMC5"):
+- `$5200`: bit 7 on, bit 6 the side (0 left, 1 right), bits 0-4 the
+  threshold tile. `$5201` is the split's vertical scroll, `$5202` its
+  4 KB CHR bank, whatever the CHR mode, `$5130` and 8x16 sprites say.
+- The split's tiles and attributes come from ExRAM, which must be in
+  mode 0 or 1. In mode 1 the rest of the screen keeps its extended
+  attributes, while the split uses plain ones. Modes 2 and 3 turn the
+  split off.
+- The split doesn't scroll sideways: its columns stay put, and only its
+  edge moves with the fine X scroll, by up to 7 pixels.
+- `$5201` values 240-255 show the attribute bytes as tiles for the
+  first lines, then wrap to row 0.
+
+The wiki leaves three details open. The runtime chooses:
+- **Where counting starts.** Tile 0 is the first fetch at dot 321 of
+  the line before. So the count matches the 34 tiles the PPU draws from:
+  2 fetched at the end of the line before, then 32.
+- **The ExRAM address.** For split tile n on split row r, the tile is at
+  `r * 32 + (n & 31)`, and the attribute byte is at
+  `$3C0 + (r / 4) * 8 + (n & 31) / 4`.
+- **The line count.** The split starts from `$5201` where the MMC5 sees
+  the frame start (as for its IRQ counter), and moves one line on each
+  rendered line. When rendering is turned off and on again mid-frame,
+  it starts over from `$5201` at the line where rendering came back.
+
+No free program in the test collection uses the split, so these
+choices are checked only by the project's own test ROMs. A game's panel
+a tile or a line out would point to one of them.
+`tests/mmc5_split_demo.nes` is a demo to try by hand: a scrolling
+playfield beside the panel. Up and Down scroll the panel, Left pauses the
+playfield, and A moves the panel to the other side.
+
+    make run ROM=tests/mmc5_split_demo.nes
+
+Not done: the MMC5A's extra registers (`$5207-$520A`, `$5800`) and the
+split's SL mode.
+
 ## Play music (NSF files)
 
 An NSF file holds a music program without a picture: a routine that
@@ -441,6 +485,17 @@ own. Each `tests/make_*.py` writes a small ROM into `tests/`:
   channels.
 - `make_mmc5_sound_test.py`: MMC5's pulses and PCM channel, its 240 Hz
   length counters and PCM IRQ.
+- `make_split_test.py`: MMC5's vertical split, in 44 checks of one frame
+  each, using sprite 0 hit to see whether the split was drawn under the
+  sprite:
+  - sides, threshold, scroll, wrap and pattern row;
+  - the bank, alone and beside CHR mode, `$5130` and 8x16 sprites;
+  - ExRAM modes; fine and coarse X; `$5201` 240-255;
+  - a restart when rendering comes back mid-frame.
+
+  Also a picture of the split's colours beside extended attributes.
+- `make_split_demo.py`: the split demo above, with a scripted panel
+  scroll and side change as a picture check.
 - `make_vrc7_test.py`: VRC7 banking (both board variants) and IRQ, and a
   tone ROM for its FM channels with a near-sine instrument.
 - `make_joy_test.py`: both controllers read at set frames against a
@@ -483,7 +538,7 @@ own. Each `tests/make_*.py` writes a small ROM into `tests/`:
 Each check in these was confirmed by breaking that part of the runtime or
 recompiler on purpose and seeing the test report it.
 
-Current results: 205 of 206 graded tests pass, and the 28 pictures and 8
+Current results: 206 of 207 graded tests pass, and the 31 pictures and 8
 sound recordings match. That includes all 16 `instr_test-v5` CPU tests
 and the 11 built as NSFs (`nes_instr_test/nsf_singles`),
 all of `ppu_vbl_nmi`, `vbl_nmi_timing`, the sprite 0 hit and sprite
@@ -517,8 +572,7 @@ or display-only `read_joy3` tests are left out of the suite, and so is
       scripted input for both
 - [x] Test ROM runner with a recorded baseline
 - [x] Mappers 0, 1, 2, 3, 4, 7, 34, with banked recompilation
-- [x] Mappers 5, 9, 10, 11, 21, 22, 23, 25, 28, 66 (MMC5 without its
-      split screen)
+- [x] Mappers 5, 9, 10, 11, 21, 22, 23, 25, 28, 66
 - [x] IRQs (MMC3 scanline counter) and battery saves
 - [x] APU: sound through the speakers or a WAV file, frame and DMC IRQs
 - [x] The reset button
@@ -539,15 +593,17 @@ or display-only `read_joy3` tests are left out of the suite, and so is
 - [x] The Zapper (NES and Famicom) on the mouse or in scripts
 - [x] Four players: the Four Score, the Famicom's expansion port, Hori's
       adapter
-- [ ] MMC5's vertical split screen
+- [x] MMC5's vertical split screen
 - [ ] The Famicom Disk System: its sound chip (for NSFs too) and disks
 - [ ] NSF2 and NSFe music files (track names and lengths, songs that end
       by themselves)
 
 `PLAN.md`, `PLAN-mappers.md`, `PLAN-sound.md`, `PLAN-cycles.md`,
 `PLAN-render.md`, `PLAN-mappers2.md`, `PLAN-expansion.md`,
-`PLAN-input.md`, `PLAN-nsf.md`, `PLAN-paddle.md` and `PLAN-zapper.md` have the step-by-step notes for each
+`PLAN-input.md`, `PLAN-nsf.md`, `PLAN-paddle.md`, `PLAN-zapper.md`,
+`PLAN-nes2.md` and `PLAN-split.md` have the step-by-step notes for each
 stage (graphics, mappers, sound, per-cycle timing, rendering, more
-mappers, expansion sound, controllers, NSF music, the paddle, the Zapper and four players), including how each timing value was tuned, what
+mappers, expansion sound, controllers, NSF music, the paddle, the Zapper
+and four players, NES 2.0 headers, MMC5's split), including how each timing value was tuned, what
 was tried for what still fails, and where the documentation left a
 choice to make.
