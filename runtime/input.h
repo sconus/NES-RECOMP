@@ -14,9 +14,14 @@ enum { DEV_PAD, DEV_VAUS };
 extern int port_device[2];
 /* A Famicom Arkanoid paddle in the expansion port (--famicom-vaus). */
 extern int famicom_vaus;
+/* Controllers 3 and 4: through a Four Score (--four-score), the Famicom's
+   expansion port (--famicom-4p) or Hori's adapter (--hori-4p). */
+enum { FOUR_NONE, FOUR_SCORE, FOUR_FAMICOM, FOUR_HORI };
+extern int four_players;
 
-/* Buttons held right now on each controller; the window code sets these. */
-extern uint8_t pad_buttons[2];
+/* Buttons held right now on each controller (1-4); the window code and
+   input scripts set these. */
+extern uint8_t pad_buttons[4];
 /* The paddles, numbered port 1, port 2, Famicom (the first two plugged
    in): the knob's position 0-255 and the button, 0 or 1. */
 struct vaus { uint8_t knob, fire; };

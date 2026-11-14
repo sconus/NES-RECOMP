@@ -1,0 +1,7 @@
+# For tests/four_*.nes (make_four_test.py): four controllers,
+# changed 10 frames before each of the ROMs' checks.
+20 a 2:b 3:select 4:start
+40 up start 3:a 3:b 3:select 3:start 3:up 3:down 3:left 3:right 4:left 4:b
+60 a b select start up down left right 2:right 4:down 4:a
+80
+100 b 2:a 2:b 2:select 2:start 2:up 2:down 2:left 2:right 3:a 3:up 4:a 4:b 4:select 4:start 4:up 4:down 4:left 4:right

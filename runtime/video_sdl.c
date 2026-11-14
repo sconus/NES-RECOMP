@@ -145,8 +145,9 @@ static const struct { SDL_Scancode key; uint8_t button; } keymap[2][8] = {
 uint8_t video_buttons(int player) {
     const Uint8 *keys = SDL_GetKeyboardState(NULL);
     uint8_t b = 0;
-    for (int i = 0; i < 8; i++)
-        if (keys[keymap[player][i].key]) b |= keymap[player][i].button;
+    if (player < 2)             /* the keyboard has room for two players */
+        for (int i = 0; i < 8; i++)
+            if (keys[keymap[player][i].key]) b |= keymap[player][i].button;
     b |= gamepad_buttons(player);
     /* A real D-pad can't press opposite directions at once, and some
        games misbehave if they see it; cancel both instead. */

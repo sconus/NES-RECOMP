@@ -1,8 +1,8 @@
 /* nesrecomp runtime: game controllers (Xbox, PlayStation, Switch Pro and
-   others SDL knows) as NES controllers 1 and 2.
+   others SDL knows) as NES controllers 1 to 4.
 
    The first controller connected plays controller 1, the second
-   controller 2; a controller plugged in later takes the first free slot,
+   controller 2, and so on; a controller plugged in later takes the first free slot,
    and unplugging one frees its slot. The keyboard keeps working
    alongside.
 
@@ -21,13 +21,14 @@
 
 #define STICK_THRESHOLD 16384           /* half way, of 32767 */
 
-static SDL_GameController *slot[2];
+#define SLOTS 4
+static SDL_GameController *slot[SLOTS];
 static int virtual_only;        /* the self-test ignores real controllers */
 
 static void open_device(int index) {
     if (!SDL_IsGameController(index)) return;
     if (virtual_only && !SDL_JoystickIsVirtual(index)) return;
-    for (int s = 0; s < 2; s++) {
+    for (int s = 0; s < SLOTS; s++) {
         if (slot[s]) continue;
         slot[s] = SDL_GameControllerOpen(index);
         return;
@@ -35,7 +36,7 @@ static void open_device(int index) {
 }
 
 static void close_instance(SDL_JoystickID id) {
-    for (int s = 0; s < 2; s++) {
+    for (int s = 0; s < SLOTS; s++) {
         if (!slot[s]) continue;
         SDL_Joystick *j = SDL_GameControllerGetJoystick(slot[s]);
         if (SDL_JoystickInstanceID(j) == id) {
@@ -173,6 +174,16 @@ int gamepad_self_test(void) {
         expect("controller 2's right face button", 1, BTN_A);
         expect("controller 1 unaffected", 0, 0);
         press(1, SDL_CONTROLLER_BUTTON_B, 0);
+    }
+
+    attach();                           /* a third and fourth: players 3, 4 */
+    attach();
+    if (!slot[3]) { printf("FAIL: fourth controller didn't become controller 4\n"); failures++; }
+    else {
+        press(3, SDL_CONTROLLER_BUTTON_START, 1);
+        expect("controller 4's Start", 3, BTN_START);
+        expect("controller 3 unaffected", 2, 0);
+        press(3, SDL_CONTROLLER_BUTTON_START, 0);
     }
 
     /* Unplug the first: controller 1 is free, controller 2 stays. */

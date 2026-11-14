@@ -343,6 +343,14 @@ result 200 tests/vaus_port1.nes tests/inputs/vaus.txt --port1=vaus
 result 200 tests/vaus_port2.nes tests/inputs/vaus.txt --port2=vaus
 result 200 tests/vaus_famicom.nes tests/inputs/vaus.txt --famicom-vaus
 result 200 tests/vaus_two.nes tests/inputs/vaus.txt --port1=vaus --port2=vaus
+# --- Four players (PLAN-zapper.md). tests/four_*.nes (make_four_test.py),
+# one per wiring, read all four controllers at set frames.
+result 200 tests/four_score.nes tests/inputs/four.txt --four-score
+result 200 tests/four_famicom.nes tests/inputs/four.txt --famicom-4p
+result 200 tests/four_hori.nes tests/inputs/four.txt --hori-4p
+# vaus-test reads Famicom controller 3 (bit 1 of $4016): a picture.
+frame 200 vaus-test/vaus-test.nes tests/inputs/vaus_test_pad3.txt --famicom-4p
+
 # The collection's paddle programs don't grade themselves: pictures,
 # checked by eye (see PLAN-paddle.md), then kept as regression checks.
 frame 600 vaus-test/vaus-test.nes tests/inputs/vaus_test_demo.txt --port2=vaus

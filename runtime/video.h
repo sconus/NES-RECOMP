@@ -15,9 +15,9 @@ void video_init_audio(void);
 void video_queue_audio(const int16_t *samples, int n);
 int video_audio_queued(void);           /* samples waiting, or -1 */
 
-/* Controller 1 buttons from the keyboard, as of the last video_present:
-   arrows, X = A, Z = B, Return = Start, Right Shift = Select. */
-uint8_t video_buttons(int player);    /* 0 or 1 */
+/* A controller's buttons (player 0-3) from the keyboard (players 0 and
+   1 only) and game controllers, as of the last video_present. */
+uint8_t video_buttons(int player);
 
 /* The mouse, as of the last video_present, for a paddle: *x from 0 at
    the window's left edge to 1 at its right, *button the left button.

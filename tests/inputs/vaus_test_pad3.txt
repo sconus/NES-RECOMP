@@ -1,0 +1,6 @@
+# For vaus-test/vaus-test.nes with --famicom-4p: A on Famicom controller
+# 3 makes it the player's controller; then holding Right on it walks the
+# character right.
+30 3:a
+36
+60 3:right

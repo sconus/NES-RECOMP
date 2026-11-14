@@ -17,15 +17,31 @@
      NES paddle, in a controller port:  bit 4 data, bit 3 button, on that
                                         port's register; bit 0 reads 0
      Famicom paddle, expansion port:    $4017 bit 1 data, $4016 bit 1
-                                        button; controllers stay on bit 0 */
+                                        button; controllers stay on bit 0
+
+   Four players (nesdev wiki, "Four player adapters"), all latched by the
+   one strobe:
+     Four Score (NES):     $4016 bit 0 sends controller 1, controller 3,
+                           then the signature 0,0,0,1,0,0,0,0; $4017 bit 0
+                           controller 2, controller 4, then 0,0,1,0,0,0,0,0;
+                           1s after the 24th read
+     Famicom 3 and 4:      controller 3 on $4016 bit 1, controller 4 on
+                           $4017 bit 1, 8 buttons each then 1s, beside 1
+                           and 2 on bit 0
+     Hori 4 Players:       the Four Score's sequence on bit 1, with the two
+                           signatures swapped; 1 and 2 stay on bit 0 */
 #include "input.h"
 
-uint8_t pad_buttons[2];
+uint8_t pad_buttons[4];
 int port_device[2];             /* DEV_PAD or DEV_VAUS */
 int famicom_vaus;
+int four_players;               /* FOUR_NONE, FOUR_SCORE, ... */
 struct vaus vaus[2];
 
-static uint8_t shift[2];
+/* What each port sends next on bit 0 and on bit 1, lowest bit first.
+   Every read shifts in a 1 from the top, so the reads after a sequence
+   return 1s. */
+static uint32_t shift[2], shift1[2];
 static uint8_t strobe;
 /* One shift register per paddle, numbered as in vaus_index. */
 static uint16_t vaus_shift[2];
@@ -44,9 +60,32 @@ static int vaus_index(int place) {
     return -1;
 }
 
+/* A Four Score style sequence: two controllers, then a signature. */
+static uint32_t sequence(uint8_t first, uint8_t second, uint8_t signature) {
+    return first | (uint32_t)second << 8 | (uint32_t)signature << 16 | 0xFF000000u;
+}
+
 static void latch(void) {
-    shift[0] = pad_buttons[0];
-    shift[1] = pad_buttons[1];
+    for (int p = 0; p < 2; p++) {
+        shift[p] = 0xFFFFFF00u | pad_buttons[p];
+        shift1[p] = 0xFFFFFFFFu;
+    }
+    if (four_players == FOUR_SCORE) {
+        shift[0] = sequence(pad_buttons[0], pad_buttons[2], 0x08);
+        shift[1] = sequence(pad_buttons[1], pad_buttons[3], 0x04);
+    } else if (four_players == FOUR_FAMICOM) {
+        shift1[0] = 0xFFFFFF00u | pad_buttons[2];
+        shift1[1] = 0xFFFFFF00u | pad_buttons[3];
+    } else if (four_players == FOUR_HORI) {
+        shift1[0] = sequence(pad_buttons[0], pad_buttons[2], 0x04);
+        shift1[1] = sequence(pad_buttons[1], pad_buttons[3], 0x08);
+    }
+}
+
+static uint8_t next_bit(uint32_t *reg) {
+    uint8_t bit = *reg & 1;
+    *reg = *reg >> 1 | 0x80000000u;
+    return bit;
 }
 
 void input_write_strobe(uint8_t val) {
@@ -72,12 +111,12 @@ uint8_t input_read(int port) {
     int i = vaus_index(port);
     if (i >= 0)
         v |= (uint8_t)(vaus_bit(i) << 4 | vaus[i].fire << 3);
-    else if (port_device[port] == DEV_PAD) {
-        v |= shift[port] & 1;
-        shift[port] = (uint8_t)(shift[port] >> 1 | 0x80);
-    }
+    else if (port_device[port] == DEV_PAD)
+        v |= next_bit(&shift[port]);
     int f = vaus_index(2);
     if (f >= 0)
         v |= (uint8_t)((port ? vaus_bit(f) : vaus[f].fire) << 1);
+    else if (four_players == FOUR_FAMICOM || four_players == FOUR_HORI)
+        v |= (uint8_t)(next_bit(&shift1[port]) << 1);
     return v;
 }

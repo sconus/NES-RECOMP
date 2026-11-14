@@ -198,16 +198,17 @@ static void at_exit(void) {
        126              release everything at frame 126
        200 a right      hold A and Right from frame 200
        300 a 2:start    A on controller 1 and Start on controller 2
+                        (3: and 4: for controllers 3 and 4)
        400 knob=160 fire  paddle: knob at 160, button down (2: for the
                         second paddle); the knob stays put until moved */
 #define MAX_SCRIPT 4096
 static struct {
     long frame;
-    uint8_t buttons[2], fire[2];
+    uint8_t buttons[4], fire[2];
     int knob[2];                    /* -1: unchanged */
 } script[MAX_SCRIPT];
 static int script_len, script_pos;
-static uint8_t script_buttons[2], script_fire[2];
+static uint8_t script_buttons[4], script_fire[2];
 
 static void load_input_script(const char *path) {
     static const char *names[8] =
@@ -228,14 +229,18 @@ static void load_input_script(const char *path) {
             fprintf(stderr, "%s:%d: frames must go up\n", path, lineno);
             exit(1);
         }
-        uint8_t b[2] = { 0, 0 }, fire[2] = { 0, 0 };
+        uint8_t b[4] = { 0, 0, 0, 0 }, fire[2] = { 0, 0 };
         int knob[2] = { -1, -1 };
         while ((tok = strtok(NULL, " \t\r\n"))) {
             int pad = 0;
             const char *name = tok;
-            if (!strncmp(tok, "2:", 2)) { pad = 1; name = tok + 2; }
-            if (!strcmp(name, "fire")) { fire[pad] = 1; continue; }
-            if (!strncmp(name, "knob=", 5)) {
+            if (tok[0] >= '2' && tok[0] <= '4' && tok[1] == ':') {
+                pad = tok[0] - '1';
+                name = tok + 2;
+            }
+            int paddle = pad < 2;           /* knob and fire: 1 or 2 only */
+            if (!strcmp(name, "fire") && paddle) { fire[pad] = 1; continue; }
+            if (!strncmp(name, "knob=", 5) && paddle) {
                 char *end;
                 long n = strtol(name + 5, &end, 10);
                 if (*end || end == name + 5 || n < 0 || n > 255) {
@@ -255,8 +260,8 @@ static void load_input_script(const char *path) {
             b[pad] |= (uint8_t)(1 << k);
         }
         script[script_len].frame = frame;
+        for (int p = 0; p < 4; p++) script[script_len].buttons[p] = b[p];
         for (int p = 0; p < 2; p++) {
-            script[script_len].buttons[p] = b[p];
             script[script_len].fire[p] = fire[p];
             script[script_len].knob[p] = knob[p];
         }
@@ -347,15 +352,15 @@ static void frame_done(const uint16_t *ppu_fb) {
     if (!headless) video_present(fb);
     /* Buttons for the next frame: the script, plus the keyboard. */
     while (script_pos < script_len && script[script_pos].frame <= (long)ppu.frame) {
+        for (int p = 0; p < 4; p++) script_buttons[p] = script[script_pos].buttons[p];
         for (int p = 0; p < 2; p++) {
-            script_buttons[p] = script[script_pos].buttons[p];
             script_fire[p] = script[script_pos].fire[p];
             if (script[script_pos].knob[p] >= 0)
                 vaus[p].knob = (uint8_t)script[script_pos].knob[p];
         }
         script_pos++;
     }
-    for (int p = 0; p < 2; p++)
+    for (int p = 0; p < 4; p++)
         pad_buttons[p] = script_buttons[p] | (headless ? 0 : video_buttons(p));
     for (int p = 0; p < 2; p++) vaus[p].fire = script_fire[p];
     paddle_mouse();
@@ -393,6 +398,9 @@ static void usage(const char *prog) {
         "  --port1 pad|vaus   what controller port 1 holds (default pad);\n"
         "  --port2 pad|vaus     vaus is the NES Arkanoid paddle\n"
         "  --famicom-vaus     a Famicom Arkanoid paddle in the expansion port\n"
+        "  --four-score       controllers 3 and 4 through an NES Four Score\n"
+        "  --famicom-4p       controllers 3 and 4 in the Famicom expansion port\n"
+        "  --hori-4p          controllers 1-4 through Hori's Famicom adapter\n"
         "  --vaus-left N      paddle: the knob at the window's left edge, 0-255\n"
         "                     (default 77; the right edge is 160 more)\n"
         "  --song N           NSF: play song N (from 1; default: the file's own)\n"
@@ -446,6 +454,9 @@ int main(int argc, char **argv) {
             else usage(argv[0]);
         }
         else if (!strcmp(a, "--famicom-vaus")) famicom_vaus = 1;
+        else if (!strcmp(a, "--four-score")) four_players = FOUR_SCORE;
+        else if (!strcmp(a, "--famicom-4p")) four_players = FOUR_FAMICOM;
+        else if (!strcmp(a, "--hori-4p")) four_players = FOUR_HORI;
         else if (!strcmp(a, "--vaus-left") && more) {
             char *end;
             long n = strtol(argv[++i], &end, 0);
@@ -459,6 +470,14 @@ int main(int argc, char **argv) {
     if (cart.mapper == MAPPER_NSF) {
         start = nsf_start(song);
         nsf_next_song = nsf.song;
+    }
+    /* The Four Score holds both ports; the Famicom's players 3 and 4 use
+       the expansion port's bit 1, as its paddle does. */
+    if ((four_players == FOUR_SCORE && (port_device[0] || port_device[1])) ||
+        (four_players >= FOUR_FAMICOM && famicom_vaus)) {
+        fprintf(stderr, "%s and a paddle can't be plugged in together\n",
+                four_players == FOUR_SCORE ? "--four-score" : "a Famicom 4-player wiring");
+        return 1;
     }
     if ((screenshot_path || dump_text) && !stop_after_frames) {
         fprintf(stderr, "--screenshot and --dump-text need --frames N\n");
