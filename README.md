@@ -4,7 +4,8 @@ A static recompiler for NES programs, built as a learning project. It turns
 the 6502 machine code in a `.nes` file into C, which a normal compiler turns
 into a native program for your Mac, with graphics in a window, sound
 (including the Famicom cartridges' extra sound chips), two players on the
-keyboard or game controllers, bank switching for the common cartridge
+keyboard or game controllers (or an Arkanoid paddle on the mouse),
+bank switching for the common cartridge
 types, and battery saves. It also recompiles NSF music files (the music
 program from a game or a homebrew album) into a player.
 
@@ -114,8 +115,8 @@ mapper a ROM uses.
   the real CPU checks (from each opcode's cycle map, `cycles.c`),
   including the one-instruction delay after CLI/PLP and taken branches,
   an NMI taking over a BRK or IRQ entry, and the reset button.
-- **Cartridge** (`cart.c`, including battery saves), **controllers**
-  (`input.c`), and the **CPU bus** and command line (`main.c`).
+- **Cartridge** (`cart.c`, including battery saves), **controllers and
+  Arkanoid paddles** (`input.c`), and the **CPU bus** and command line (`main.c`).
 
 ## On a Mac
 
@@ -187,6 +188,11 @@ The built program takes options after the ROM path:
     --scale N          window size, N times 256x240 (default 3)
     --mmc3-rev A|B     which MMC3 chip to act like (default B)
     --song N           NSF: start on song N (from 1)
+    --port1 pad|vaus   what controller port 1 holds (default pad);
+    --port2 pad|vaus     vaus is the NES Arkanoid paddle
+    --famicom-vaus     a Famicom Arkanoid paddle in the expansion port
+    --vaus-left N      paddle: the knob's value at the window's left
+                       edge, 0-255 (default 77, $4D)
     --info             print the cartridge or NSF header and exit
     --trace            print CPU state before every instruction
     --check-cycles     with --trace: check each instruction's length
@@ -201,6 +207,38 @@ controller 2). A frame number on its own releases everything.
     120 start      # press Start at frame 120
     126            # release it
     200 a 2:start  # A on controller 1, Start on controller 2
+    300 knob=160 fire  # paddle: knob at 160, its button held
+
+`knob=N` (0-255) and `fire` set the first paddle, `2:knob=N` and
+`2:fire` the second (paddles count in the order port 1, port 2,
+Famicom). The knob stays where it was on lines that don't mention it;
+the button, like the others, is released.
+
+`make run` passes options to the program with `ARGS`:
+
+    make run ROM=game.nes ARGS="--port2 vaus"
+
+## The Arkanoid paddle
+
+The "Vaus" controller that came with Arkanoid is a knob and one button.
+Plug one in with `--port2 vaus` (the NES version in controller port 2,
+where Arkanoid looks for it), `--port1 vaus`, or `--famicom-vaus` (the
+Famicom version, in the expansion port, which leaves both controllers
+working). Then the mouse plays it: its position across the window turns
+the knob, left to right, and the left mouse button is the paddle's
+button. The mouse takes over once it moves over the window.
+
+The window covers 160 counts of the knob, about what a real one turns
+through. Games expect different ranges (from the nesdev wiki): Arkanoid
+II about $4D-$E2, which is the default, and the first Arkanoid $62 up
+to $F2 or beyond, which `--vaus-left 98` covers.
+
+The model follows the nesdev wiki's "Arkanoid controller" page: the
+knob is measured when the program writes 1 to `$4016` and sent inverted,
+most significant bit first, 9 bits (reads after the 9th repeat it); the
+button reads 1 when pressed. A real paddle takes up to 7 ms to measure,
+so a game reads the previous strobe's value; here it is measured at
+the strobe itself, a frame sooner, which no game should notice.
 
 ## Play music (NSF files)
 
@@ -303,6 +341,10 @@ own. Each `tests/make_*.py` writes a small ROM into `tests/`:
   tone ROM for its FM channels with a near-sine instrument.
 - `make_joy_test.py`: both controllers read at set frames against a
   matching input script, the 9th-read and held-strobe behaviour.
+- `make_vaus_test.py`: Arkanoid paddles in each wiring (port 1, port 2,
+  Famicom, and two at once) read at set frames against one input
+  script: the knob's 8 bits, the reads after them, the button (also
+  with the strobe held), controllers alongside, and bits nothing drives.
 - `make_mmc2_test.py`: MMC2 and MMC4's tile-triggered CHR latches,
   driven through `$2007` reads.
 - `make_vrc4_test.py`: one ROM per VRC4 mapper number (21, 23, 25):
@@ -318,7 +360,7 @@ own. Each `tests/make_*.py` writes a small ROM into `tests/`:
 Each check in these was confirmed by breaking that part of the runtime or
 recompiler on purpose and seeing the test report it.
 
-Current results: 164 of 165 graded tests pass, and the 23 pictures and 8
+Current results: 168 of 169 graded tests pass, and the 26 pictures and 8
 sound recordings match. That includes all 16 `instr_test-v5` CPU tests
 and the 11 built as NSFs (`nes_instr_test/nsf_singles`),
 all of `ppu_vbl_nmi`, `vbl_nmi_timing`, the sprite 0 hit and sprite
@@ -327,7 +369,8 @@ APU tests, the three `apu_mixer` silence checks, all 8 reset tests, both
 CNROM tests, all 12 MMC3 tests (the two for the older chip run with
 `--mmc3-rev=A`), all of `cpu_interrupts_v2`, all of
 `dmc_dma_during_read4`, both `sprdma_and_dmc_dma` tests,
-`ppu_open_bus`, and recordings of "The Amazing Engine Test" NSF's songs.
+`ppu_open_bus`, pictures of the paddle programs `vaus-test` and
+`PaddleTest3` with scripted knob positions, and recordings of "The Amazing Engine Test" NSF's songs.
 The one failure is `other/test28`, a 2012 Action 53 test whose
 expectations contradict the nesdev wiki's reference
 implementation; the Action 53 collection it was written for (Streemerz)
@@ -367,7 +410,8 @@ or display-only `read_joy3` tests are left out of the suite, and so is
 - [x] NSF music files: a player screen, song changes, bank switching,
       the header's play rate, and the expansion sound chips (not FDS)
 - [ ] NES 2.0 headers, so board variants (submappers) can be told apart
-- [ ] Other input devices: Zapper, Arkanoid paddle, Four Score
+- [x] Arkanoid paddles (NES and Famicom), on the mouse or in scripts
+- [ ] Other input devices: Zapper, Four Score
 - [ ] MMC5's vertical split screen
 - [ ] The Famicom Disk System: its sound chip (for NSFs too) and disks
 - [ ] NSF2 and NSFe music files (track names and lengths, songs that end
@@ -375,8 +419,8 @@ or display-only `read_joy3` tests are left out of the suite, and so is
 
 `PLAN.md`, `PLAN-mappers.md`, `PLAN-sound.md`, `PLAN-cycles.md`,
 `PLAN-render.md`, `PLAN-mappers2.md`, `PLAN-expansion.md`,
-`PLAN-input.md` and `PLAN-nsf.md` have the step-by-step notes for each
+`PLAN-input.md`, `PLAN-nsf.md` and `PLAN-paddle.md` have the step-by-step notes for each
 stage (graphics, mappers, sound, per-cycle timing, rendering, more
-mappers, expansion sound, controllers, NSF music), including how each timing value was tuned, what
+mappers, expansion sound, controllers, NSF music, the paddle), including how each timing value was tuned, what
 was tried for what still fails, and where the documentation left a
 choice to make.

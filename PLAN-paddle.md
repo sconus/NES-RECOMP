@@ -107,9 +107,31 @@ From the test ROMs' notes (`vaus-test/README.txt`) and the nesdev wiki's
   Not checked by the suite: the mouse itself (tests run without a
   window). Tried by hand with vaus-test and PaddleTest3: it works.
 
-### 3. Suite, README, notes
+### 3. Suite, README, notes (done)
 Accept the new checks, document the options, the mouse and the script
 syntax, and write where the stage ended.
+- Done: the README has an Arkanoid paddle section, the options, the
+  script words, `make run ARGS=`, the generator and the new results;
+  the status list ticks the paddle and keeps the Zapper and Four Score.
+
+## Where the stage ended
+- Paddles plug into either controller port or the Famicom expansion
+  port, two at once if wanted, and are played with the mouse or set
+  from input scripts. Nothing changes without the options, and
+  `recomp.py` didn't change, so every program recompiles to the same C.
+- Checks: four generated ROMs that grade every wiring, and pictures of
+  the collection's `vaus-test` (two wirings) and `PaddleTest3`. Each
+  part of the model was broken on purpose and caught, except what the
+  knob does while the strobe is held at 1, which isn't modelled.
+- Results: 168 of 169 graded tests (test28 the expected failure), 26
+  pictures and 8 sounds; nestest exact.
+- Left as they are: the knob is measured at the strobe rather than up
+  to 7 ms later; the 9th bit is always 0; the reads during a
+  measurement and DMC corruption of reads, which the wiki describes,
+  aren't modelled. The first Arkanoid's range is given by the wiki as
+  "$62-$02" and by PaddleTest3 as $62-$F2; no free program settles it.
+- Not done: the Zapper, the Four Score, a game controller's stick as
+  the knob, and changing what's plugged in while a program runs.
 
 ## Not in this stage
 - The Zapper light gun and the Four Score four-player adapter (the
