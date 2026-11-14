@@ -184,8 +184,9 @@ static const char *size_text(char *buf, size_t n) {
 }
 
 /* The default expansion devices (byte 15) the runtime has, by name; the
-   rest are printed by number only. */
-static const char *device_name(int d) {
+   rest aren't supported. main.c plugs these in when no input option is
+   given. */
+const char *cart_device_name(int d) {
     switch (d) {
     case 0x00: return "unspecified";
     case 0x01: return "standard controllers";
@@ -195,7 +196,7 @@ static const char *device_name(int d) {
     case 0x0F: return "Arkanoid paddle (NES)";
     case 0x10: return "Arkanoid paddle (Famicom)";
     case 0x49: return "Zapper on $4016";
-    default:   return "not supported";
+    default:   return "not supported: standard controllers";
     }
 }
 
@@ -223,5 +224,5 @@ void cart_print_info(const char *path) {
     printf("  timing %s, console %s (byte 13 $%02X), extra ROMs %d,"
            " expansion device $%02X (%s)\n",
            timing[cart.timing], console[cart.console], cart.console_ext,
-           cart.misc_roms, cart.exp_device, device_name(cart.exp_device));
+           cart.misc_roms, cart.exp_device, cart_device_name(cart.exp_device));
 }

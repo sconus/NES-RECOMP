@@ -484,6 +484,26 @@ static void usage(const char *prog) {
     exit(1);
 }
 
+/* NES 2.0 byte 15, the default expansion device: the ones this runtime
+   has are plugged in when no input option chose otherwise. */
+static void plug_header_device(void) {
+    switch (cart.exp_device) {
+    case 0x00: case 0x01: return;           /* unspecified, controllers */
+    case 0x02: four_players = FOUR_SCORE; break;
+    case 0x03: four_players = FOUR_FAMICOM; break;
+    case 0x08: port_device[1] = DEV_ZAPPER; break;
+    case 0x49: port_device[0] = DEV_ZAPPER; break;
+    case 0x0F: port_device[1] = DEV_VAUS; break;
+    case 0x10: famicom_vaus = 1; break;
+    default:
+        fprintf(stderr, "the header names expansion device $%02X, which isn't"
+                        " supported: standard controllers instead\n", cart.exp_device);
+        return;
+    }
+    fprintf(stderr, "plugged in the header's expansion device: %s\n",
+            cart_device_name(cart.exp_device));
+}
+
 int main(int argc, char **argv) {
     /* A self-test of the game controller mapping, with no ROM (make test). */
     if (argc == 2 && !strcmp(argv[1], "--test-gamepads")) return gamepad_self_test();
@@ -492,7 +512,7 @@ int main(int argc, char **argv) {
     cart_load(rom_path);
     mapper_init();
     uint16_t start = rd(0xFFFC) | (rd(0xFFFD) << 8);
-    int scale = 3, no_save = 0, mute = 0, song = 0;
+    int scale = 3, no_save = 0, mute = 0, song = 0, input_option = 0;
     for (int i = 2; i < argc; i++) {
         const char *a = argv[i];
         int more = i + 1 < argc;
@@ -520,16 +540,17 @@ int main(int argc, char **argv) {
         else if ((!strcmp(a, "--port1") || !strcmp(a, "--port2")) && more) {
             const char *d = argv[++i];
             int port = a[6] - '1';
+            input_option = 1;
             if (!strcmp(d, "pad")) port_device[port] = DEV_PAD;
             else if (!strcmp(d, "vaus")) port_device[port] = DEV_VAUS;
             else if (!strcmp(d, "zapper")) port_device[port] = DEV_ZAPPER;
             else usage(argv[0]);
         }
-        else if (!strcmp(a, "--famicom-vaus")) famicom_vaus = 1;
-        else if (!strcmp(a, "--famicom-zapper")) famicom_zapper = 1;
-        else if (!strcmp(a, "--four-score")) four_players = FOUR_SCORE;
-        else if (!strcmp(a, "--famicom-4p")) four_players = FOUR_FAMICOM;
-        else if (!strcmp(a, "--hori-4p")) four_players = FOUR_HORI;
+        else if (!strcmp(a, "--famicom-vaus")) { famicom_vaus = 1; input_option = 1; }
+        else if (!strcmp(a, "--famicom-zapper")) { famicom_zapper = 1; input_option = 1; }
+        else if (!strcmp(a, "--four-score")) { four_players = FOUR_SCORE; input_option = 1; }
+        else if (!strcmp(a, "--famicom-4p")) { four_players = FOUR_FAMICOM; input_option = 1; }
+        else if (!strcmp(a, "--hori-4p")) { four_players = FOUR_HORI; input_option = 1; }
         else if (!strcmp(a, "--vaus-left") && more) {
             char *end;
             long n = strtol(argv[++i], &end, 0);
@@ -544,6 +565,8 @@ int main(int argc, char **argv) {
         start = nsf_start(song);
         nsf_next_song = nsf.song;
     }
+    /* With no input option, plug in the device the header names. */
+    if (!input_option) plug_header_device();
     /* The Four Score holds both ports; the Famicom's players 3 and 4 use
        the expansion port's bit 1, as its paddle does. */
     if (four_players == FOUR_SCORE && (port_device[0] || port_device[1])) {

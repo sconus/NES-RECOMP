@@ -235,3 +235,9 @@ tests/vrc7_s1.nes	pass
 tests/vrc7_s2.nes	pass
 tests/n163_tones_s3.nes	pass
 tests/n163_tones_s5.nes	pass
+tests/dev_zapper_port2.nes +zapper.txt	pass
+tests/dev_zapper_port1.nes +zapper.txt	pass
+tests/dev_vaus_port2.nes +vaus.txt	pass
+tests/dev_vaus_famicom.nes +vaus.txt	pass
+tests/dev_four_score.nes +four.txt	pass
+tests/dev_four_famicom.nes +four.txt	pass

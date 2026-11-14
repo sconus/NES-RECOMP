@@ -275,7 +275,7 @@ today's behaviour.
       by-hand checks, which aren't in the suite.
   - 199 of 200; nestest exact; all 319 earlier files give the same C.
 
-### 4. The expected controller
+### 4. The expected controller (done)
 - With no input options, plug in what byte 15 names:
   - Four Score;
   - Famicom four players;
@@ -289,6 +289,42 @@ today's behaviour.
   stages, rebuilt with an NES 2.0 header naming their device, pass
   without any option. Without the header byte they fail as before.
   Break it.
+- Done:
+  - With none of the input options (`--port1`, `--port2`,
+    `--famicom-vaus`, `--famicom-zapper`, `--four-score`, `--famicom-4p`,
+    `--hori-4p`), `main.c` plugs in what byte 15 names and says so on
+    stderr:
+    - `$02` Four Score;
+    - `$03` Famicom four players;
+    - `$08` Zapper in port 2;
+    - `$49` Zapper in port 1;
+    - `$0F` Arkanoid paddle in port 2;
+    - `$10` the Famicom paddle.
+  - `$00` and `$01` change nothing. Any other value gets a warning and
+    standard controllers: the Power Pad, keyboards, two Zappers, Hori's
+    8-player wiring (`$06`), two paddles with the data recorder (`$11`),
+    the Vs. System's.
+  - Any input option means the header is not used at all.
+  - `--info` names the device, or says it isn't supported.
+  - `make_device_test.py` writes NES 2.0 copies of six test ROMs from
+    the last two stages, each naming its device:
+    - Zapper in port 2 and port 1;
+    - paddle in port 2 and the Famicom's;
+    - Four Score and Famicom four players.
+    In the suite they run with their scripts and no option, and all
+    pass. With device `$00` (`--device-0 DIR`), and with `--port1 pad`
+    added, every one fails, as the originals do without their option.
+    By hand: device `$0B` (Power Pad) gives the warning and runs.
+  - The Famicom Zapper and Hori's adapter have no byte 15 value of
+    their own, so their test ROMs have no copy.
+  - Breaks, all 6 caught:
+    - the header ignored;
+    - options not winning;
+    - `$08` and `$49` swapped;
+    - `$0F` as the Famicom paddle;
+    - `$02` as Famicom four players;
+    - `$03` as Hori's adapter.
+  - 205 of 206; nestest exact; all 319 earlier files give the same C.
 
 ### 5. Suite, README, notes
 Accept the new checks, document the header fields and what each does,

@@ -43,6 +43,8 @@ extern struct cart cart;
 
 void cart_load(const char *path);
 void cart_print_info(const char *path);
+/* A default expansion device (NES 2.0 byte 15), by name. */
+const char *cart_device_name(int device);
 /* Battery saves: load/write the $6000-$7FFF RAM as <rom>.sav. */
 void cart_load_save(const char *rom_path);
 void cart_write_save(const char *rom_path);
