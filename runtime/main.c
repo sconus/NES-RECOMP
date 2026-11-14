@@ -93,7 +93,7 @@ void wr(uint16_t a, uint8_t v) {
     }
 }
 
-uint8_t code_owner[0x8000];
+uint8_t code_owner[0x8000] = { 0 };
 uint64_t ram_native, ram_interp;
 
 void code_owner_set(uint16_t addr, unsigned len, uint8_t tag) {

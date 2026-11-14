@@ -316,10 +316,12 @@ def fds_bios():
 
 FDS_SIDE = 65500
 FDS_FIRST_TAG = 4                    # runtime/fds.h
-# The FDS BIOS's file routines take pointers in the bytes after the JSR
-# and return past them (tools/make_fds_bios.py): entry -> how many.
+# FDS BIOS routines that take pointers in the bytes after the JSR and
+# return past them (tools/make_fds_bios.py): entry -> how many. None:
+# it never returns there (JumpEngine: a table of addresses follows).
 FDS_INLINE_POINTERS = {0xE1F8: 2, 0xE237: 2, 0xE239: 2, 0xE2B7: 1, 0xE2BB: 1,
-                       0xE301: 1, 0xE305: 1, 0xE32A: 1}
+                       0xE301: 1, 0xE305: 1, 0xE32A: 1,
+                       0xE7BB: 1, 0xE8D2: 1, 0xE8E1: 1, 0xEAFD: None}
 
 
 def fds_side_files(side):
@@ -684,6 +686,8 @@ def trace(rom, entries):
                 break
             if mnem == "JSR" and targets[0] in rom.inline:
                 # It returns past the pointers that follow the JSR.
+                if rom.inline[targets[0]] is None:
+                    break
                 nxt = (nxt + 2 * rom.inline[targets[0]]) & 0xFFFF
             b = rom.resolve(loc, nxt)
             if b is None:

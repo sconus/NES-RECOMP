@@ -554,6 +554,105 @@ the same C as before.
 - README: the FDS section, the BIOS and what it leaves out, the status
   list, where the stage ended.
 
+- Done:
+  - **The BIOS's other routines,** at the wiki's addresses: a JMP at
+    each, the code after the reset code. Written in 6502 from the
+    wiki's descriptions; each is listed with what it does in
+    `tools/make_fds_bios.py`:
+    - Delay131 and Delayms;
+    - the six PPUMASK routines;
+    - VINTWait, with its NMI handler at `$E19D`;
+    - VRAMStructWrite (copy, fill, add 32, length 0 = 64,
+      sub-structures through `$4C`/`$60`);
+    - FetchDirectPtr;
+    - WriteVRAMBuffer, PrepareVRAMString, PrepareVRAMStrings;
+    - Pixel2NamConv and Nam2PixelConv;
+    - Random, SpriteDMA, CounterLogic;
+    - ReadPads, OrPads and the five Down/Verify/Exp reading routines;
+    - VRAMFill, MemFill, SetScroll, JumpEngine.
+
+    The IRQ handler for `$0101` = `$80` now calls Delay131, as its name
+    says ("acknowledge and delay").
+  - **Choices where the wiki is open,** written down there too:
+    - what Delayms' 1790·Y+5 counts (the routine and its RTS, not the
+      JSR);
+    - Random's feedback bit (bit 1 of the first two bytes XORed);
+    - CounterLogic's ends read as "A, Y";
+    - WriteVRAMBuffer's length byte taken as a plain count;
+    - the buffer emptied afterwards (`$0301` = 0, `$0302` = `$FF`);
+    - MemFill including its last page.
+  - **Left out:**
+    - the VRAM read buffer routines (the wiki calls their use
+      speculation);
+    - ReadKeyboard (the keyboard isn't in this stage);
+    - LoadTileset and UploadObject (not in the plan's list; their
+      descriptions leave too much open).
+  - **A correction to step 2.** The wiki says the `$0100` = `00` NMI
+    handler is VINTWait's own. It drops the interrupt and returns to
+    VINTWait's caller with I still set. Step 2's version returned with
+    RTI, and `fds_boot`'s check 10 tested that. Both now follow the
+    wiki: the check calls VINTWait and checks A, `$FF`, `$0100`, I, and
+    that the program's NMI wasn't called.
+  - **`recomp.py`:** VRAMStructWrite and the two PrepareVRAMString
+    routines also take a pointer after the JSR. JumpEngine never
+    returns there, so tracing stops after a JSR to it.
+  - **`make_fds_helpers_test.py`** writes `fds_helpers.fds`, 16 checks,
+    run with `--famicom-4p` so the expansion port has pads 3 and 4:
+    - Delay131 and Delayms timed with the FDS timer, exact to the
+      cycle;
+    - every other routine above.
+  - **Slips found by testing:**
+    - VRAMStructWrite's add-32 branch skipped 3 bytes instead of 4.
+    - The demo: a branch length, the A/B request bits swapped, the
+      message toggle backwards. All three were caught by reading the
+      code before the first run; the screenshots then showed the split
+      a row too high.
+  - **Breaks, 35 tried:**
+    - 34 caught. Five only after fixes:
+      - the delay checks had a ±5-cycle window, and are exact now;
+      - the expansion pads were added for ReadOrDownPads and
+        ReadDownExpPads;
+      - one break was written in code that never ran, and was redone.
+    - One isn't caught, and doesn't need to be: the recompiler not
+      skipping these pointers only costs speed.
+  - **`make_fds_demo.py`** writes `fds_demo.fds`:
+    - LoadFiles plus VRAMStructWrite for the message files;
+    - WriteFile for a count (kept in the `.sav`);
+    - a timer-IRQ split with a scrolling band;
+    - a tune on the FDS wavetable;
+    - VINTWait, the PPUMASK routines, ReadDownPads, SetScroll.
+
+    Its script loads, saves twice and stops the music, as a picture
+    check. The sound was checked too: it plays, and goes quiet after
+    Select.
+  - **README:**
+    - a Famicom Disk System section: the BIOS and what it leaves out,
+      the drive, code in RAM, sides and saving, keys;
+    - the NSF section (FDS sound supported, `$6000` loads);
+    - the options and input script docs;
+    - the test generators;
+    - the status list.
+  - **A linker warning** about `code_owner`'s alignment went away by
+    initializing it.
+  - 219 of 220 (test28 as always), 32 pictures, 8 sounds; nestest
+    exact; all 319 earlier files give the same C.
+
+## Where the stage ended
+
+Disk images run on the project's own BIOS, with:
+- the boot and dispatch;
+- the file routines and the other documented routines;
+- the drive byte by byte;
+- the timer IRQ and the sound channel (in NSFs too).
+
+Disk code is translated per file, and a check on every instruction
+keeps changed code from running stale. The only disk program in the
+free collection, `fdsirqtests`, passes on both images; everything else
+is checked by the project's own disks and was confirmed by deliberate
+breaks. What would show a gap: a program that relies on Nintendo's
+exact BIOS code or timing, an undocumented entry point, or one of the
+routines left out above.
+
 ## Not in this stage
 - Nintendo's BIOS, or an option to use one: it can't be tested here.
   Programs that need it exactly (copy protection, undocumented BIOS

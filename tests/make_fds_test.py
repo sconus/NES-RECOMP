@@ -32,7 +32,10 @@ the reset:
    9  $4025 = $26: $4030 bit 3 isn't clear, or the mirroring isn't
       vertical ($2000 and $2800 the same)
   10  NMI dispatch: $0100 = $40, $80, $C0 don't reach $DFF6, $DFF8,
-      $DFFA; $00 (the BIOS's own handler) doesn't clear $FF bit 7
+      $DFFA; or VINTWait ($E1B2, which takes the NMI with $0100 = $00
+      through the BIOS's handler at $E19D) doesn't come back with A
+      kept, NMIs off in $FF, $0100 as it was, I set and the program's
+      NMI not called
   11  IRQ dispatch: with $0101 = $C0 a timer IRQ doesn't reach $DFFE;
       with $80 the BIOS doesn't acknowledge it (and the program hangs,
       or the program's handler runs)
@@ -146,9 +149,15 @@ def program():
         w(FLAGS + flag, 0)
         w(0x0100, mode); w(0x2000, 0x80); wait_frames(2)
         a.check(FLAGS + flag, 1, "f10")
-    w(0x0100, 0x00); a.lda(0x90); a.b(0x85, 0xFF); a.sta(0x2000); wait_frames(2)
+    w(0x0100, 0xC0); w(FLAGS + 3, 0)
+    a.lda(0x10); a.b(0x85, 0xFF)
+    a.b(0x2C, 0x02, 0x20)                       # BIT $2002: vblank flag off
+    a.lda(0x5A); a.jsr(0xE1B2)                  # VINTWait
+    a.b(0x08)                                   # PHP
+    a.cmp(0x5A); a.bne("f10")
+    a.b(0x68, 0x29, 0x04); a.cmp(0x04); a.bne("f10")    # PLA; AND #4: I set
     a.b(0xA5, 0xFF); a.cmp(0x10); a.bne("f10")
-    w(0x0100, 0xC0)
+    a.check(0x0100, 0xC0, "f10"); a.check(FLAGS + 3, 0, "f10")
     # 11: IRQ dispatch, with the timer.
     w(0x0101, 0xC0); w(FLAGS + 4, 0)
     w(0x4020, 0x00); w(0x4021, 0x02); w(0x4022, 0x02)

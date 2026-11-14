@@ -1,0 +1,4 @@
+# tests/fds_helpers.fds (make_fds_helpers_test.py): A and Start on
+# controller 1, Right on 2, B on 3 and Up on 4 (--famicom-4p),
+# from the start.
+0 a start 2:right 3:b 4:up

@@ -202,7 +202,9 @@ The built program takes options after the ROM path:
     --hori-4p          controllers 1-4 through Hori's Famicom adapter
     --vaus-left N      paddle: the knob's value at the window's left
                        edge, 0-255 (default 77, $4D)
-    --info             print the cartridge or NSF header and exit
+    --ram-stats        on exit, count the instructions in RAM ($6000-$DFFF)
+                       that ran translated and interpreted (FDS)
+    --info             print the cartridge, NSF or disk's header and exit
     --trace            print CPU state before every instruction
     --check-cycles     with --trace: check each instruction's length
                        against its cycle map
@@ -225,6 +227,8 @@ Famicom). The knob stays where it was on lines that don't mention it;
 the button, like the others, is released. For the Zapper, `aim=X,Y`
 (0-255, 0-239) points it at a pixel and `aim=off` away from the screen;
 the aim stays put like the knob, and `trigger` is held only on its line.
+For a Famicom Disk System image, `disk=eject` takes the disk out and
+`disk=N` puts in side N.
 
 With none of the controller options, an NES 2.0 header can choose the
 device instead (below).
@@ -386,6 +390,93 @@ playfield, and A moves the panel to the other side.
 Not done: the MMC5A's extra registers (`$5207-$520A`, `$5800`) and the
 split's SL mode.
 
+## The Famicom Disk System
+
+The Famicom Disk System was an add-on: a RAM adapter in the cartridge
+slot and a disk drive. Programs came on double-sided disks as files,
+loaded into 32 KB of RAM at `$6000-$DFFF` by the adapter's BIOS ROM at
+`$E000`. Disk images (`.fds`, with or without the 16-byte header) run
+like cartridges:
+
+    make run ROM=tests/fds_demo.fds
+
+**The BIOS.** Nintendo's BIOS can't be shipped or used here, so the
+project has its own, written from the nesdev wiki ("FDS BIOS") at the
+same addresses: `tools/make_fds_bios.py` writes `runtime/fds_bios.h`.
+It does:
+- the power-on state and the boot load: every file of side A whose ID
+  is at most the disk's boot code;
+- NMI and IRQ dispatch through `$0100`/`$0101`, and the soft reset;
+- the file routines (LoadFiles, AppendFile, WriteFile, the file count
+  routines, GetDiskInfo), against the disk image, instantly;
+- the other documented routines: delays, VINTWait, the PPUMASK
+  routines, VRAM structures and the VRAM buffer, VRAMFill, MemFill,
+  SetScroll, JumpEngine, the controller routines, SpriteDMA, Random,
+  CounterLogic and the pixel/nametable conversions.
+
+It leaves out:
+- **The license check.** The BIOS waits a frame where the real one
+  shows the license screen; a program that turns on its NMI during the
+  boot gets it first, as on the console.
+- **Nintendo's exact timing,** except the two delay routines.
+- **Undocumented entry points,** and the routines the wiki leaves
+  unclear: the VRAM read buffer, ReadKeyboard, LoadTileset and
+  UploadObject.
+
+Every unused byte stops the CPU with a message naming the address, so
+a program calling something missing says so at once. Where the wiki
+leaves a detail open, `tools/make_fds_bios.py` says which reading it
+took.
+
+**The drive.** Programs that drive the disk themselves (`$4024-$4026`,
+`$4030-$4032`) get it byte by byte, every 149⅓ cycles:
+- the gaps, each block's start mark and its CRC (rebuilt, since
+  `.fds` files leave them out);
+- the transfer flag and IRQ, the CRC error flag, end of head, and
+  writing.
+
+The timer IRQ (`$4020-$4022`) is exact to the cycle, and the sound
+channel is in full (below).
+
+**Code in RAM.** All of a disk program's code is in RAM, and it can be
+rewritten or loaded over at any moment:
+- `recomp.py` translates each file of the image as its own bank.
+- The runtime tags every byte of `$6000-$DFFF` with the file it came
+  from. A write that changes a byte clears its tag.
+- Each translated instruction there checks its own bytes' tags first,
+  and leaves itself to the interpreter if one doesn't match.
+
+So changed code never runs from its old translation, and the rest stays
+translated. `--ram-stats` counts both.
+
+**Sides and saving.** Disks with several sides are loaded whole.
+- In the window, 0 takes the disk out, and 1-9 put in that side (side 2
+  is disk 1's side B) half a second later, so the program sees the disk
+  change.
+- In input scripts, `disk=eject` and `disk=N` do it at once.
+
+A disk the program wrote to is kept in `<image>.sav` (all its sides)
+and loaded from there next time; the image itself is left alone.
+`--no-save` ignores both.
+
+| Key | Does |
+|---|---|
+| 0 | Take the disk out |
+| 1-9 | Put in side 1-9 (after half a second out) |
+
+The test collection has one disk program, `fdsirqtests`, which tests the
+timer IRQ: it passes all 21 checks on both of its images. Everything
+else is checked by the project's own test disks, so it follows the wiki
+as I read it. `tests/fds_demo.fds` is the demo above:
+- A loads the other message file from the disk;
+- B saves a count back to it;
+- the FDS timer IRQ splits the screen, and the band below scrolls;
+- the FDS sound channel plays a tune, which Select stops.
+
+Not done: Nintendo's own BIOS (it can't be tested here), the DRAM
+refresh watchdog IRQ, the external connector beyond `$4026`, the
+Famicom keyboard, and the QD disk format.
+
 ## Play music (NSF files)
 
 An NSF file holds a music program without a picture: a routine that
@@ -418,9 +509,12 @@ Supported: bank switching (4 KB banks at `$5FF8-$5FFF`); the header's
 play rate (its PAL rate for NSFs made only for PAL consoles, which play
 at PAL speed but about 7% sharp, since the console is an NTSC one); and
 the VRC6, VRC7, MMC5, Namco 163 and Sunsoft 5B sound chips, alone or
-together. Not supported: the Famicom Disk System's sound chip (silent,
-with a message), NSFs that load below `$8000`, and the newer NSF2 and
-NSFe formats.
+together, and the Famicom Disk System's wavetable channel. With the FDS,
+`$6000-$DFFF` is RAM: the file may load from `$6000`, banks can be
+copied to `$6000`/`$7000` (`$5FF6`/`$5FF7`), and code there that
+rewrites itself runs from its new bytes (the same check as for disk
+programs, above). Not supported: other NSFs that load below `$8000`,
+and the newer NSF2 and NSFe formats.
 
 ## Tests
 
@@ -528,6 +622,22 @@ own. Each `tests/make_*.py` writes a small ROM into `tests/`:
 - `make_device_test.py`: NES 2.0 copies of the Zapper, paddle and
   four-player ROMs that name their device in byte 15 and run with no
   option.
+- `make_fds_sound_test.py`: the FDS sound channel: a tone NSF (pitch,
+  volume, master volume, modulation), 17 register checks, and FDS NSFs
+  loading below `$8000` or copying banks there.
+- `make_fds_test.py`: the boot, the BIOS's state and dispatch, and the
+  timer IRQ (15 checks, the last two after a reset).
+- `make_fds_code_test.py`: code in RAM that changes (operands, opcodes,
+  jump targets, a routine copied over, a file loaded over another),
+  for a disk and two FDS NSFs.
+- `make_fds_files_test.py`: the BIOS's file routines on a two-side
+  disk, their error numbers, code loaded over code, and a side change.
+- `make_fds_drive_test.py`: the drive's registers: blocks read by
+  polling and by IRQ, the gaps and byte time, the CRC flag, a block
+  written back, the end of the side.
+- `make_fds_helpers_test.py`: the BIOS's other routines, the delays
+  timed to the cycle with the FDS timer.
+- `make_fds_demo.py`: the demo above, with a script as a picture check.
 - `make_nsf_test.py`: NSFs for bank switching (12 tagged banks, code
   switching its own slot), the play rate (each play call flips the DMC
   level, so the pitch shows the rate; NTSC and PAL-only headers), and
@@ -538,8 +648,8 @@ own. Each `tests/make_*.py` writes a small ROM into `tests/`:
 Each check in these was confirmed by breaking that part of the runtime or
 recompiler on purpose and seeing the test report it.
 
-Current results: 206 of 207 graded tests pass, and the 31 pictures and 8
-sound recordings match. That includes all 16 `instr_test-v5` CPU tests
+Current results: 219 of 220 graded tests pass, and the 32 pictures and
+8 sound recordings match. That includes all 16 `instr_test-v5` CPU tests
 and the 11 built as NSFs (`nes_instr_test/nsf_singles`),
 all of `ppu_vbl_nmi`, `vbl_nmi_timing`, the sprite 0 hit and sprite
 overflow suites, blargg's 2005 PPU tests, all 8 `apu_test` and 11 blargg
@@ -549,7 +659,9 @@ CNROM tests, all 12 MMC3 tests (the two for the older chip run with
 `dmc_dma_during_read4`, both `sprdma_and_dmc_dma` tests,
 `ppu_open_bus`, pictures of the paddle programs `vaus-test` and
 `PaddleTest3` with scripted knob positions and of `vaus-test` with
-Famicom controller 3, and recordings of "The Amazing Engine Test" NSF's songs.
+Famicom controller 3, recordings of "The Amazing Engine Test" NSF's songs,
+and both images of `fdsirqtests` (all 21 timer IRQ checks, run on the
+project's own BIOS).
 The one failure is `other/test28`, a 2012 Action 53 test whose
 expectations contradict the nesdev wiki's reference
 implementation; the Action 53 collection it was written for (Streemerz)
@@ -586,7 +698,7 @@ or display-only `read_joy3` tests are left out of the suite, and so is
       (mappers 5, 19, 24, 26, 69, 85; VRC7's envelope timing and
       modulation depth approximate)
 - [x] NSF music files: a player screen, song changes, bank switching,
-      the header's play rate, and the expansion sound chips (not FDS)
+      the header's play rate, and the expansion sound chips
 - [x] NES 2.0 headers: RAM sizes, board variants (submappers) and the
       expected controller
 - [x] Arkanoid paddles (NES and Famicom), on the mouse or in scripts
@@ -594,16 +706,20 @@ or display-only `read_joy3` tests are left out of the suite, and so is
 - [x] Four players: the Four Score, the Famicom's expansion port, Hori's
       adapter
 - [x] MMC5's vertical split screen
-- [ ] The Famicom Disk System: its sound chip (for NSFs too) and disks
+- [x] The Famicom Disk System: disk images on the project's own BIOS,
+      code in RAM translated with a per-byte check, the BIOS's file and
+      other routines, the drive byte by byte, the timer IRQ, the sound
+      channel (for NSFs too), sides and saving
 - [ ] NSF2 and NSFe music files (track names and lengths, songs that end
       by themselves)
 
 `PLAN.md`, `PLAN-mappers.md`, `PLAN-sound.md`, `PLAN-cycles.md`,
 `PLAN-render.md`, `PLAN-mappers2.md`, `PLAN-expansion.md`,
 `PLAN-input.md`, `PLAN-nsf.md`, `PLAN-paddle.md`, `PLAN-zapper.md`,
-`PLAN-nes2.md` and `PLAN-split.md` have the step-by-step notes for each
-stage (graphics, mappers, sound, per-cycle timing, rendering, more
-mappers, expansion sound, controllers, NSF music, the paddle, the Zapper
-and four players, NES 2.0 headers, MMC5's split), including how each timing value was tuned, what
+`PLAN-nes2.md`, `PLAN-split.md` and `PLAN-fds.md` have the
+step-by-step notes for each stage (graphics, mappers, sound, per-cycle
+timing, rendering, more mappers, expansion sound, controllers, NSF
+music, the paddle, the Zapper and four players, NES 2.0 headers, MMC5's
+split, the Famicom Disk System), including how each timing value was tuned, what
 was tried for what still fails, and where the documentation left a
 choice to make.

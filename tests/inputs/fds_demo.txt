@@ -1,0 +1,10 @@
+# tests/fds_demo.fds (make_fds_demo.py): load the other message (A),
+# save the count twice (B), stop the music (Select).
+100 a
+106
+150 b
+156
+200 b
+206
+250 select
+256
