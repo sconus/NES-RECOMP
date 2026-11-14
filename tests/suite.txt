@@ -223,6 +223,10 @@ frame 200 mmc5test_v2/mmc5test.nes tests/inputs/mmc5_fill.txt
 frame 200 mmc5test_v2/mmc5test.nes tests/inputs/mmc5_exattr.txt
 frame 300 other/firefly.nes
 frame 300 mmc5test/mmc5test.nes
+# MMC5's vertical split (make_split_test.py, PLAN-split.md): sprite 0 hit
+# probes where the split is drawn: sides, threshold, $5201 scroll and its
+# wrap, the $5202 bank, and when it's off.
+result 200 tests/mmc5_split.nes
 
 # --- PPU, result on screen only (power_up_palette is left out: it checks
 #     values unique to its author's console)

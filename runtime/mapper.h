@@ -57,10 +57,14 @@ struct mapper {
        each such dot. */
     void (*scanline)(int line);
     int watch_scanlines;
-    /* MMC5's extended attributes: for the background tile the PPU is
-       fetching through v, return 1 and give its palette and the 4 KB of
-       CHR its pattern comes from; return 0 for the normal fetch. */
-    int (*bg_tile)(uint16_t v, uint8_t *palette, const uint8_t **chr4k);
+    /* MMC5's extended attributes and split screen: for the background
+       tile the PPU is fetching through v (tile 0-33 of the line it will
+       be drawn on: 0-1 are fetched at the end of the line before), return
+       1 and give its palette, the 4 KB of CHR its pattern comes from, and
+       the row of the pattern to use; it may also replace the nametable
+       byte in *name. Return 0 for the normal fetch. */
+    int (*bg_tile)(uint16_t v, int tile, uint8_t *name, uint8_t *palette,
+                   const uint8_t **chr4k, int *fine_y);
     /* Expansion sound: step the cartridge's own channels by one CPU cycle
        and return their output, in the same units as the APU's mix (its
        two pulses at full volume make about 0.26). Called by the APU for

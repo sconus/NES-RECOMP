@@ -145,12 +145,13 @@ static void fetch_background(int dot) {
         ppu.bg_pal[slot] = (attr >> (((v >> 4) & 4) | (v & 2))) & 3;
         ppu.fetch_chr = NULL;
         if (mapper.bg_tile)
-            mapper.bg_tile(v, &ppu.bg_pal[slot], &ppu.fetch_chr);
+            mapper.bg_tile(v, slot, &ppu.fetch_name, &ppu.bg_pal[slot],
+                           &ppu.fetch_chr, &ppu.fetch_fine);
         break;
     }
     case 4: {
-        if (ppu.fetch_chr) {            /* MMC5 extended attributes */
-            const uint8_t *p = ppu.fetch_chr + ppu.fetch_name * 16 + ((v >> 12) & 7);
+        if (ppu.fetch_chr) {            /* MMC5: extended attributes, split */
+            const uint8_t *p = ppu.fetch_chr + ppu.fetch_name * 16 + ppu.fetch_fine;
             ppu.bg_lo[slot] = p[0];
             ppu.bg_hi[slot] = p[8];
             break;

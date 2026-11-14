@@ -40,6 +40,7 @@ struct ppu {
     uint8_t bg_lo[34], bg_hi[34], bg_pal[34];
     uint8_t fetch_name;             /* nametable byte of the tile being fetched */
     const uint8_t *fetch_chr;       /* its pattern data, if the mapper chose it */
+    int fetch_fine;                 /* ... and the row in it (the mapper's) */
     /* Sprite pixels for the line being drawn: 0x10 | palette << 2 | pixel
        (0 = none), whether in front of the background, whether sprite 0. */
     uint8_t sp[NES_WIDTH], sp_front[NES_WIDTH], sp_zero[NES_WIDTH];

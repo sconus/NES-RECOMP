@@ -438,8 +438,8 @@ static void mmc2_reset(void) {
     mapper.chr_fetched = mmc2_chr_fetched;
 }
 
-/* ---- 5: MMC5 (nesdev wiki "MMC5"). Without the vertical split, the
-   extended attribute mode (ExRAM mode 1; next step) and its sound.
+/* ---- 5: MMC5 (nesdev wiki "MMC5"), with its extended attributes,
+   vertical split and sound.
      $5100     PRG mode: 0 = 32 KB, 1 = 16+16, 2 = 16+8+8, 3 = 8 KB x 4
      $5101     CHR mode: 0 = 8 KB, 1 = 4 KB, 2 = 2 KB, 3 = 1 KB banks
      $5102/3   PRG RAM write protect: writable only when $02 / $01
@@ -451,6 +451,9 @@ static void mmc2_reset(void) {
      $5113     8 KB RAM bank at $6000
      $5114-7   PRG banks (bit 7: ROM, else RAM; $5117 always ROM)
      $5120-7   CHR "A" set, $5128-B CHR "B" set, $5130 upper CHR bits
+     $5200     vertical split: bit 7 on, bit 6 right side, bits 0-4 the
+               threshold tile; $5201 its vertical scroll, $5202 its 4 KB
+               CHR bank (see mmc5_split_tile)
      $5203/4   scanline IRQ compare / enable (read: pending, in frame)
      $5205/6   8 x 8 multiplier (read: product low, high)
      $5C00-$5FFF  ExRAM (1 KB)
@@ -467,6 +470,8 @@ static struct {
     uint16_t chr[12];               /* $5120-$512B, in 1 KB units */
     int phase;                      /* from the PPU: 0 none, 1 bg, 2 sprites */
     uint8_t exram[0x400];
+    uint8_t split_ctrl, split_scroll, split_bank;   /* $5200-$5202 */
+    uint8_t split_start;            /* $5201 as loaded for this frame */
 } mmc5;
 
 static uint8_t *mmc5_ram_bank(int n) {
@@ -726,7 +731,10 @@ static void mmc5_write_low(uint16_t addr, uint8_t val) {
             mmc5_apply_chr();
         }
         if (addr <= 0x5015) mmc5_sound_write(addr, val);
-        break;                      /* the split screen isn't modelled */
+        break;
+    case 0x5200: mmc5.split_ctrl = val; break;
+    case 0x5201: mmc5.split_scroll = val; break;
+    case 0x5202: mmc5.split_bank = val; break;
     }
 }
 
@@ -756,16 +764,62 @@ static int mmc5_read_low(uint16_t addr) {
     return -1;
 }
 
+/* The vertical split (nesdev wiki "MMC5"): with $5200 bit 7 set, ExRAM
+   mode 0 or 1, and rendering on, the tiles before the threshold (left
+   side) or from it on (right side) come from ExRAM as a nametable of
+   their own, with patterns from the 4 KB bank in $5202 (whatever the CHR
+   mode and $5130 say) and no horizontal scrolling.
+   The wiki leaves three things open; chosen here:
+   - Tiles are counted as the PPU fetches them for a line: 0 and 1 at
+     dots 321-336 of the line before, then 2-33. So tile n is column n,
+     moved left by fine X like the rest.
+   - The split's own vertical position starts from $5201 (loaded on the
+     pre-render line) and moves one pixel a line. From 0-239 it wraps at
+     240 back to 0; from 240-255 it reads the attribute rows as tiles
+     until it wraps at 256, then goes on from 0.
+   - Tile n on split row r is ExRAM byte r * 32 + (n & 31), and its
+     attribute is ExRAM $3C0 + (r / 4) * 8 + (n & 31) / 4, the quarter
+     chosen as the PPU does. */
+static int mmc5_split_y(int line) {
+    int start = mmc5.split_start;
+    if (start < 240) return (start + line) % 240;
+    int k = 256 - start;                    /* lines on the attribute rows */
+    return line < k ? start + line : (line - k) % 240;
+}
+
+static int mmc5_split_tile(int tile, uint8_t *name, uint8_t *palette,
+                           const uint8_t **chr4k, int *fine_y) {
+    if (!(mmc5.split_ctrl & 0x80) || mmc5.exram_mode >= 2 || !(ppu.mask & 0x18))
+        return 0;
+    if (ppu.scanline == 261) mmc5.split_start = mmc5.split_scroll;
+    int threshold = mmc5.split_ctrl & 0x1F;
+    int inside = (mmc5.split_ctrl & 0x40) ? tile >= threshold : tile < threshold;
+    if (!inside) return 0;
+    /* The line this tile will be drawn on. */
+    int line = tile >= 2 ? ppu.scanline : ppu.scanline == 261 ? 0 : ppu.scanline + 1;
+    int y = mmc5_split_y(line);
+    int row = y >> 3, col = tile & 31;
+    *name = mmc5.exram[(row * 32 + col) & 0x3FF];
+    uint8_t attr = mmc5.exram[0x3C0 + ((row >> 2) & 7) * 8 + (col >> 2)];
+    *palette = (attr >> (((row & 2) << 1) | (col & 2))) & 3;
+    *chr4k = cart.chr + ((size_t)mmc5.split_bank * 0x1000) % cart.chr_size;
+    *fine_y = y & 7;
+    return 1;
+}
+
 /* Extended attribute mode (ExRAM mode 1, rendering on): each background
    tile's ExRAM byte (same position as its nametable byte, the same for
    all four nametables) gives its palette (bits 6-7) and a 4 KB CHR bank
    (bits 0-5, with $5130 above them), ignoring the CHR registers. */
-static int mmc5_bg_tile(uint16_t v, uint8_t *palette, const uint8_t **chr4k) {
+static int mmc5_bg_tile(uint16_t v, int tile, uint8_t *name, uint8_t *palette,
+                        const uint8_t **chr4k, int *fine_y) {
+    if (mmc5_split_tile(tile, name, palette, chr4k, fine_y)) return 1;
     if (mmc5.exram_mode != 1 || !(ppu.mask & 0x18)) return 0;
     uint8_t e = mmc5.exram[v & 0x3FF];
     size_t bank = (size_t)(mmc5.upper << 6 | (e & 0x3F));
     *palette = e >> 6;
     *chr4k = cart.chr + (bank * 0x1000) % cart.chr_size;
+    *fine_y = (v >> 12) & 7;
     return 1;
 }
 
