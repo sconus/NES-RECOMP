@@ -296,6 +296,71 @@ MAPPERS = {
 }
 
 
+def rom_size(lsb, msb, unit):
+    """A ROM size from an NES 2.0 header: the LSB byte and the 4-bit MSB
+    in `unit`s, or, when the MSB is $F, the exponent form EEEEEEMM:
+    2^E x (MM*2+1) bytes."""
+    if msb == 0xF:
+        e, mm = lsb >> 2, lsb & 3
+        if e > 30:
+            raise ValueError("ROM size 2^%d bytes is too large" % e)
+        return (1 << e) * (mm * 2 + 1)
+    return (msb << 8 | lsb) * unit
+
+
+def ram_size(shift):
+    """A RAM size nibble from bytes 10-11: 0 for none, else 64 << n."""
+    return 64 << shift if shift else 0
+
+
+def read_header(data):
+    """Read an iNES header (16 bytes at the start of `data`), as iNES 1.0
+    or NES 2.0 (nesdev wiki "NES 2.0", "INES"). runtime/cart.c reads it
+    the same way; tests/check_headers.py compares the two. Returns a dict
+    of every field; with iNES 1.0 the fields NES 2.0 adds get the values
+    the runtime has always assumed."""
+    h = data[:16]
+    battery = (h[6] & 2) != 0
+    trainer = (h[6] & 4) != 0
+    head = 16 + (512 if trainer else 0)
+    nes2 = (h[7] & 0x0C) == 0x08
+    if nes2:
+        prg = rom_size(h[4], h[9] & 0x0F, 0x4000)
+        chr_ = rom_size(h[5], h[9] >> 4, 0x2000)
+        if head + prg + chr_ > len(data):    # the wiki: then not NES 2.0
+            nes2 = False
+    clean = nes2 or not any(h[12:16])        # old dumps put junk in 12-15
+    f = dict(nes2=nes2, battery=battery, trainer=trainer,
+             mapper=(h[6] >> 4) | (h[7] & 0xF0), submapper=0,
+             console=h[7] & 3 if clean else 0, console_ext=0,
+             timing=0, misc_roms=0, exp_device=0)
+    if nes2:
+        f["mapper"] |= (h[8] & 0x0F) << 8
+        f.update(submapper=h[8] >> 4, prg_size=prg, chr_size=chr_,
+                 prg_ram=ram_size(h[10] & 0x0F), prg_nvram=ram_size(h[10] >> 4),
+                 chr_ram=ram_size(h[11] & 0x0F), chr_nvram=ram_size(h[11] >> 4),
+                 timing=h[12] & 3, misc_roms=h[14] & 3, exp_device=h[15] & 0x7F,
+                 console_ext=h[13] if f["console"] in (1, 3) else 0)
+    else:
+        if not clean:
+            f["mapper"] &= 0x0F
+        f.update(prg_size=h[4] * 0x4000, chr_size=h[5] * 0x2000,
+                 prg_ram=0 if battery else 0x2000,
+                 prg_nvram=0x2000 if battery else 0,
+                 chr_ram=0x2000 if h[5] == 0 else 0, chr_nvram=0)
+    if head + f["prg_size"] + f["chr_size"] > len(data):
+        raise ValueError("truncated: the file is shorter than its header says")
+    if f["prg_size"] == 0:
+        raise ValueError("header lists no PRG ROM")
+    if f["prg_size"] % 0x2000:
+        raise ValueError("PRG ROM of %d bytes is not a whole number of 8 KB"
+                         " banks" % f["prg_size"])
+    if f["chr_size"] % 0x400:
+        raise ValueError("CHR ROM of %d bytes is not a whole number of 1 KB"
+                         " banks" % f["chr_size"])
+    return f
+
+
 class Rom:
     def __init__(self, path):
         data = open(path, "rb").read()
@@ -305,16 +370,13 @@ class Rom:
             return
         if data[:4] != b"NES\x1a":
             sys.exit("not an iNES or NSF file")
-        self.prg_banks = data[4]
-        self.chr_banks = data[5]
-        self.mapper = (data[6] >> 4) | (data[7] & 0xF0)
-        if (data[7] & 0x0C) == 0x08:                 # NES 2.0 header
-            self.mapper |= (data[8] & 0x0F) << 8
-        elif any(data[12:16]):                       # junk in old dumps
-            self.mapper &= 0x0F
-        trainer = 512 if data[6] & 4 else 0
-        start = 16 + trainer
-        self.prg = data[start:start + self.prg_banks * 0x4000]
+        try:
+            self.header = read_header(data)
+        except ValueError as e:
+            sys.exit("%s: %s" % (path, e))
+        self.mapper = self.header["mapper"]
+        start = 16 + (512 if self.header["trainer"] else 0)
+        self.prg = data[start:start + self.header["prg_size"]]
         self.slot_bits = 13                          # 8 KB slots and banks
         self.banks = len(self.prg) // 0x2000
 

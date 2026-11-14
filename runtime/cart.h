@@ -20,6 +20,18 @@ struct cart {
     enum mirroring mirroring;      /* current mode; mappers may change it */
     int mapper;
     int battery;
+    /* The rest of the header (NES 2.0; with iNES 1.0, the values the
+       runtime has always assumed). Sizes are in bytes, 0 for none. */
+    int nes2;              /* 1: read as an NES 2.0 header */
+    int submapper;         /* the board variant, 0-15 */
+    size_t prg_ram_size, prg_nvram_size;    /* $6000 work RAM, battery RAM */
+    size_t chr_ram_size, chr_nvram_size;
+    int timing;            /* 0 NTSC, 1 PAL, 2 multi-region, 3 Dendy */
+    int console;           /* 0 NES/Famicom, 1 Vs. System, 2 PlayChoice-10,
+                              3 extended (console_ext says which) */
+    int console_ext;       /* byte 13, for a Vs. System or extended type */
+    int misc_roms;         /* how many extra ROMs follow CHR ROM */
+    int exp_device;        /* the default expansion device, byte 15 */
 };
 
 extern struct cart cart;
