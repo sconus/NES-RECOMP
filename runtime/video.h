@@ -19,10 +19,14 @@ int video_audio_queued(void);           /* samples waiting, or -1 */
    1 only) and game controllers, as of the last video_present. */
 uint8_t video_buttons(int player);
 
-/* The mouse, as of the last video_present, for a paddle: *x from 0 at
-   the window's left edge to 1 at its right, *button the left button.
-   Returns 0 (and sets nothing) until the mouse has moved over the window. */
-int video_mouse(double *x, int *button);
+/* The mouse, as of the last video_present, for a paddle or a Zapper: *x
+   and *y from 0 at the window's left or top edge to 1 at its right or
+   bottom, *inside whether the pointer is over the window, *button the
+   left button. Returns 0 (and sets nothing) until the mouse has moved
+   over the window. */
+int video_mouse(double *x, double *y, int *inside, int *button);
+/* Show the pointer as a cross over the window (for the Zapper). */
+void video_crosshair(void);
 
 /* Save a frame as a PNG file. Returns 0 on success. */
 int video_save_png(const uint16_t *framebuffer, const char *path);

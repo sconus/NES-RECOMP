@@ -197,6 +197,7 @@ tests/four_hori.nes +four.txt --hori-4p	pass
 tests/zapper_port2.nes +zapper.txt --port2=zapper	pass
 tests/zapper_port1.nes +zapper.txt --port1=zapper	pass
 tests/zapper_famicom.nes +zapper.txt --famicom-zapper	pass
+tests/zapper_demo.nes +zapper_demo.txt --port2=zapper	frame:1764f09f
 vaus-test/vaus-test.nes +vaus_test_pad3.txt --famicom-4p	frame:c57f6244
 vaus-test/vaus-test.nes +vaus_test_demo.txt --port2=vaus	frame:b2ff3d3b
 vaus-test/vaus-test.nes +vaus_test_demo.txt --famicom-vaus	frame:b2ff3d3b

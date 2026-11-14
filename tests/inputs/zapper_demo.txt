@@ -1,0 +1,8 @@
+# For tests/zapper_demo.nes (make_zapper_demo.py): one hit, then
+# one miss, for the picture check.
+30 aim=46,120
+34 aim=46,120 trigger
+40
+60 aim=off
+64 aim=off trigger
+70

@@ -353,6 +353,9 @@ result 200 tests/four_hori.nes tests/inputs/four.txt --hori-4p
 result 300 tests/zapper_port2.nes tests/inputs/zapper.txt --port2=zapper
 result 300 tests/zapper_port1.nes tests/inputs/zapper.txt --port1=zapper
 result 300 tests/zapper_famicom.nes tests/inputs/zapper.txt --famicom-zapper
+# tests/zapper_demo.nes (make_zapper_demo.py), the target to try by hand:
+# one scripted hit and one miss, as a picture.
+frame 100 tests/zapper_demo.nes tests/inputs/zapper_demo.txt --port2=zapper
 # vaus-test reads Famicom controller 3 (bit 1 of $4016): a picture.
 frame 200 vaus-test/vaus-test.nes tests/inputs/vaus_test_pad3.txt --famicom-4p
 

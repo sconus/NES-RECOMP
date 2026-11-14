@@ -349,14 +349,37 @@ static void nsf_controls(void) {
 #define VAUS_STEPS 160
 static int vaus_left = 0x4D;
 
+static int zapper_plugged(void) {
+    return port_device[0] == DEV_ZAPPER || port_device[1] == DEV_ZAPPER ||
+           famicom_zapper;
+}
+
 static void paddle_mouse(void) {
-    double x;
-    int button;
+    double x, y;
+    int inside, button;
     if (headless || !(port_device[0] == DEV_VAUS || port_device[1] == DEV_VAUS ||
                       famicom_vaus)) return;
-    if (!video_mouse(&x, &button)) return;
+    if (!video_mouse(&x, &y, &inside, &button)) return;
     vaus[0].knob = (uint8_t)(vaus_left + (int)(x * VAUS_STEPS + 0.5));
     vaus[0].fire |= (uint8_t)button;
+}
+
+/* The Zapper from the mouse: it points at the pixel under the pointer,
+   or away from the screen while the pointer is outside the window, and
+   the left button pulls the trigger, as well as any scripted pull. As
+   with the paddle, the mouse takes over once it has moved over the
+   window. */
+static void zapper_mouse(void) {
+    double x, y;
+    int inside, button;
+    if (headless || !zapper_plugged()) return;
+    if (!video_mouse(&x, &y, &inside, &button)) return;
+    if (inside) {
+        zapper.x = (int)(x * (NES_WIDTH - 1) + 0.5);
+        zapper.y = (int)(y * (NES_HEIGHT - 1) + 0.5);
+    } else
+        zapper.x = zapper.y = -1;
+    zapper.trigger |= (uint8_t)button;
 }
 
 static void frame_done(const uint16_t *ppu_fb) {
@@ -392,6 +415,7 @@ static void frame_done(const uint16_t *ppu_fb) {
     for (int p = 0; p < 2; p++) vaus[p].fire = script_fire[p];
     zapper.trigger = script_trigger;
     paddle_mouse();
+    zapper_mouse();
     if (cart.mapper == MAPPER_NSF) nsf_controls();
     if (stop_after_frames && (long)ppu.frame >= stop_after_frames)
         finish_run(fb);
@@ -533,6 +557,7 @@ int main(int argc, char **argv) {
         name = name ? name + 1 : rom_path;
         if (cart.mapper == MAPPER_NSF && nsf.title[0]) name = nsf.title;
         video_init(scale < 1 ? 1 : scale, name);
+        if (zapper_plugged()) video_crosshair();
     }
     atexit(at_exit);
     ppu_frame_done = frame_done;

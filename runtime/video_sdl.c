@@ -158,15 +158,24 @@ uint8_t video_buttons(int player) {
     return b;
 }
 
-int video_mouse(double *x, int *button) {
+int video_mouse(double *x, double *y, int *inside, int *button) {
     if (!window || !mouse_seen) return 0;
-    int mx, w, h;
-    Uint32 b = SDL_GetMouseState(&mx, NULL);
+    int mx, my, w, h;
+    Uint32 b = SDL_GetMouseState(&mx, &my);
     SDL_GetWindowSize(window, &w, &h);
-    double f = w > 1 ? (double)mx / (w - 1) : 0.5;
-    *x = f < 0 ? 0 : f > 1 ? 1 : f;
+    double fx = w > 1 ? (double)mx / (w - 1) : 0.5;
+    double fy = h > 1 ? (double)my / (h - 1) : 0.5;
+    *x = fx < 0 ? 0 : fx > 1 ? 1 : fx;
+    *y = fy < 0 ? 0 : fy > 1 ? 1 : fy;
+    *inside = SDL_GetMouseFocus() == window;
     *button = (b & SDL_BUTTON(SDL_BUTTON_LEFT)) != 0;
     return 1;
+}
+
+void video_crosshair(void) {
+    static SDL_Cursor *cross;
+    if (!cross) cross = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_CROSSHAIR);
+    if (cross) SDL_SetCursor(cross);
 }
 
 static void wait_for_next_frame(void) {

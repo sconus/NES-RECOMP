@@ -129,12 +129,25 @@ try by hand.
   `$4016`, the gun driving bit 0, the script's trigger ignored, aim=off
   read as aimed. 174 of 175; nestest exact; `recomp.py` unchanged.
 
-### 3. The Zapper on the mouse
+### 3. The Zapper on the mouse (done)
 - With a Zapper plugged in, it aims where the mouse points in the
   window, and the left button pulls the trigger. The mouse pointer is
   shown as a cross over the window.
 - A small generated target program (a white box that moves, a counter
   of hits) for a try by hand.
+- Done: the gun points at the pixel under the pointer, or away from
+  the screen while the pointer is outside the window; the left button
+  adds to any scripted pull; the pointer is a cross. `video_mouse` now
+  gives both directions and whether the pointer is inside.
+  `make_zapper_demo.py` writes `zapper_demo.nes`: a white box sliding
+  across black, with hit and miss counts in red (too dark to be seen).
+  Its picture check fires one hit and one miss: "001 HITS, 001
+  MISSES"; aimed 40 pixels off, the same shots give 0 and 2, and with
+  the light bit inverted the picture changes. Writing it, three branch
+  slips were caught by reading it through before running. 174 of 175,
+  28 pictures; nestest exact.
+  Not checked by the suite: the mouse itself. Tried by hand with
+  `zapper_demo.nes`: it works.
 
 ### 4. Suite, README, notes
 Accept the new checks, document the options, the mouse, the script
