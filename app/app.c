@@ -19,6 +19,9 @@
      error   "CAN'T RECOMPILE" and why (a wrong file, or the tool's
              message); the whole output is in build/NAME.log
      done    "DONE!": the program is built
+     play    the game runs in its own window (play.c) and this one hides;
+             when the game quits, back to the drop screen, or, if it
+             stopped or crashed, "THE GAME STOPPED" and why
    From the error and done screens, another drop starts again.
 
        nesrecomp-app [ROM]                    open the window (and build ROM)
@@ -32,6 +35,12 @@
                      [--stage N] [--progress P] [--message M]
            draw a screen into a window of W x H pixels (default 320x180)
            and save it as a PNG, with no window: for tests/check_app.py
+       nesrecomp-app --build ROM --then-play [--play-args "ARGS"]
+           build it, then play it (with ARGS for the game, such as
+           "--headless --frames 600"), and say how the game ended
+       nesrecomp-app --play-only EXE ROM [--play-args "ARGS"]
+           just play: run EXE on ROM as the app does, and say how it
+           ended (for the checks)
        nesrecomp-app --progress-model
            print the loading bar's value for each stage over a long range
            of times (and runtime file counts), for tests/check_app.py
@@ -47,6 +56,7 @@
 #include <zlib.h>
 #include "art.h"
 #include "build.h"
+#include "play.h"
 
 #ifndef PROJECT_ROOT
 #define PROJECT_ROOT "."
@@ -189,11 +199,11 @@ static int wrap(const char *msg, char lines[][LINE_CHARS + 1], int max) {
     return n;
 }
 
-static void draw_error(long n, const char *msg) {
+static void draw_error(long n, const char *title, const char *msg) {
     draw_room(n, 0);
     uint32_t white = ink(INK_TEXT), dim = ink(INK_MANE_HI);
     int y = ART_SCREEN_Y;
-    text_xy("CAN'T RECOMPILE", SCREEN_CX, y + 5, 1, 2, white, 1);
+    text_xy(title, SCREEN_CX, y + 5, 1, 2, white, 1);
     char lines[5][LINE_CHARS + 1];
     int k = wrap(msg, lines, 5);
     for (int i = 0; i < k; i++) text(lines[i], SCREEN_CX, y + 25 + i * 9, 1, white, 1);
@@ -208,6 +218,16 @@ static void draw_done(long n, const char *name) {
     text("DONE!", SCREEN_CX, y + 24, 2, white, 1);
     text("BUILT AND READY", SCREEN_CX, y + 48, 1, white, 1);
     text("DROP ANOTHER FILE", SCREEN_CX, y + 70, 1, dim, 1);
+}
+
+static void draw_play(long n, const char *name) {
+    draw_room(n, 0);
+    uint32_t white = ink(INK_TEXT), dim = ink(INK_MANE_HI);
+    int y = ART_SCREEN_Y;
+    text(name, SCREEN_CX, y + 14, 1, dim, 1);
+    text_xy("NOW PLAYING", SCREEN_CX, y + 30, 1, 2, white, 1);
+    text("QUIT THE GAME TO", SCREEN_CX, y + 58, 1, dim, 1);
+    text("COME BACK HERE", SCREEN_CX, y + 67, 1, dim, 1);
 }
 
 /* The canvas into a window of w x h pixels: the largest whole-number
@@ -295,8 +315,10 @@ static int screenshot(const char *path, long frame, int w, int h) {
     char name[64];
     screen_name(shot_opts.rom, name, sizeof name);
     if (!strcmp(shot_opts.show, "build")) draw_build(frame, name, shot_opts.stage, shot_opts.progress);
-    else if (!strcmp(shot_opts.show, "error")) draw_error(frame, shot_opts.message);
+    else if (!strcmp(shot_opts.show, "error")) draw_error(frame, "CAN'T RECOMPILE", shot_opts.message);
+    else if (!strcmp(shot_opts.show, "stopped")) draw_error(frame, "THE GAME STOPPED", shot_opts.message);
     else if (!strcmp(shot_opts.show, "done")) draw_done(frame, name);
+    else if (!strcmp(shot_opts.show, "play")) draw_play(frame, name);
     else draw_drop(frame);
     present(out, w, h);
     int r = save_png(path, out, w, h);
@@ -312,14 +334,40 @@ static void usage(const char *prog) {
 }
 
 /* The window's state. */
-enum { S_DROP, S_BUILD, S_ERROR, S_DONE };
+enum { S_DROP, S_BUILD, S_ERROR, S_DONE, S_PLAY, S_STOPPED };
 static struct build job;
 static int screen = S_DROP;
-static char error_msg[512], shown_name[64];
+static char error_msg[512], shown_name[64], game_log[PATH_MAX + 16];
+static pid_t game = -1;
+
+/* Split ARGS at spaces into a NULL-ended list (for the game). */
+static char **split_args(const char *s) {
+    static char buf[1024];
+    static char *list[32];
+    int n = 0;
+    snprintf(buf, sizeof buf, "%s", s ? s : "");
+    for (char *p = strtok(buf, " "); p && n < 31; p = strtok(NULL, " ")) list[n++] = p;
+    list[n] = NULL;
+    return list;
+}
+
+/* Play exe on rom, wait for it, and say how it ended: 0 when well. */
+static int play_and_wait(const char *exe, const char *rom, const char *args, const char *log) {
+    char why[512];
+    pid_t pid = play_start(exe, rom, split_args(args), log);
+    if (pid < 0) {
+        printf("error: couldn't start the game (%s)\n", exe);
+        return 1;
+    }
+    int r = play_poll(pid, log, 1, why, sizeof why);
+    if (r > 0) printf("played: the game ended well\n");
+    else printf("error: %s\n", why);
+    return r > 0 ? 0 : 1;
+}
 
 /* A file arrived (dropped, or on the command line). */
 static void take(const char *path) {
-    if (screen == S_BUILD) return;              /* busy: ignore it */
+    if (screen == S_BUILD || screen == S_PLAY) return;     /* busy: ignore it */
     char why[128];
     screen_name(path, shown_name, sizeof shown_name);
     if (!build_check_file(path, why, sizeof why)) {
@@ -333,7 +381,8 @@ static void take(const char *path) {
 
 int main(int argc, char **argv) {
     const char *shot = NULL, *build_rom = NULL, *open_rom = NULL, *bdir = NULL;
-    int trace = 0, model = 0;
+    int trace = 0, model = 0, then_play = 0;
+    const char *play_args = NULL, *play_exe = NULL, *play_rom = NULL;
     long frames = 0;
     int sw = ART_W, sh = ART_H;
     for (int i = 1; i < argc; i++) {
@@ -352,6 +401,12 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--build-dir") && more) bdir = argv[++i];
         else if (!strcmp(argv[i], "--trace-progress")) trace = 1;
         else if (!strcmp(argv[i], "--progress-model")) model = 1;
+        else if (!strcmp(argv[i], "--then-play")) then_play = 1;
+        else if (!strcmp(argv[i], "--play-args") && more) play_args = argv[++i];
+        else if (!strcmp(argv[i], "--play-only") && i + 2 < argc) {
+            play_exe = argv[++i];
+            play_rom = argv[++i];
+        }
         else if (argv[i][0] != '-' && !open_rom) open_rom = argv[i];
         else usage(argv[0]);
     }
@@ -380,8 +435,17 @@ int main(int argc, char **argv) {
     char defdir[PATH_MAX];
     snprintf(defdir, sizeof defdir, "%s/build", root);
     build_setup(root, bdir ? bdir : defdir);
+    if (play_exe) {
+        snprintf(game_log, sizeof game_log, "%s.game.log", play_exe);
+        return play_and_wait(play_exe, play_rom, play_args, game_log);
+    }
     if (build_rom) {
         job.verbose = 1;
+        if (then_play) {
+            if (build_run(&job, build_rom)) return 1;
+            snprintf(game_log, sizeof game_log, "%s.game.log", job.out);
+            return play_and_wait(job.out, job.rom, play_args, game_log);
+        }
         if (!trace) return build_run(&job, build_rom) ? 1 : 0;
         build_start(&job, build_rom);
         while (atomic_load(&job.state) == B_RUNNING) {
@@ -434,18 +498,47 @@ int main(int argc, char **argv) {
         }
         if (screen == S_BUILD) {
             int st = atomic_load(&job.state);
-            if (st == B_DONE) screen = S_DONE;
+            if (st == B_DONE) {
+                /* Built: play it, with this window out of the way. */
+                snprintf(game_log, sizeof game_log, "%s.game.log", job.out);
+                game = play_start(job.out, job.rom, NULL, game_log);
+                if (game < 0) {
+                    snprintf(error_msg, sizeof error_msg, "couldn't start the game");
+                    screen = S_STOPPED;
+                } else {
+                    screen = S_PLAY;
+                    SDL_HideWindow(win);
+                }
+            }
             else if (st == B_FAILED) {
                 snprintf(error_msg, sizeof error_msg, "%s", job.error);
                 screen = S_ERROR;
             }
         }
+        if (screen == S_PLAY) {
+            char why[512];
+            int r = play_poll(game, game_log, 0, why, sizeof why);
+            if (r == 0) {
+                SDL_Delay(50);                  /* hidden: no need to draw */
+                continue;
+            }
+            game = -1;
+            if (r > 0) screen = S_DROP;
+            else {
+                snprintf(error_msg, sizeof error_msg, "%s", why);
+                screen = S_STOPPED;
+            }
+            SDL_ShowWindow(win);
+            SDL_RaiseWindow(win);
+        }
         switch (screen) {
         case S_BUILD:
             draw_build(n, shown_name, atomic_load(&job.stage), build_progress(&job, build_now()));
             break;
-        case S_ERROR: draw_error(n, error_msg); break;
+        case S_ERROR: draw_error(n, "CAN'T RECOMPILE", error_msg); break;
+        case S_STOPPED: draw_error(n, "THE GAME STOPPED", error_msg); break;
         case S_DONE: draw_done(n, shown_name); break;
+        case S_PLAY: draw_play(n, shown_name); break;
         default: draw_drop(n);
         }
         n++;

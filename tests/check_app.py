@@ -403,6 +403,79 @@ def main():
           and not os.path.exists(os.path.join(fb, "my_game__test_")),
           "exit %d, %s" % (code, last_line(out)))
 
+    # 7. playing (play.c, as the window uses it after a build)
+    for name, title, msg in (("stopped", "THE GAME STOPPED", "unknown opcode $02 at $C000"),):
+        img = screen(name, "--show", name, "--message", msg)
+        w_set = glyph_pixels(font, title, cx, sy + 5, 1, 2)
+        for i, line in enumerate(wrap(msg)):
+            w_set |= glyph_pixels(font, line, cx, sy + 25 + i * 9)
+        bad = screen_text(img, w_set, glyph_pixels(font, "DROP ANOTHER FILE", cx, sy + 74))
+        check("the game-stopped screen", not bad, "%d pixel(s) differ" % bad)
+    img = screen("play", "--show", "play", "--rom", "01-basics.nes")
+    w_set = glyph_pixels(font, "NOW PLAYING", cx, sy + 30, 1, 2)
+    d_set = glyph_pixels(font, "01-basics.nes", cx, sy + 14) | \
+        glyph_pixels(font, "QUIT THE GAME TO", cx, sy + 58) | glyph_pixels(font, "COME BACK HERE", cx, sy + 67)
+    bad = screen_text(img, w_set, d_set)
+    check("the now-playing screen", not bad, "%d pixel(s) differ" % bad)
+
+    pb = os.path.join(OUT, "builds_play")
+    shutil.rmtree(pb, ignore_errors=True)
+    proms = os.path.join(OUT, "play_roms")
+    shutil.rmtree(proms, ignore_errors=True)
+    os.makedirs(proms)
+    game = os.path.join(proms, "basics.nes")
+    shutil.copy(free, game)
+    headless = "--headless --frames 600 --no-save"
+
+    def play(*args):
+        r = subprocess.run([APP] + list(args), capture_output=True, text=True, timeout=120)
+        return r.returncode, r.stdout
+
+    code, out = play("--build", game, "--build-dir", pb, "--then-play", "--play-args", headless)
+    glog = os.path.join(pb, "basics.game.log")
+    text_log = open(glog).read() if os.path.exists(glog) else ""
+    check("build and play: the game ends well", code == 0 and "played: the game ended well" in out,
+          "exit %d, %s" % (code, last_line(out)))
+    check("build and play: the game ran (its test passed)", "test status at $6000: $00" in text_log,
+          "no result in its log")
+    first = re.search(r"(\d+) spot\(s\) ran in the interpreter", text_log)
+    check("the game wrote its .missed beside the ROM", os.path.exists(game + ".missed"),
+          "no %s" % os.path.basename(game + ".missed"))
+    code, out = play("--build", game, "--build-dir", pb, "--then-play", "--play-args", headless)
+    blog = open(os.path.join(pb, "basics.log")).read()
+    text_log = open(glog).read() if os.path.exists(glog) else ""
+    again = re.search(r"(\d+) spot\(s\) ran in the interpreter", text_log)
+    check("the next build uses it, and less is interpreted",
+          code == 0 and "--missed " + game + ".missed" in blog and first and again
+          and int(again.group(1)) < int(first.group(1)),
+          "exit %d, interpreted %s then %s" % (code, first and first.group(1), again and again.group(1)))
+    jam = os.path.join(proms, "jam.nes")
+    with open(jam, "wb") as f:                  # made here: every byte $02
+        prg = bytearray([0x02] * 0x4000)
+        prg[0x3FFA:0x4000] = bytes([0x00, 0xC0, 0x00, 0xC0, 0x00, 0xC0])
+        f.write(b"NES\x1a\x01\x01\x00\x00" + bytes(8) + bytes(prg) + bytes(0x2000))
+    code, out = play("--build", jam, "--build-dir", pb, "--then-play", "--play-args", headless)
+    check("a game that stops: its message", code == 1 and "error: unknown opcode $02 at $C000" in out,
+          "exit %d, %s" % (code, last_line(out)))
+    crash = os.path.join(proms, "crash.sh")
+    with open(crash, "w") as f:
+        f.write("#!/bin/sh\nkill -SEGV $$\n")
+    os.chmod(crash, 0o755)
+    code, out = play("--play-only", crash, game)
+    check("a game that crashes: the signal", code == 1 and "error: the game crashed (signal 11" in out,
+          "exit %d, %s" % (code, last_line(out)))
+    fails3 = os.path.join(proms, "fails.sh")
+    with open(fails3, "w") as f:
+        f.write("#!/bin/sh\necho 'no window for you'\nexit 3\n")
+    os.chmod(fails3, 0o755)
+    code, out = play("--play-only", fails3, game)
+    check("a game that fails: its status and last line",
+          code == 1 and "error: the game ended with status 3: no window for you" in out,
+          "exit %d, %s" % (code, last_line(out)))
+    code, out = play("--play-only", os.path.join(proms, "no such game"), game)
+    check("a game that can't start: said so", code == 1 and "error: couldn't start the game" in out,
+          "exit %d, %s" % (code, last_line(out)))
+
     print("\n%d check(s) failed" % len(fails) if fails else "\nall checks pass")
     sys.exit(1 if fails else 0)
 

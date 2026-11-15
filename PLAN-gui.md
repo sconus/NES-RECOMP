@@ -254,6 +254,42 @@ up when it's right.
 - Check: drop, build, play and quit with a free ROM, twice (the second
   time with `.missed`); a game that fails to start shows its message.
 
+- Done:
+  - **`app/play.c`** runs the built program on the ROM, through
+    `posix_spawn`, with its output in `build/NAME.game.log`, and says
+    how it ended:
+    - well: exit 0, and no "stopped:" line;
+    - the runtime's "stopped:" line (an unknown opcode, say);
+    - a crash: the signal;
+    - another exit status: that, with its last line;
+    - or that it couldn't start.
+  - **The window:** when a build is done, the game starts in its own
+    window and the app hides, checking every 50 ms without drawing.
+    - When the game ends well, the app comes back to the drop screen
+      and to the front.
+    - Otherwise it shows "THE GAME STOPPED" and why.
+    - A "NOW PLAYING" screen exists for while it's hidden. Drops are
+      ignored while a game plays.
+  - **`.missed`:** the game writes it beside the ROM when it quits, as
+    with `make run`, and the next build passes it to the recompiler. In
+    the check, the second run interprets fewer spots than the first.
+  - **For the checks:** `--build ROM --then-play [--play-args "..."]`
+    and `--play-only EXE ROM`.
+  - **The checks:** 47 now, the 39 before plus:
+    - the stopped and playing screens;
+    - build and play of a free test ROM: it ends well, and its test
+      passes;
+    - the `.missed` it writes, used by the next build, with less
+      interpreted;
+    - a ROM made to stop on an unknown opcode;
+    - a "game" that crashes (SIGSEGV), one that exits 3, and one that
+      doesn't exist.
+  - **Breaks, 10 tried, all caught.** "Extra arguments dropped" was
+    caught by the check's time limit: without `--headless`, the game
+    opened a real window and ran until the check stopped waiting.
+  - In the window: opened with `nes15` (free homebrew from the
+    collection) for the user to try: build, play, quit and come back.
+
 ### 4. A double-clickable app and the README
 - `make app-bundle` builds `build/nesrecomp.app`, a macOS app bundle
   with an icon (from the same art), which opens the window. It still

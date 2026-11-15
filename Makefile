@@ -60,9 +60,9 @@ run: game
 # builds games with the same SDL flags.
 APP_DEFS = -DPROJECT_ROOT='"$(CURDIR)"' -DAPP_SDL_CFLAGS='"$(SDL_CFLAGS)"' \
            -DAPP_SDL_LIBS='"$(SDL_LIBS)"'
-build/nesrecomp-app: app/app.c app/build.c app/build.h app/art.h
+build/nesrecomp-app: app/app.c app/build.c app/build.h app/play.c app/play.h app/art.h
 	@mkdir -p build
-	$(CC) $(CFLAGS) $(SDL_CFLAGS) $(APP_DEFS) -Iapp -o $@ app/app.c app/build.c $(LDLIBS)
+	$(CC) $(CFLAGS) $(SDL_CFLAGS) $(APP_DEFS) -Iapp -o $@ app/app.c app/build.c app/play.c $(LDLIBS)
 
 app: build/nesrecomp-app
 
