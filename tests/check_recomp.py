@@ -23,6 +23,10 @@ Step 2b, the C they write:
      `make test` recompiles it, and the files made in 2.: the same C, byte
      for byte, and the same printed lines (the path written to aside);
   6. how long each takes for all of them (printed; not a check).
+Step 3, who uses it:
+  7. `make game`, `make test` (nestest) and the test suite recompile with
+     build/nesrecomp-recomp, not recomp.py: what make would run, and one
+     suite test run with a python3 first on PATH that only fails.
 Exit status 0 when all pass.
 """
 import os
@@ -441,6 +445,29 @@ def main():
     _, took = same_c([big], "big")
     print("      (the largest, %s, %d KB: recomp.py %.2f s, the C version %.3f s)"
           % (os.path.relpath(big, ROOT), os.path.getsize(big) // 1024, took[0], took[1]))
+
+    # 7. the project's own tools use the C version.
+    def make_n(*args):
+        r = subprocess.run(["make", "-n", "-B"] + list(args), cwd=ROOT, capture_output=True, text=True)
+        # The lines that recompile the ROM (not the one building the recompiler).
+        return [l for l in r.stdout.splitlines() if "tests/nestest.nes -o " in l]
+    for what, args in (("make game", ["game", "ROM=tests/nestest.nes"]),
+                       ("make test (nestest)", ["build/nestest.c"])):
+        lines = make_n(*args)
+        check("%s recompiles with build/nesrecomp-recomp" % what,
+              lines and all(l.startswith("build/nesrecomp-recomp ") for l in lines),
+              "%s" % (lines[:1] or "no recompile line"))
+    stub = os.path.join(OUT, "stub")
+    os.makedirs(stub, exist_ok=True)
+    with open(os.path.join(stub, "python3"), "w") as f:
+        f.write("#!/bin/sh\necho 'python3 was called' >&2\nexit 7\n")
+    os.chmod(os.path.join(stub, "python3"), 0o755)
+    env = dict(os.environ, PATH=stub + ":" + os.environ.get("PATH", ""))
+    r = subprocess.run([sys.executable, os.path.join(HERE, "run_tests.py"), "01-basics"], cwd=ROOT,
+                       capture_output=True, text=True, env=env, timeout=600)
+    check("the test suite recompiles without Python (a test with python3 made to fail)",
+          r.returncode == 0 and "1 of 1 tests pass" in r.stdout and "python3 was called" not in r.stdout + r.stderr,
+          (r.stdout + r.stderr).strip().splitlines()[-1][:100] if (r.stdout + r.stderr).strip() else "no output")
 
     print("\n%d check(s) failed" % len(fails) if fails else "\nall checks pass")
     sys.exit(1 if fails else 0)

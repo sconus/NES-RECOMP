@@ -9,7 +9,8 @@ app:
      loading SDL2 through its rpath (beside it, or the bundle's
      Frameworks), nothing else but Apple's;
   3. the bundle: the library, SDL's headers and license, and nothing in
-     it that names /opt/homebrew;
+     it that names /opt/homebrew; the recompiler in C beside the program
+     (step 3), for both kinds of Mac, and no mention of Python;
   4. building and playing a free test ROM with the bundle's program,
      with reading /opt/homebrew and /usr/local forbidden (sandbox-exec;
      first checked to really forbid it): it builds, the game passes its
@@ -20,7 +21,9 @@ app:
      isn't installed): the game is built for Intel and passes;
   6. a game still runs after the app that built it is gone;
   7. a newer SDL header builds the game and the runtime again;
-  8. an app whose SDL headers are missing says so, rather than building.
+  8. an app whose SDL headers, or whose recompiler, are missing says so,
+     rather than building.
+In 4. to 6., Python can't run either: the recompiling is the bundle's own.
 Exit status 0 when all pass.
 """
 import os
@@ -41,8 +44,14 @@ FREE = os.path.join(ROOT, "tests", "roms", "nes-test-roms", "instr_test-v5", "ro
                     "01-basics.nes")
 SDL_VERSION = "2.32.10"
 MINOS = "11.0"
+# Homebrew and /usr/local out of reach, and Python can't run at all
+# (step 3): no program with "python" in its path starts, and Python's
+# frameworks can't be read.
 DENY = ('(version 1)(allow default)'
-        '(deny file-read* (subpath "/opt/homebrew") (subpath "/usr/local"))')
+        '(deny file-read* (subpath "/opt/homebrew") (subpath "/usr/local")'
+        ' (subpath "/Library/Frameworks/Python.framework")'
+        ' (subpath "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework"))'
+        '(deny process-exec (regex #"python"))')
 HEADLESS = "--headless --frames 600 --no-save"
 
 fails = []
@@ -163,22 +172,43 @@ def main():
     check("the bundle: SDL's license",
           os.path.exists(lic) and open(lic).read() == open(os.path.join(SDL, "LICENSE.txt")).read()
           and "provided 'as-is'" in open(lic).read(), "missing or different")
-    # Until step 3, the program puts Homebrew's bin on PATH, to find
-    # python3 for recomp.py: those two strings, and nothing else.
-    allowed = {b"/opt/homebrew/bin:/usr/local/bin:%s", b"/opt/homebrew/bin"}
-    named = []
+    named, py = [], []
     for d, _, files in os.walk(APP):
         for f in files:
             p = os.path.join(d, f)
-            found = set(re.findall(rb"[^\0]*/opt/homebrew[^\0]*", open(p, "rb").read()))
-            if found - allowed:
-                named.append((os.path.relpath(p, APP), sorted(found - allowed)[:3]))
-    check("the bundle: nothing in it names /opt/homebrew (but PATH, for python3)", not named,
-          "%s" % named)
+            data = open(p, "rb").read()
+            found, at = set(), data.find(b"/opt/homebrew")
+            while at >= 0:                   # the whole string around it
+                lo, hi = data.rfind(b"\0", 0, at) + 1, data.find(b"\0", at)
+                found.add(data[lo:hi if hi >= 0 else len(data)][:120])
+                at = data.find(b"/opt/homebrew", at + 1)
+            if found:
+                named.append((os.path.relpath(p, APP), sorted(found)[:3]))
+            # The recompiler names recomp.py, in its help and in a comment
+            # of the C it writes (which must match recomp.py's); the app's
+            # program shouldn't, and neither should name Python.
+            if f.startswith("nesrecomp") and (b"python" in data.lower() or
+                                              (f == "nesrecomp" and b"recomp.py" in data)):
+                py.append(os.path.relpath(p, APP))
+    check("the bundle: nothing in it names /opt/homebrew", not named, "%s" % named)
+    check("the bundle's programs don't name Python (nor the app recomp.py)", not py, "%s" % py)
+    brc = os.path.join(contents, "MacOS", "nesrecomp-recomp")
+    rc = os.path.join(ROOT, "build", "nesrecomp-recomp")
+    check("the bundle: the recompiler in C beside the program (build/nesrecomp-recomp's code)",
+          os.path.exists(brc) and os.access(brc, os.X_OK) and code(brc) == code(rc)
+          and len(code(rc)) > 1000, "missing or different")
+    a = archs(brc) if os.path.exists(brc) else []
+    mins = {x: minos(brc, x) for x in a}
+    check("the recompiler: for Intel and Apple Silicon, macOS %s on" % MINOS,
+          a == ["arm64", "x86_64"] and all(v == MINOS for v in mins.values()), "%s %s" % (a, mins))
+    libs = linked(brc, "arm64") + linked(brc, "x86_64") if a else []
+    check("the recompiler: needs only Apple's libraries", libs and apple_only(libs), "%s" % libs)
     bprog = os.path.join(contents, "MacOS", "nesrecomp")
-    info = run(bprog, "--sdl-info").stdout.strip()
+    info = run(bprog, "--sdl-info").stdout.strip().splitlines() + ["", ""]
     check("the bundle's program finds the bundle's SDL2",
-          info == "sdl2 found " + os.path.realpath(blib), info)
+          info[0] == "sdl2 found " + os.path.realpath(blib), info[0])
+    check("the bundle's program finds the bundle's recompiler",
+          info[1] == "recompiler " + os.path.realpath(brc), info[1])
 
     # 4. build and play with Homebrew out of reach.
     probe = run("sandbox-exec", "-p", DENY, "/bin/cat", "/opt/homebrew/lib/libSDL2.dylib")
@@ -186,6 +216,11 @@ def main():
     check("the sandbox really forbids reading /opt/homebrew and /usr/local",
           probe.returncode != 0 and "not permitted" in probe.stderr and probe2.returncode != 0,
           "it could read them")
+    py_probe = [run("sandbox-exec", "-p", DENY, p, "-c", "print(1)")
+                for p in ("/usr/bin/python3", "/Library/Developer/CommandLineTools/usr/bin/python3")]
+    check("the sandbox really stops Python from running",
+          all(r.returncode != 0 and r.stdout.strip() != "1" for r in py_probe),
+          "%s" % [(r.returncode, r.stdout.strip()) for r in py_probe])
     roms = os.path.join(OUT, "roms")
     os.makedirs(roms)
     rom = os.path.join(roms, "basics.nes")
@@ -203,6 +238,10 @@ def main():
           r.returncode == 0 and "played: the game ended well" in r.stdout, last(r.stdout + r.stderr))
     check("without Homebrew: the game passes its test", "test status at $6000: $00" in glog,
           last(glog))
+    blog = open(os.path.join(bdir, "basics.log")).read() if os.path.exists(os.path.join(bdir, "basics.log")) else ""
+    check("without Python: the bundle's recompiler did the recompiling",
+          "$ " + os.path.realpath(brc) + " " + rom + " -o " in blog and "python" not in blog.lower(),
+          last(blog))
     glibs = linked(game) if os.path.exists(game) else []
     check("the game: SDL2 through its rpath, otherwise only Apple's",
           "@rpath/libSDL2.dylib" in glibs and apple_only([l for l in glibs if l != "@rpath/libSDL2.dylib"]),
@@ -265,6 +304,15 @@ def main():
     gone = run(mprog, "--build", rom, "--build-dir", os.path.join(OUT, "builds_noheaders"))
     check("SDL's headers missing: the build says so",
           gone.returncode != 0 and "error: the app's SDL2 is missing" in gone.stdout, last(gone.stdout))
+    mrc = os.path.join(moved, "Contents", "MacOS", "nesrecomp-recomp")
+    if os.path.exists(mrc):
+        os.remove(mrc)
+    shutil.copytree(os.path.join(APP, "Contents", "Resources", "sdl2", "include"),
+                    os.path.join(moved, "Contents", "Resources", "sdl2", "include"))
+    gone = run(mprog, "--build", rom, "--build-dir", os.path.join(OUT, "builds_norecomp"))
+    check("the recompiler missing: the build says so",
+          gone.returncode != 0 and "error: the app's recompiler is missing" in gone.stdout,
+          last(gone.stdout))
     shutil.rmtree(moved)
 
     print("\n%d check(s) failed" % len(fails) if fails else "\nall checks pass")

@@ -27,6 +27,9 @@ SDL_LIBS   := $(shell sdl2-config --prefix)/lib/libSDL2.dylib
 LDLIBS   = $(SDL_LIBS) -lz -lm
 RT_SRC   = $(wildcard runtime/*.c)
 RT_HDR   = $(wildcard runtime/*.h)
+# The recompiler: the C version (recomp/, PLAN-standalone.md step 2).
+# recomp.py stays as the reference it is checked against (make test-recomp).
+RECOMP   = build/nesrecomp-recomp
 # Feed back spots a previous run had to interpret, if there are any.
 missed_arg = $(if $(wildcard $(1).missed),--missed $(1).missed,)
 
@@ -36,9 +39,9 @@ NESTEST = tests/nestest.nes
 build/nestest: build/nestest.c $(RT_SRC) $(RT_HDR)
 	$(CC) $(CFLAGS) $(SDL_CFLAGS) -Iruntime -o $@ build/nestest.c $(RT_SRC) $(LDLIBS)
 
-build/nestest.c: recomp.py $(NESTEST)
+build/nestest.c: $(RECOMP) $(NESTEST)
 	@mkdir -p build
-	python3 recomp.py $(NESTEST) -o $@ --entry C000 $(call missed_arg,$(NESTEST))
+	$(RECOMP) $(NESTEST) -o $@ --entry C000 $(call missed_arg,$(NESTEST))
 
 test: build/nestest
 	./build/nestest $(NESTEST) --headless --start C000 --trace --check-cycles > build/trace.txt
@@ -47,7 +50,7 @@ test: build/nestest
 	python3 tests/check_headers.py build/nestest
 
 # --- test ROM suite: see tests/suite.txt and tests/run_tests.py --------
-test-ppu:
+test-ppu: $(RECOMP)
 	python3 tests/run_tests.py
 
 test-all: test test-ppu test-app
@@ -55,10 +58,10 @@ test-all: test test-ppu test-app
 # --- any ROM ----------------------------------------------------------
 NAME = $(basename $(notdir $(ROM)))
 
-game:
+game: $(RECOMP)
 	@test -n "$(ROM)" || { echo "usage: make game ROM=path/to/file.nes"; exit 1; }
 	@mkdir -p build
-	python3 recomp.py $(ROM) -o build/$(NAME).c $(call missed_arg,$(ROM))
+	$(RECOMP) $(ROM) -o build/$(NAME).c $(call missed_arg,$(ROM))
 	$(CC) $(CFLAGS) $(SDL_CFLAGS) -Iruntime -o build/$(NAME) build/$(NAME).c $(RT_SRC) $(LDLIBS)
 
 run: game
@@ -67,12 +70,13 @@ run: game
 # --- the recompiler in C (recomp/, PLAN-standalone.md step 2) -----------
 # The same program as recomp.py, which stays as the reference it is
 # checked against (tests/check_recomp.py). It builds in the project's
-# FDS BIOS (runtime/fds_bios.h).
+# FDS BIOS (runtime/fds_bios.h). Built for Intel and Apple Silicon, like
+# the app, which carries it.
 RECOMP_SRC = $(wildcard recomp/*.c)
 RECOMP_HDR = $(wildcard recomp/*.h)
 build/nesrecomp-recomp: $(RECOMP_SRC) $(RECOMP_HDR) runtime/fds_bios.h
 	@mkdir -p build
-	$(CC) -O2 -Wall -Wextra -o $@ $(RECOMP_SRC) -lz
+	$(CC) -O2 -Wall -Wextra -arch arm64 -arch x86_64 -mmacosx-version-min=11.0 -o $@ $(RECOMP_SRC) -lz
 
 recomp: build/nesrecomp-recomp
 
@@ -81,7 +85,8 @@ test-recomp: build/nesrecomp-recomp
 
 # --- the app (app/, PLAN-gui.md, PLAN-standalone.md) ------------------
 # app/art.h is written by tools/make_app_art.py; run that after editing it.
-# The app finds the project (recomp.py, runtime/) where it was built.
+# The app finds the project (runtime/) where it was built, and the
+# recompiler (build/nesrecomp-recomp) beside its own program.
 # It uses its own SDL2, not Homebrew's: built from SDL's source release
 # by tools/build_sdl2.sh into build/sdl2/ (for Intel and Apple Silicon,
 # macOS 11 on), and the app is built for both too. It finds the library
@@ -100,7 +105,8 @@ $(SDL2_LIB): tools/build_sdl2.sh
 
 sdl2: $(SDL2_LIB)
 
-build/nesrecomp-app: app/app.c app/build.c app/build.h app/play.c app/play.h app/art.h $(SDL2_LIB)
+build/nesrecomp-app: app/app.c app/build.c app/build.h app/play.c app/play.h app/art.h $(SDL2_LIB) \
+                     $(RECOMP)
 	@mkdir -p build
 	$(CC) $(CFLAGS) $(APP_ARCH) $(APP_SDL) $(APP_DEFS) -Iapp -o $@ app/app.c app/build.c app/play.c $(APP_LIBS)
 
@@ -112,7 +118,7 @@ run-app: build/nesrecomp-app
 test-app: build/nesrecomp-app
 	python3 tests/check_app.py
 
-app-bundle: build/nesrecomp-app tools/make_app_bundle.py tools/make_app_art.py
+app-bundle: build/nesrecomp-app $(RECOMP) tools/make_app_bundle.py tools/make_app_art.py
 	python3 tools/make_app_bundle.py
 
 test-app-bundle: app-bundle

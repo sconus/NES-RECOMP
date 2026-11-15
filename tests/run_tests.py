@@ -322,7 +322,7 @@ def run_one(test, cflags, libs, rt_objs):
         return open(missed).read() if os.path.exists(missed) else ""
 
     for passes in range(1, MAX_PASSES + 1):
-        args = ["python3", "recomp.py", rom, "-o", c_file]
+        args = [os.path.join(ROOT, "build", "nesrecomp-recomp"), rom, "-o", c_file]
         if os.path.exists(missed):
             args += ["--missed", missed]
         r = sh(args, cwd=ROOT)

@@ -56,8 +56,9 @@
            Contents/Frameworks in the bundle, sdl2/ beside the program
            otherwise; games are built against it
        --build-dir D   where builds go (default: build/ in the project)
-   The project (recomp.py, runtime/) is where `make app` was run, or
-   $NESRECOMP_ROOT. */
+   The project (runtime/) is where `make app` was run, or
+   $NESRECOMP_ROOT; the recompiler (nesrecomp-recomp) and SDL2 are found
+   beside the app's program. */
 #include <SDL.h>
 #include <math.h>
 #include <stdint.h>
@@ -563,15 +564,11 @@ int main(int argc, char **argv) {
         return 0;
     }
 
-    /* Opened from Finder or the Dock, a Mac app gets a bare PATH and
-       starts in /: add the usual places of python3 (Homebrew), so the
-       build finds the same tools as Terminal. (Every file it uses is
-       given by its full path.) */
+    /* Opened from Finder or the Dock, a Mac app may get no PATH at all:
+       then the system's, where Apple's cc is. (Every other file it uses
+       is given by its full path.) */
     const char *path = getenv("PATH");
-    char newpath[4096];
-    snprintf(newpath, sizeof newpath, "/opt/homebrew/bin:/usr/local/bin:%s",
-             path && *path ? path : "/usr/bin:/bin:/usr/sbin:/sbin");
-    if (!path || !strstr(path, "/opt/homebrew/bin")) setenv("PATH", newpath, 1);
+    if (!path || !*path) setenv("PATH", "/usr/bin:/bin:/usr/sbin:/sbin", 1);
 
     const char *root = getenv("NESRECOMP_ROOT");
     if (!root || !*root) root = PROJECT_ROOT;
@@ -586,6 +583,7 @@ int main(int argc, char **argv) {
     int have_sdl = build_find_sdl(exe_real);
     if (sdl_info) {
         printf("sdl2 %s %s\n", have_sdl ? "found" : "missing", build_sdl_lib());
+        printf("recompiler %s\n", build_recompiler());
         return have_sdl ? 0 : 1;
     }
     snprintf(prefs, sizeof prefs, "%s/app-prefs.txt", bdir ? bdir : defdir);

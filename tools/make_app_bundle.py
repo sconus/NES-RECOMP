@@ -8,6 +8,8 @@ from build/nesrecomp-app (`make app`). Run by `make app-bundle`.
                             ROM can be dropped on its Dock icon or opened
                             with it from Finder
         MacOS/nesrecomp     the program, for Intel and Apple Silicon
+        MacOS/nesrecomp-recomp  the recompiler in C (build/nesrecomp-recomp),
+                            which the program runs beside it
         Frameworks/
             libSDL2.dylib   the app's own SDL2 (tools/build_sdl2.sh), which
                             the program loads and the games it builds
@@ -20,8 +22,8 @@ from build/nesrecomp-app (`make app`). Run by `make app-bundle`.
                             on the wall's gradient in a rounded square
             Credits.rtf     what the Mac's About box shows under the name
 
-The program still uses the project folder it was built in (recomp.py,
-runtime/), as `make app` does; the app is a way to start it.
+The program still uses the project folder it was built in for runtime/,
+as `make app` does (PLAN-standalone.md step 4 changes that).
 """
 import os
 import plistlib
@@ -163,6 +165,10 @@ def main():
     os.makedirs(os.path.join(contents, "MacOS"))
     os.makedirs(os.path.join(contents, "Resources"))
     shutil.copy2(exe, os.path.join(contents, "MacOS", "nesrecomp"))
+    recomp = os.path.join(ROOT, "build", "nesrecomp-recomp")
+    if not os.path.exists(recomp):
+        sys.exit("build/nesrecomp-recomp is missing: run `make recomp` first")
+    shutil.copy2(recomp, os.path.join(contents, "MacOS", "nesrecomp-recomp"))
     sdl = os.path.join(ROOT, "build", "sdl2")
     if not os.path.exists(os.path.join(sdl, "lib", "libSDL2.dylib")):
         sys.exit("build/sdl2 is missing: run `make sdl2` first")

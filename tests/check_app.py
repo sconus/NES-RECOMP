@@ -324,8 +324,8 @@ def main():
         problems.append("the last stage tops out at %.3f, not just under 1" % tail)
     check("the bar's arithmetic", not problems, "; ".join(problems))
 
-    def build(rom, bdir, trace=True, env=None):
-        cmd = [APP, "--build", rom, "--build-dir", bdir] + (["--trace-progress"] if trace else [])
+    def build(rom, bdir, trace=True, env=None, app=APP):
+        cmd = [app, "--build", rom, "--build-dir", bdir] + (["--trace-progress"] if trace else [])
         r = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=120)
         return r.returncode, r.stdout
 
@@ -403,25 +403,34 @@ def main():
     fake = os.path.join(OUT, "fakeroot")
     shutil.rmtree(fake, ignore_errors=True)
     shutil.copytree(os.path.join(ROOT, "runtime"), os.path.join(fake, "runtime"))
-    shutil.copy(os.path.join(ROOT, "recomp.py"), fake)
+    # The app and its recompiler copied together, as in the bundle, so
+    # the recompiler can be made newer; SDL2 beside them as in build/.
+    fbin = os.path.join(fake, "bin")
+    os.makedirs(fbin)
+    for name in ("nesrecomp-app", "nesrecomp-recomp"):
+        shutil.copy2(os.path.join(ROOT, "build", name), fbin)
+    os.symlink(os.path.join(ROOT, "build", "sdl2"), os.path.join(fbin, "sdl2"))
+    fapp = os.path.join(fbin, "nesrecomp-app")
     fenv = dict(os.environ, NESRECOMP_ROOT=fake)
     fh = os.path.join(OUT, "builds_header")
     shutil.rmtree(fh, ignore_errors=True)
-    build(spaced, fh, trace=False, env=fenv)
+    build(spaced, fh, trace=False, env=fenv, app=fapp)
     rtd = os.path.join(fake, "runtime")
     later = max(os.path.getmtime(os.path.join(rtd, f)) for f in os.listdir(rtd)) + 10
-    for name in os.listdir(os.path.join(fh, "app-rt")):        # objects older...
+    rtobj = os.path.join(fh, "app-rt")
+    for name in os.listdir(rtobj) if os.path.isdir(rtobj) else []:   # objects older...
         os.utime(os.path.join(fh, "app-rt", name), (later - 5, later - 5))
     os.utime(os.path.join(fake, "runtime", "rt.h"), (later, later))  # ...than a header
-    code, out = build(spaced, fh, trace=False, env=fenv)
+    code, out = build(spaced, fh, trace=False, env=fenv, app=fapp)
     rt = re.search(r"runtime: .*", out)
     check("a newer runtime header: every runtime file again", code == 0 and "runtime: 15 of 15" in out,
           rt.group(0) if rt else "exit %d" % code)
-    code, out = build(spaced, fh, trace=False, env=fenv)
+    code, out = build(spaced, fh, trace=False, env=fenv, app=fapp)
     up = code == 0 and "up to date: " in out
-    later = os.path.getmtime(os.path.join(fake, "recomp.py")) + 20
-    os.utime(os.path.join(fake, "recomp.py"), (later, later))
-    code, out = build(spaced, fh, trace=False, env=fenv)
+    rc = os.path.join(fbin, "nesrecomp-recomp")
+    later = os.path.getmtime(rc) + 20
+    os.utime(rc, (later, later))
+    code, out = build(spaced, fh, trace=False, env=fenv, app=fapp)
     check("a newer recompiler: built again", up and code == 0 and stages_of(out) == [1, 2, 3, 4, 5],
           "up to date first: %s; then exit %d, stages %s" % (up, code, stages_of(out)))
     with open(os.path.join(fake, "runtime", "zz_broken.c"), "w") as f:

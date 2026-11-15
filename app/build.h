@@ -27,7 +27,7 @@ const char *build_stage_name(int stage);
 /* Is it a file the recompiler takes (an iNES, NSF or FDS image)? If
    not, why, in a few words for the screen. */
 int build_check_file(const char *path, char *why, size_t n);
-/* Where the project is (the recompiler, the runtime) and where builds
+/* Where the project is (the runtime) and where builds
    go: set once before building. */
 void build_setup(const char *root, const char *build_dir);
 /* Where the app's own SDL2 is (PLAN-standalone.md step 1): the library
@@ -38,6 +38,9 @@ void build_setup(const char *root, const char *build_dir);
    sdl2/include beside the program. Returns 0 if they aren't there. */
 int build_find_sdl(const char *exe);
 const char *build_sdl_lib(void);
+/* The recompiler, nesrecomp-recomp beside the app's program (found by
+   build_find_sdl too). */
+const char *build_recompiler(void);
 /* Build it, now (returns 0 when done), or on a thread of its own. */
 int build_run(struct build *b, const char *rom);
 void build_start(struct build *b, const char *rom);

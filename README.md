@@ -11,6 +11,12 @@ program from a game or a homebrew album) into a player.
 
 ## How it works
 
+The recompiler comes twice, giving the same C to the byte: `recomp.py`,
+the readable reference, and its C version in `recomp/`
+(`build/nesrecomp-recomp`, `make recomp`). `make game`, `make test`,
+the test suite and the app use the C one, so they don't need Python;
+`make test-recomp` checks the two agree on every ROM under `tests/`.
+
 1. **Trace.** `recomp.py` starts at the cartridge's reset, NMI and IRQ
    vectors and follows every branch, jump and subroutine call to find the
    reachable code.
@@ -271,8 +277,9 @@ on it and it recompiles and plays it.
   for educational purposes only, by Serge and Claude, free software
   under the MIT License.
 
-What it needs: this project folder (the app uses the recompiler and the
-runtime in the folder it was built in), Python 3 and a C compiler. It
+What it needs: this project folder (the app uses the runtime in the
+folder it was built in) and a C compiler; not Python: the bundle carries
+the recompiler in C (`Contents/MacOS/nesrecomp-recomp`). It
 carries its own SDL2, built from SDL's source release by `make sdl2`
 (`tools/build_sdl2.sh`; the release unpacked in `build/sdl2/src` first),
 for Intel and Apple Silicon Macs from macOS 11, and the games it builds

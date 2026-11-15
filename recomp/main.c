@@ -19,7 +19,7 @@
 
 #define MAX_ENTRIES 65536
 
-static const char *prog = "recomp.py";
+static const char *prog = "nesrecomp-recomp";
 
 static void usage_error(const char *msg) {
     fprintf(stderr, "usage: %s [-h] [-o OUT] [--entry ENTRY] [--missed MISSED] rom\n", prog);

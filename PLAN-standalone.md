@@ -378,6 +378,69 @@ Every step keeps what holds today:
   - Breaks: the app still calling `python3`, the stamp not noticing a
     new recompiler, a recompiler error not reaching the TV.
 
+- Done:
+  - **The app** runs `nesrecomp-recomp`, found beside its own program:
+    `build/` for `make app`, `Contents/MacOS/` in the bundle.
+    - The build record uses the recompiler's time.
+    - If the recompiler is missing, the build says "the app's recompiler
+      is missing".
+    - `--sdl-info` also says where the recompiler is.
+  - **The PATH line naming Homebrew is gone.** The app only sets the
+    system's PATH if it gets none, so `cc` is found.
+  - A failed build also writes its reason to stderr, so an app opened
+    from Finder leaves it in the Mac's log.
+  - **The recompiler** is built for Intel and Apple Silicon, and the
+    bundle carries it.
+  - **`make game`, `make run`, `make test`** (nestest) **and the test
+    suite** (`tests/run_tests.py`) use it too. recomp.py is kept as the
+    reference, and `make test-recomp` compares the two.
+  - **Checks:**
+    - `tests/check_standalone.py`, 33 now. The bundle names
+      `/opt/homebrew` nowhere, with no exception left. Neither program
+      names Python. The recompiler is there, the same code, for both
+      kinds of Mac, needing only Apple's libraries. The program finds
+      it. With Python stopped from running (the check first makes sure
+      it really can't), the bundle builds and plays the test ROM, and
+      its log shows its own recompiler. A recompiler missing gives the
+      message.
+    - `tests/check_app.py` still has 58: "a newer recompiler: built
+      again" now uses a copy of the app with its own recompiler beside
+      it.
+    - `tests/check_app_bundle.py`: the log names the bundle's
+      recompiler.
+    - `tests/check_recomp.py`, 72 now: `make game` and `make test`
+      recompile with the C version (what `make -n` would run), and one
+      suite test passes with a `python3` first on PATH that only fails.
+  - **Two things found on the way:**
+    - The bundle check, slow: the scan of the bundle for
+      `/opt/homebrew` used a pattern that took six minutes on the 3 MB
+      library. It now looks for the plain text, and takes a second.
+    - The bundle check, opened as Finder does, failed twice and then
+      passed with no change. The file reached the app (a debug copy
+      showed it), but no build started. My best explanation: macOS asks
+      before an app opened from Finder may read files in the Desktop
+      folder, where this project lives. It asks again for each rebuild
+      with an ad-hoc signature, and the app waits until it's answered.
+      The check's message now says so.
+  - **Breaks, 11 tried, all caught,** after two fixes to the checks:
+    - First, the copy of the project with no break passed all three
+      checks (check_standalone, check_app, check_recomp), so a "caught"
+      means the break.
+    - Three breaks first crashed a check instead of failing it. The
+      check removed the recompiler from a copy of the app without
+      looking first, and check_app listed a folder a failed build never
+      made. Both checks now look first, and the three were run again.
+    - The breaks: the app still running `python3 recomp.py`, the stamp
+      looking at recomp.py, a recompiler error replaced by a vague one,
+      the bundle without the recompiler, the recompiler for Apple
+      Silicon only, the app looking for it in the project's `build/`,
+      Homebrew's bin put back on PATH, a missing recompiler not noticed,
+      and `make game`, `make test` and the suite still using recomp.py.
+  - Unchanged: `make test-all` (nestest exact through the C
+    recompiler, the suite 219 of 220 with test28 as always, the 58 app
+    checks), `make test-app-bundle`'s 12, and recomp.py and the C
+    version still agreeing on all 395 files.
+
 ### 4. The app works from anywhere
 - The bundle carries everything a build needs:
   - `Contents/Resources/runtime/` (the runtime's `.c` and `.h` files);

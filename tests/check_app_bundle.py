@@ -9,7 +9,7 @@ shows for a few seconds.
      signature;
   2. opening a file with it, as Finder does (`open -a`): the app starts
      with Finder's bare environment, the file reaches it as a drop, it
-     builds it (recomp.py and cc found), and plays it. The file is a ROM
+     builds it (its recompiler and cc found), and plays it. The file is a ROM
      made here that stops at once ("THE GAME STOPPED"), so no game
      window stays open; then the app is asked to quit.
 Exit status 0 when all pass.
@@ -158,9 +158,11 @@ def main():
     blog = open(logs[0]).read() if os.path.exists(logs[0]) else ""
     glog = open(game_log).read() if os.path.exists(game_log) else ""
     check("opened with a file: the app started", started.returncode == 0, started.stderr.strip())
-    check("the file reached it and it built it (recomp.py and cc found)",
-          "recomp.py" in blog and os.path.exists(logs[2]),
-          "build log %s" % ("empty" if not blog else blog.strip().splitlines()[-1][:80]))
+    check("the file reached it and it built it (its recompiler and cc found)",
+          "nesrecomp.app/Contents/MacOS/nesrecomp-recomp " in blog and os.path.exists(logs[2]),
+          "build log %s" % ("empty (if macOS asked whether NES RECOMP may use files in the "
+                            "Desktop folder, allow it and run this again)" if not blog
+                            else blog.strip().splitlines()[-1][:80]))
     check("it played what it built (the game stopped, as made)", "stopped: unknown opcode $02" in glog,
           "game log: %r" % glog[-80:])
     time.sleep(1)

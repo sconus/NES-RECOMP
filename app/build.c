@@ -1,7 +1,8 @@
 /* nesrecomp app: building a dropped ROM, as `make game` does, in stages
    the loading bar can follow:
      1  checking the file   its first bytes: iNES, NSF or FDS
-     2  recompiling         python3 recomp.py ROM -o build/NAME.c
+     2  recompiling         nesrecomp-recomp ROM -o build/NAME.c, the
+                            recompiler in C beside the app's program
                             (with ROM.missed when there is one)
      3  compiling the game  cc -c build/NAME.c
      4  the runtime         cc -c runtime/X.c for each file, kept in
@@ -15,7 +16,7 @@
    runs after the app is moved or replaced.
    A build that would make the same program again is skipped: build/
    NAME.stamp records what the program was built from (the ROM's path,
-   size and time, its .missed file's, recomp.py's time, the newest
+   size and time, its .missed file's, the recompiler's time, the newest
    runtime file's), and when all match and the program is there, the
    build is "up to date" and done at once.
    The tools run with posix_spawn (no shell, so paths with spaces work),
@@ -42,6 +43,7 @@ extern char **environ;
 
 static char root[PATH_MAX], build_dir[PATH_MAX];
 static char sdl_lib[PATH_MAX], sdl_inc[PATH_MAX + 8], sdl_version_h[PATH_MAX];
+static char recompiler[PATH_MAX];
 
 /* How much of the bar each stage has. */
 static const double weight[ST_COUNT] = { 0.02, 0.13, 0.45, 0.30, 0.10 };
@@ -84,6 +86,8 @@ int build_find_sdl(const char *exe) {
         snprintf(inc, sizeof inc, "%s/sdl2/include", dir);
     }
     if (!realpath(lib, sdl_lib)) sdl_lib[0] = 0;
+    /* The recompiler is beside the program, in the bundle and in build/. */
+    snprintf(recompiler, sizeof recompiler, "%s/nesrecomp-recomp", dir);
     char real[PATH_MAX];
     if (realpath(inc, real)) {
         snprintf(sdl_inc, sizeof sdl_inc, "-I%s/SDL2", real);
@@ -93,6 +97,8 @@ int build_find_sdl(const char *exe) {
 }
 
 const char *build_sdl_lib(void) { return sdl_lib; }
+
+const char *build_recompiler(void) { return recompiler; }
 
 /* Copy the app's SDL2 library to build/lib/, unless the copy there
    already has its size and time. */
@@ -158,6 +164,7 @@ static int fail(struct build *b, const char *fmt, const char *detail) {
     snprintf(b->error, sizeof b->error, fmt, detail ? detail : "");
     atomic_store(&b->state, B_FAILED);
     if (b->verbose) { printf("error: %s\n", b->error); fflush(stdout); }
+    else fprintf(stderr, "nesrecomp: %s: %s\n", b->rom, b->error);   /* for the Mac's log */
     return 1;
 }
 
@@ -225,7 +232,7 @@ static double mtime_ns(const char *path) {
 static void stamp_text(const char *rom, char *out, size_t n) {
     char missed[PATH_MAX], recomp[PATH_MAX], rdir[PATH_MAX];
     snprintf(missed, sizeof missed, "%s.missed", rom);
-    snprintf(recomp, sizeof recomp, "%s/recomp.py", root);
+    snprintf(recomp, sizeof recomp, "%s", recompiler);
     snprintf(rdir, sizeof rdir, "%s/runtime", root);
     double newest = 0;
     DIR *d = opendir(rdir);
@@ -269,6 +276,8 @@ int build_run(struct build *b, const char *rom) {
     if (!build_check_file(rom, why, sizeof why)) return fail(b, "%s", why);
     if (!sdl_lib[0] || !exists(sdl_version_h))
         return fail(b, "%s", "the app's SDL2 is missing");
+    if (access(recompiler, X_OK))
+        return fail(b, "%s", "the app's recompiler is missing");
 
     /* Up to date? Then nothing to build. */
     char stamp[PATH_MAX], want[PATH_MAX * 2 + 256], have[sizeof want];
@@ -288,14 +297,14 @@ int build_run(struct build *b, const char *rom) {
     /* 2: the recompiler. */
     set_stage(b, ST_RECOMP, 0.5 + file_size(rom) / 200000.0);
     snprintf(cfile, sizeof cfile, "%s/%s.c", build_dir, b->name);
-    snprintf(recomp, sizeof recomp, "%s/recomp.py", root);
+    snprintf(recomp, sizeof recomp, "%s", recompiler);
     snprintf(missed, sizeof missed, "%s.missed", rom);
-    char *ra[] = { "python3", recomp, (char *)rom, "-o", cfile, NULL, NULL, NULL };
-    if (access(missed, R_OK) == 0) { ra[5] = "--missed"; ra[6] = missed; }
+    char *ra[] = { recomp, (char *)rom, "-o", cfile, NULL, NULL, NULL };
+    if (access(missed, R_OK) == 0) { ra[4] = "--missed"; ra[5] = missed; }
     int r = run(b, ra, &from);
     if (r) {
         message(b, from, NULL, msg, sizeof msg);
-        return fail(b, "%s", r < 0 ? "python3 didn't start" : msg);
+        return fail(b, "%s", r < 0 ? "the recompiler didn't start" : msg);
     }
 
     /* 3: the game's C. */
