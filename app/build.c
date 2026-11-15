@@ -8,6 +8,11 @@
                             build/app-rt/ and only compiled again when a
                             runtime source or header is newer
      5  linking             cc -o build/NAME ...
+   A build that would make the same program again is skipped: build/
+   NAME.stamp records what the program was built from (the ROM's path,
+   size and time, its .missed file's, recomp.py's time, the newest
+   runtime file's), and when all match and the program is there, the
+   build is "up to date" and done at once.
    The tools run with posix_spawn (no shell, so paths with spaces work),
    their output appended to build/NAME.log. A tool that fails stops the
    build; its message (the recompiler's last line, the compiler's first
@@ -171,6 +176,35 @@ static long file_size(const char *path) {
     return stat(path, &st) ? 0 : (long)st.st_size;
 }
 
+static double mtime_ns(const char *path) {
+    struct stat st;
+    return stat(path, &st) ? -1 : st.st_mtimespec.tv_sec + st.st_mtimespec.tv_nsec / 1e9;
+}
+
+/* What a program would be built from, as one line. */
+static void stamp_text(const char *rom, char *out, size_t n) {
+    char missed[PATH_MAX], recomp[PATH_MAX], rdir[PATH_MAX];
+    snprintf(missed, sizeof missed, "%s.missed", rom);
+    snprintf(recomp, sizeof recomp, "%s/recomp.py", root);
+    snprintf(rdir, sizeof rdir, "%s/runtime", root);
+    double newest = 0;
+    DIR *d = opendir(rdir);
+    struct dirent *e;
+    while (d && (e = readdir(d))) {
+        size_t len = strlen(e->d_name);
+        if (len > 2 && (!strcmp(e->d_name + len - 2, ".c") || !strcmp(e->d_name + len - 2, ".h"))) {
+            char path[PATH_MAX];
+            snprintf(path, sizeof path, "%s/%s", rdir, e->d_name);
+            double t = mtime_ns(path);
+            if (t > newest) newest = t;
+        }
+    }
+    if (d) closedir(d);
+    snprintf(out, n, "rom %s %ld %.9f missed %ld %.9f recomp %.9f runtime %.9f\n", rom,
+             file_size(rom), mtime_ns(rom), file_size(missed), mtime_ns(missed),
+             mtime_ns(recomp), newest);
+}
+
 static int by_name(const void *a, const void *b) {
     return strcmp(*(char *const *)a, *(char *const *)b);
 }
@@ -194,6 +228,21 @@ int build_run(struct build *b, const char *rom) {
 
     set_stage(b, ST_CHECK, 0.2);
     if (!build_check_file(rom, why, sizeof why)) return fail(b, "%s", why);
+
+    /* Up to date? Then nothing to build. */
+    char stamp[PATH_MAX], want[PATH_MAX * 2 + 256], have[sizeof want];
+    snprintf(stamp, sizeof stamp, "%s/%s.stamp", build_dir, b->name);
+    stamp_text(rom, want, sizeof want);
+    FILE *sf = fopen(stamp, "r");
+    have[0] = 0;
+    if (sf) { if (!fgets(have, sizeof have, sf)) have[0] = 0; fclose(sf); }
+    if (!strcmp(have, want) && access(b->out, X_OK) == 0) {
+        atomic_store(&b->stage, ST_LINK);
+        atomic_store(&b->state, B_DONE);
+        if (b->verbose) { printf("up to date: %s\n", b->out); fflush(stdout); }
+        return 0;
+    }
+    unlink(stamp);                  /* only a finished build is trusted */
 
     /* 2: the recompiler. */
     set_stage(b, ST_RECOMP, 0.5 + file_size(rom) / 200000.0);
@@ -290,6 +339,8 @@ int build_run(struct build *b, const char *rom) {
         if (!msg[0]) message(b, from, NULL, msg, sizeof msg);
         return fail(b, "linking: %s", r < 0 ? "cc didn't start" : msg);
     }
+    sf = fopen(stamp, "w");
+    if (sf) { fputs(want, sf); fclose(sf); }
     atomic_store(&b->state, B_DONE);
     if (b->verbose) { printf("built: %s\n", b->out); fflush(stdout); }
     return 0;

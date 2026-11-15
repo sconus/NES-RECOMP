@@ -723,3 +723,10 @@ music, the paddle, the Zapper and four players, NES 2.0 headers, MMC5's
 split, the Famicom Disk System), including how each timing value was tuned, what
 was tried for what still fails, and where the documentation left a
 choice to make.
+
+## License
+
+NES RECOMP is for educational purposes only, by Serge and Claude. It is
+free software under the MIT License (see `LICENSE`). Test ROMs from the
+nes-test-roms collection keep their own authors' terms, and no game is
+part of this project.

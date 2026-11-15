@@ -12,6 +12,7 @@
 #include "video.h"
 
 static SDL_Window *window;
+static int window_scale;                /* the last whole-step size, for video_scale */
 static SDL_Renderer *renderer;
 static SDL_Texture *texture;
 static uint64_t next_frame_at;           /* performance-counter ticks */
@@ -93,15 +94,21 @@ void video_init(int scale, const char *title) {
     if (SDL_Init(SDL_INIT_VIDEO) != 0) sdl_fail("SDL_Init");
     if (gamepad_init() != 0)        /* no controllers is fine; say why */
         fprintf(stderr, "game controllers unavailable: %s\n", SDL_GetError());
+    /* Resizable: the picture is drawn at the largest whole-number scale
+       that fits, centred on black, so its pixels stay sharp. */
     window = SDL_CreateWindow(title, SDL_WINDOWPOS_CENTERED,
                               SDL_WINDOWPOS_CENTERED, NES_WIDTH * scale,
-                              NES_HEIGHT * scale, SDL_WINDOW_ALLOW_HIGHDPI);
+                              NES_HEIGHT * scale,
+                              SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_RESIZABLE);
     if (!window) sdl_fail("SDL_CreateWindow");
     window_title = title;
     renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
     if (!renderer) sdl_fail("SDL_CreateRenderer");
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "nearest");
     SDL_RenderSetLogicalSize(renderer, NES_WIDTH, NES_HEIGHT);
+    SDL_RenderSetIntegerScale(renderer, SDL_TRUE);
+    SDL_SetWindowMinimumSize(window, NES_WIDTH, NES_HEIGHT);
+    window_scale = scale;
     texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888,
                                 SDL_TEXTUREACCESS_STREAMING,
                                 NES_WIDTH, NES_HEIGHT);
@@ -115,6 +122,35 @@ void video_init(int scale, const char *title) {
 
 static int mouse_seen;                  /* the mouse has moved over the window */
 
+/* The window's size in whole steps of 256x240 (points), as it is now. */
+static int current_scale(void) {
+    int w, h;
+    SDL_GetWindowSize(window, &w, &h);
+    int sx = w / NES_WIDTH, sy = h / NES_HEIGHT, s = sx < sy ? sx : sy;
+    return s < 1 ? 1 : s;
+}
+
+static void resize_step(int d) {
+    if (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN_DESKTOP) return;
+    int s = current_scale() + d;
+    SDL_DisplayMode m;
+    int most = 16;
+    if (SDL_GetDesktopDisplayMode(SDL_GetWindowDisplayIndex(window), &m) == 0) {
+        int mx = m.w / NES_WIDTH, my = m.h / NES_HEIGHT;
+        most = mx < my ? mx : my;
+    }
+    if (s < 1) s = 1;
+    if (s > most) s = most;
+    SDL_SetWindowSize(window, NES_WIDTH * s, NES_HEIGHT * s);
+}
+
+int video_scale(void) {
+    if (!window) return 0;
+    if (!(SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN_DESKTOP))
+        window_scale = current_scale();
+    return window_scale;
+}
+
 static void handle_events(void) {
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
@@ -122,6 +158,18 @@ static void handle_events(void) {
         if (e.type == SDL_MOUSEMOTION) mouse_seen = 1;
         gamepad_event(&e);
         if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_ESCAPE) exit(0);
+        if (e.type == SDL_KEYDOWN && (e.key.keysym.mod & KMOD_GUI) && !e.key.repeat) {
+            /* Cmd+= / Cmd+-: a whole step bigger or smaller; Cmd+F: full
+               screen. (Plain keys stay the controllers'.) */
+            SDL_Keycode k = e.key.keysym.sym;
+            if (k == SDLK_EQUALS || k == SDLK_PLUS || k == SDLK_KP_PLUS) resize_step(1);
+            else if (k == SDLK_MINUS || k == SDLK_KP_MINUS) resize_step(-1);
+            else if (k == SDLK_f) {
+                int full = SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN_DESKTOP;
+                SDL_SetWindowFullscreen(window, full ? 0 : SDL_WINDOW_FULLSCREEN_DESKTOP);
+            }
+            continue;
+        }
         if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_m && !e.key.repeat)
             toggle_mute();
         if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_r && !e.key.repeat)
@@ -166,8 +214,14 @@ int video_mouse(double *x, double *y, int *inside, int *button) {
     int mx, my, w, h;
     Uint32 b = SDL_GetMouseState(&mx, &my);
     SDL_GetWindowSize(window, &w, &h);
-    double fx = w > 1 ? (double)mx / (w - 1) : 0.5;
-    double fy = h > 1 ? (double)my / (h - 1) : 0.5;
+    /* Relative to the picture, not the window: in a resized window the
+       picture is a whole-number scale, centred. */
+    int s = current_scale(), pw = NES_WIDTH * s, ph = NES_HEIGHT * s;
+    int ox = (w - pw) / 2, oy = (h - ph) / 2;
+    if (pw > w) { ox = 0; pw = w; }
+    if (ph > h) { oy = 0; ph = h; }
+    double fx = pw > 1 ? (double)(mx - ox) / (pw - 1) : 0.5;
+    double fy = ph > 1 ? (double)(my - oy) / (ph - 1) : 0.5;
     *x = fx < 0 ? 0 : fx > 1 ? 1 : fx;
     *y = fy < 0 ? 0 : fy > 1 ? 1 : fy;
     *inside = SDL_GetMouseFocus() == window;

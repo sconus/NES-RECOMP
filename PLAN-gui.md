@@ -287,8 +287,131 @@ up when it's right.
   - **Breaks, 10 tried, all caught.** "Extra arguments dropped" was
     caught by the check's time limit: without `--headless`, the game
     opened a real window and ran until the check stopped waiting.
-  - In the window: opened with `nes15` (free homebrew from the
-    collection) for the user to try: build, play, quit and come back.
+  - In the window, with `nes15` (free homebrew from the collection): the
+    user built it, played it, quit, and the drop screen came back. The
+    second time, the build used the `.missed` from the first, and the
+    game ran with 0 spots interpreted.
+
+### 3b. Polish
+Asked for after step 3. Each item is checked by `make test-app` where a
+script can see it, and tried in the window where it can't.
+- **About screen, and the license.**
+  - An `ABOUT` screen on the TV, reached with the I key and left with
+    any key or a drop, saying: "NES RECOMP / For educational purposes
+    only / by Serge and Claude / Free software under the MIT License".
+  - A `LICENSE` file at the top of the project with the MIT License
+    (copyright Serge and Claude), and a line in the README.
+  - Step 4's app bundle puts the same words in the Mac menu's "About"
+    box.
+  - Check: the screen pixel for pixel; the key opens and closes it.
+- **Skip unneeded rebuilds.** A ROM whose program is already built,
+  from the same ROM, the same `.missed`, the same recompiler and the
+  same runtime, starts at once, with no recompile.
+  - A small record next to each build says what it was built from: the
+    ROM's size and time, the `.missed` file's, `recomp.py`'s, and the
+    newest runtime file's. When any of those differ, it is built again,
+    as now.
+  - The bar shows its stages as done, then the game opens.
+  - Check:
+    - built twice in a row, the second skips every stage;
+    - after touching the ROM, the `.missed`, `recomp.py` or a runtime
+      file, it builds again.
+- **Click to open.** Clicking the TV opens the Mac's file picker (a
+  standard "Choose a ROM" dialog); the file chosen is taken as if
+  dropped. Cancelling changes nothing.
+  - Check: in the window (a script can't click a Mac dialog); the
+    clickable area is checked by its code.
+- **Controls card.** Before a game starts, the TV shows the keys for a
+  couple of seconds:
+  - controller 1: arrows, X = A, Z = B, Return = Start, Right Shift =
+    Select;
+  - M = mute, R = reset, Esc = quit.
+
+  Any key skips it, and the game then opens.
+  - Check: the card pixel for pixel; it comes before the game and its
+    time is skipped by a key.
+- **Resizing the game's window.** The game's window can be resized like
+  the app's, and keeps its picture sharp: the largest whole-number
+  scale that fits, centred on black.
+  - Cmd+= and Cmd+- grow and shrink it a step; Cmd+F switches full
+    screen.
+  - The app starts each game at the size used last, kept in
+    `build/app-prefs.txt`; the runtime gets `--scale`, and a
+    `--remember-size FILE` option to write the size back on exit.
+  - Without the app, games behave as before (fixed size, `--scale`),
+    except that dragging the window's edge works too.
+  - Check:
+    - the runtime's scaling of the picture into a window of several
+      sizes (the same arithmetic as the app's, checked from its
+      screenshot path);
+    - `--remember-size` writes what the window was;
+    - in the window, the keys and the dragging.
+  - The ROM suite and nestest stay as they are, and all 319 earlier
+    files give the same C (the runtime's window code isn't in the
+    generated C).
+
+- Done:
+  - **About and the license.** I opens an About screen on the TV:
+    "NES RECOMP" in tall letters, "For educational purposes only", "By
+    Serge and Claude", "Free software under the MIT License". Any key,
+    a click or a drop leaves it. A `LICENSE` file (MIT, 2026, Serge and
+    Claude) is at the top of the project, and the README has a License
+    section.
+  - **Up to date.** After a build, `build/NAME.stamp` records:
+    - the ROM's path, size and time (to the nanosecond);
+    - the `.missed` file's size and time;
+    - `recomp.py`'s time;
+    - the newest runtime file's time.
+
+    The next build of that ROM, if all of them match and the program is
+    there, says "up to date" after checking the file and is done at
+    once. A build that starts removes the record, so only a finished
+    build is trusted.
+  - **Click to open.** A click on the TV's screen opens the Mac's file
+    dialog, through `osascript`, on a thread of its own so the window
+    keeps drawing. The file chosen is taken as if dropped, and Cancel
+    changes nothing. Mouse points are turned into window pixels (twice
+    as many on a Retina screen) and then into the canvas, by the same
+    layout as the drawing.
+  - **The controls card.** Before each game the TV shows the keys for
+    2.5 seconds (any key skips it), in two columns:
+    - for a game: arrows, X, Z, Return, Right Shift, M, R, Esc;
+    - for a music file (an NSF): Left, Right, R, M, Esc.
+  - **The game's window.** It can now be resized, in the runtime (so
+    `make run` gets it too):
+    - SDL draws the picture at the largest whole-number scale that
+      fits, centred on black;
+    - Cmd+= and Cmd+- change the size by a whole step (up to what the
+      screen holds), and Cmd+F switches full screen;
+    - the Zapper and paddle read the mouse relative to the picture, not
+      the window;
+    - `--remember-size FILE` writes "game_scale N" on exit.
+
+    The app keeps that in `build/app-prefs.txt` and starts the next
+    game at that size with `--scale`.
+  - **Checks:** 58 now. New ones:
+    - the About screen and both cards, pixel for pixel;
+    - the LICENSE file;
+    - the click area's edges at four window sizes;
+    - up to date when nothing changed (and the program not touched);
+    - built again after a change to the ROM, a new `.missed`, a newer
+      recompiler, or a deleted program;
+    - the size remembered.
+
+    Two checks needed fixing first, both test setups:
+    - playing between two builds writes a `.missed`, so rebuilding there
+      was right;
+    - a header's time has to pass the newest runtime file's.
+  - **Breaks, 12 tried, all caught.** At first every run seemed caught,
+    because the break script's copy of the project had no `LICENSE`, so
+    the checks crashed at that point. With the copy fixed and only real
+    failures counted, "a missing program trusted" wasn't caught, and the
+    deleted-program check was added. A missing LICENSE is now a failure,
+    not a crash.
+  - Games are unchanged: nestest exact, the suite 219 of 220 (test28 as
+    always), all 319 earlier files give the same C.
+  - In the window: the picker, the card and the resizing are for the
+    user to try.
 
 ### 4. A double-clickable app and the README
 - `make app-bundle` builds `build/nesrecomp.app`, a macOS app bundle

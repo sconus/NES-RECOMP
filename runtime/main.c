@@ -217,6 +217,10 @@ static void print_test_result(void) {
 static int use_save_file;
 static const char *wav_path;
 static int speakers, audio_stats, ram_stats;
+/* --remember-size FILE: on exit, write the window's size there as
+   "game_scale N" (the nesrecomp app keeps it in build/app-prefs.txt). */
+static const char *remember_size;
+static int start_scale;
 
 /* Hand the APU's finished samples to the speakers and/or WAV file. */
 static void drain_sound(void) {
@@ -230,6 +234,11 @@ static void drain_sound(void) {
 }
 
 static void at_exit(void) {
+    if (remember_size) {
+        int s = video_scale();
+        FILE *f = fopen(remember_size, "w");
+        if (f) { fprintf(f, "game_scale %d\n", s ? s : start_scale); fclose(f); }
+    }
     if (wav_path) { drain_sound(); wav_close(); }
     save_missed();
     if (ram_stats)
@@ -515,6 +524,7 @@ static void usage(const char *prog) {
         "  --wav FILE         write the sound to a WAV file\n"
         "  --mute             no sound from the speakers (M toggles it)\n"
         "  --audio-stats      print the sound queue depth once a second\n"
+        "  --remember-size F  on exit, write the window's size (game_scale N) to F\n"
         "  --ram-stats        on exit, count the instructions in RAM ($6000-$DFFF)\n"
         "                     that ran translated and interpreted (FDS, FDS NSFs)\n"
         "  --input FILE       scripted button presses (see README.md)\n"
@@ -580,6 +590,7 @@ int main(int argc, char **argv) {
             stop_after_frames = strtol(argv[++i], NULL, 10);
         else if (!strcmp(a, "--screenshot") && more) screenshot_path = argv[++i];
         else if (!strcmp(a, "--scale") && more) scale = atoi(argv[++i]);
+        else if (!strcmp(a, "--remember-size") && more) remember_size = argv[++i];
         else if (!strcmp(a, "--input") && more) load_input_script(argv[++i]);
         else if (!strcmp(a, "--dump-text")) dump_text = 1;
         else if (!strcmp(a, "--no-save")) no_save = 1;
@@ -660,6 +671,7 @@ int main(int argc, char **argv) {
         video_init(scale < 1 ? 1 : scale, name);
         if (zapper_plugged()) video_crosshair();
     }
+    start_scale = scale < 1 ? 1 : scale;
     atexit(at_exit);
     ppu_frame_done = frame_done;
     apu_reset();

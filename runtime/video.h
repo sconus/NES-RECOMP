@@ -28,6 +28,11 @@ uint8_t video_buttons(int player);
    left button. Returns 0 (and sets nothing) until the mouse has moved
    over the window. */
 int video_mouse(double *x, double *y, int *inside, int *button);
+/* The window's size now, in whole steps of 256x240 (the last one before
+   full screen, if it's full screen); 0 with no window. The window can be
+   resized by dragging, Cmd+= and Cmd+-, and Cmd+F makes it full screen. */
+int video_scale(void);
+
 /* Show the pointer as a cross over the window (for the Zapper). */
 void video_crosshair(void);
 

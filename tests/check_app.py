@@ -354,10 +354,34 @@ def main():
     check("build: the program runs and passes its test",
           ran is not None and "test status at $6000: $00" in ran.stderr,
           "no program" if ran is None else ran.stderr[-120:])
+    # Playing it wrote a .missed beside the ROM: the next build takes it in;
+    # the one after has nothing new.
+    build(spaced, builds, trace=False)
+    code, out = build(spaced, builds, trace=False)
+    check("build again, nothing changed: up to date, no stage run",
+          code == 0 and "up to date: " in out and stages_of(out) == [1],
+          "exit %d, stages %s" % (code, stages_of(out)))
+    exe_time = os.path.getmtime(exe) if os.path.exists(exe) else 0
+    check("up to date: the program left as it was", exe_time and os.path.getmtime(exe) == exe_time,
+          "it changed")
+    t = os.path.getmtime(spaced) + 5
+    os.utime(spaced, (t, t))                    # the ROM newer: built again
     code, out = build(spaced, builds, trace=False)
     rt = re.search(r"runtime: .*", out)
-    check("build again: no runtime file compiled", code == 0 and "runtime: 0 of 15" in out,
-          rt.group(0) if rt else "exit %d" % code)
+    check("the ROM changed: built again, no runtime file compiled",
+          code == 0 and stages_of(out) == [1, 2, 3, 4, 5] and "runtime: 0 of 15" in out,
+          rt.group(0) if rt else "exit %d, stages %s" % (code, stages_of(out)))
+    with open(spaced + ".missed", "w") as f:    # a .missed file appears: again
+        f.write("")
+    code, out = build(spaced, builds, trace=False)
+    check("a .missed file appeared: built again", code == 0 and stages_of(out) == [1, 2, 3, 4, 5],
+          "exit %d, stages %s" % (code, stages_of(out)))
+    os.remove(spaced + ".missed")
+    build(spaced, builds, trace=False)
+    os.remove(exe)                              # the program gone, its record kept
+    code, out = build(spaced, builds, trace=False)
+    check("the program deleted: built again", code == 0 and stages_of(out) == [1, 2, 3, 4, 5]
+          and os.path.exists(exe), "exit %d, stages %s" % (code, stages_of(out)))
     code, out = build(os.path.join(ROOT, "tests", "suite.txt"), builds, trace=False)
     seen = stages_of(out)
     check("not a ROM: refused", code == 1 and "error: NOT AN NES ROM" in out and seen == [1],
@@ -384,7 +408,8 @@ def main():
     fh = os.path.join(OUT, "builds_header")
     shutil.rmtree(fh, ignore_errors=True)
     build(spaced, fh, trace=False, env=fenv)
-    later = os.path.getmtime(os.path.join(fake, "runtime", "rt.h")) + 10
+    rtd = os.path.join(fake, "runtime")
+    later = max(os.path.getmtime(os.path.join(rtd, f)) for f in os.listdir(rtd)) + 10
     for name in os.listdir(os.path.join(fh, "app-rt")):        # objects older...
         os.utime(os.path.join(fh, "app-rt", name), (later - 5, later - 5))
     os.utime(os.path.join(fake, "runtime", "rt.h"), (later, later))  # ...than a header
@@ -392,6 +417,13 @@ def main():
     rt = re.search(r"runtime: .*", out)
     check("a newer runtime header: every runtime file again", code == 0 and "runtime: 15 of 15" in out,
           rt.group(0) if rt else "exit %d" % code)
+    code, out = build(spaced, fh, trace=False, env=fenv)
+    up = code == 0 and "up to date: " in out
+    later = os.path.getmtime(os.path.join(fake, "recomp.py")) + 20
+    os.utime(os.path.join(fake, "recomp.py"), (later, later))
+    code, out = build(spaced, fh, trace=False, env=fenv)
+    check("a newer recompiler: built again", up and code == 0 and stages_of(out) == [1, 2, 3, 4, 5],
+          "up to date first: %s; then exit %d, stages %s" % (up, code, stages_of(out)))
     with open(os.path.join(fake, "runtime", "zz_broken.c"), "w") as f:
         f.write("this is not C;\n")
     fb = os.path.join(OUT, "builds_broken")
@@ -475,6 +507,63 @@ def main():
     code, out = play("--play-only", os.path.join(proms, "no such game"), game)
     check("a game that can't start: said so", code == 1 and "error: couldn't start the game" in out,
           "exit %d, %s" % (code, last_line(out)))
+
+    # 8. polish: the About screen, the controls cards, where a click opens
+    # the file picker, and the game window's size remembered.
+    img = screen("about", "--show", "about")
+    w_set = glyph_pixels(font, "NES RECOMP", cx, sy + 4, 1, 2) | \
+        glyph_pixels(font, "BY SERGE AND CLAUDE", cx, sy + 46)
+    d_set = set()
+    for text_, y in (("FOR EDUCATIONAL", 23), ("PURPOSES ONLY", 32), ("FREE SOFTWARE UNDER", 61),
+                     ("THE MIT LICENSE", 70)):
+        d_set |= glyph_pixels(font, text_, cx, sy + y)
+    bad = screen_text(img, w_set, d_set)
+    check("the About screen", not bad, "%d pixel(s) differ" % bad)
+    lic_path = os.path.join(ROOT, "LICENSE")
+    lic = open(lic_path).read() if os.path.exists(lic_path) else ""
+    check("the LICENSE file: MIT, Serge and Claude",
+          lic.startswith("MIT License") and "Copyright (c) 2026 Serge and Claude" in lic, "not as expected")
+
+    def at(s, x):                               # text starting at x
+        return x + (len(s) * 6 - 1) // 2
+    for name, title, rows in (
+            ("card", "CONTROLS", [("ARROWS", "D-PAD"), ("X", "A BUTTON"), ("Z", "B BUTTON"),
+                                  ("RETURN", "START"), ("R.SHIFT", "SELECT"), ("M", "MUTE"),
+                                  ("R", "RESET"), ("ESC", "QUIT")]),
+            ("card_music", "MUSIC PLAYER", [("LEFT", "LAST SONG"), ("RIGHT", "NEXT SONG"),
+                                            ("R", "RESTART"), ("M", "MUTE"), ("ESC", "QUIT")])):
+        img = screen(name, "--show", name)
+        w_set = glyph_pixels(font, title, cx, sy + 3, 1, 2)
+        d_set = set()
+        for i, (k, v) in enumerate(rows):
+            w_set |= glyph_pixels(font, k, at(k, sx + 9), sy + 20 + i * 8)
+            d_set |= glyph_pixels(font, v, at(v, sx + 57), sy + 20 + i * 8)
+        bad = screen_text(img, w_set, d_set)
+        check("the %s card" % title.lower(), not bad, "%d pixel(s) differ" % bad)
+
+    wrong = []
+    for size in ((960, 540), (1000, 620), (640, 360), (320, 180)):
+        scale = max(1, min(size[0] // W, size[1] // H))
+        ox, oy = (size[0] - W * scale) // 2, (size[1] - H * scale) // 2
+        x0, y0 = ox + sx * scale, oy + sy * scale
+        x1, y1 = ox + (sx + sw) * scale - 1, oy + (sy + sh) * scale - 1
+        for x, y, want in ((x0, y0, "tv"), (x1, y1, "tv"), (x0 - 1, y0, "outside"),
+                           (x0, y0 - 1, "outside"), (x1 + 1, y1, "outside"), (x1, y1 + 1, "outside"),
+                           ((x0 + x1) // 2, (y0 + y1) // 2, "tv")):
+            got = subprocess.run([APP, "--hit-test", "%dx%d" % size, str(x), str(y)],
+                                 capture_output=True, text=True).stdout.strip()
+            if got != want:
+                wrong.append("%dx%d (%d,%d): %s" % (size + (x, y, got)))
+    check("a click opens the file picker exactly on the TV's screen", not wrong, "; ".join(wrong[:3]))
+
+    remember = os.path.join(OUT, "prefs.txt")
+    if os.path.exists(remember):
+        os.remove(remember)
+    if os.path.exists(exe):
+        subprocess.run([exe, spaced, "--headless", "--frames", "10", "--no-save", "--scale", "5",
+                        "--remember-size", remember], capture_output=True)
+    said = open(remember).read() if os.path.exists(remember) else ""
+    check("the game remembers its window's size", said == "game_scale 5\n", repr(said))
 
     print("\n%d check(s) failed" % len(fails) if fails else "\nall checks pass")
     sys.exit(1 if fails else 0)

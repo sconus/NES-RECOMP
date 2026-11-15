@@ -19,6 +19,10 @@
      error   "CAN'T RECOMPILE" and why (a wrong file, or the tool's
              message); the whole output is in build/NAME.log
      done    "DONE!": the program is built
+     about   I on the drop, error or done screens: who made it and its
+             license; any key or a drop leaves it
+     card    the keys, for a couple of seconds before a game starts (any
+             key skips it); a music file (NSF) gets the player's keys
      play    the game runs in its own window (play.c) and this one hides;
              when the game quits, back to the drop screen, or, if it
              stopped or crashed, "THE GAME STOPPED" and why
@@ -41,6 +45,9 @@
        nesrecomp-app --play-only EXE ROM [--play-args "ARGS"]
            just play: run EXE on ROM as the app does, and say how it
            ended (for the checks)
+       nesrecomp-app --hit-test WxH X Y
+           is the pixel (X, Y) of a W x H window on the TV's screen (where
+           a click opens the file picker)? Prints "tv" or "outside"
        nesrecomp-app --progress-model
            print the loading bar's value for each stage over a long range
            of times (and runtime file counts), for tests/check_app.py
@@ -53,6 +60,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <pthread.h>
+#include <stdatomic.h>
 #include <zlib.h>
 #include "art.h"
 #include "build.h"
@@ -220,6 +229,48 @@ static void draw_done(long n, const char *name) {
     text("DROP ANOTHER FILE", SCREEN_CX, y + 70, 1, dim, 1);
 }
 
+static void draw_about(long n) {
+    draw_room(n, 0);
+    uint32_t white = ink(INK_TEXT), dim = ink(INK_MANE_HI);
+    int y = ART_SCREEN_Y;
+    text_xy("NES RECOMP", SCREEN_CX, y + 4, 1, 2, white, 1);
+    text("FOR EDUCATIONAL", SCREEN_CX, y + 23, 1, dim, 1);
+    text("PURPOSES ONLY", SCREEN_CX, y + 32, 1, dim, 1);
+    text("BY SERGE AND CLAUDE", SCREEN_CX, y + 46, 1, white, 1);
+    text("FREE SOFTWARE UNDER", SCREEN_CX, y + 61, 1, dim, 1);
+    text("THE MIT LICENSE", SCREEN_CX, y + 70, 1, dim, 1);
+}
+
+/* The keys, before a game (or a music file) starts: key, what it does. */
+static const char *const card_game[][2] = {
+    { "ARROWS", "D-PAD" }, { "X", "A BUTTON" }, { "Z", "B BUTTON" },
+    { "RETURN", "START" }, { "R.SHIFT", "SELECT" }, { "M", "MUTE" },
+    { "R", "RESET" }, { "ESC", "QUIT" }, { NULL, NULL },
+};
+static const char *const card_music[][2] = {
+    { "LEFT", "LAST SONG" }, { "RIGHT", "NEXT SONG" }, { "R", "RESTART" },
+    { "M", "MUTE" }, { "ESC", "QUIT" }, { NULL, NULL },
+};
+#define CARD_KEY_X (ART_SCREEN_X + 9)       /* the two columns */
+#define CARD_DO_X (ART_SCREEN_X + 57)
+
+/* Text starting at x (not centred). */
+static void text_at(const char *s, int x, int y, uint32_t colour) {
+    text(s, x + ((int)strlen(s) * 6 - 1) / 2, y, 1, colour, 1);
+}
+
+static void draw_card(long n, int music) {
+    draw_room(n, 0);
+    uint32_t white = ink(INK_TEXT), dim = ink(INK_MANE_HI);
+    int y = ART_SCREEN_Y;
+    text_xy(music ? "MUSIC PLAYER" : "CONTROLS", SCREEN_CX, y + 3, 1, 2, white, 1);
+    const char *const (*rows)[2] = music ? card_music : card_game;
+    for (int i = 0; rows[i][0]; i++) {
+        text_at(rows[i][0], CARD_KEY_X, y + 20 + i * 8, white);
+        text_at(rows[i][1], CARD_DO_X, y + 20 + i * 8, dim);
+    }
+}
+
 static void draw_play(long n, const char *name) {
     draw_room(n, 0);
     uint32_t white = ink(INK_TEXT), dim = ink(INK_MANE_HI);
@@ -233,10 +284,27 @@ static void draw_play(long n, const char *name) {
 /* The canvas into a window of w x h pixels: the largest whole-number
    scale that fits (at least 1, cropped if the window is smaller), centred
    on a dark border. */
+static void layout(int w, int h, int *scale, int *ox, int *oy) {
+    int sx = w / ART_W, sy = h / ART_H;
+    *scale = sx < sy ? sx : sy;
+    if (*scale < 1) *scale = 1;
+    *ox = (w - ART_W * *scale) / 2;
+    *oy = (h - ART_H * *scale) / 2;
+}
+
+/* Is the window pixel (x, y), in a window of w x h pixels, on the TV's
+   screen? (A click there opens the file picker.) */
+static int on_tv(int x, int y, int w, int h) {
+    int scale, ox, oy;
+    layout(w, h, &scale, &ox, &oy);
+    int cx = (x - ox) / scale - (x < ox), cy = (y - oy) / scale - (y < oy);
+    return cx >= ART_SCREEN_X && cx < ART_SCREEN_X + ART_SCREEN_W &&
+           cy >= ART_SCREEN_Y && cy < ART_SCREEN_Y + ART_SCREEN_H;
+}
+
 static void present(uint32_t *out, int w, int h) {
-    int sx = w / ART_W, sy = h / ART_H, scale = sx < sy ? sx : sy;
-    if (scale < 1) scale = 1;
-    int ox = (w - ART_W * scale) / 2, oy = (h - ART_H * scale) / 2;
+    int scale, ox, oy;
+    layout(w, h, &scale, &ox, &oy);
     uint32_t border = ink(INK_LETTERBOX);
     for (int y = 0; y < h; y++) {
         int cy = y - oy;
@@ -319,6 +387,9 @@ static int screenshot(const char *path, long frame, int w, int h) {
     else if (!strcmp(shot_opts.show, "stopped")) draw_error(frame, "THE GAME STOPPED", shot_opts.message);
     else if (!strcmp(shot_opts.show, "done")) draw_done(frame, name);
     else if (!strcmp(shot_opts.show, "play")) draw_play(frame, name);
+    else if (!strcmp(shot_opts.show, "about")) draw_about(frame);
+    else if (!strcmp(shot_opts.show, "card")) draw_card(frame, 0);
+    else if (!strcmp(shot_opts.show, "card_music")) draw_card(frame, 1);
     else draw_drop(frame);
     present(out, w, h);
     int r = save_png(path, out, w, h);
@@ -334,11 +405,59 @@ static void usage(const char *prog) {
 }
 
 /* The window's state. */
-enum { S_DROP, S_BUILD, S_ERROR, S_DONE, S_PLAY, S_STOPPED };
+enum { S_DROP, S_BUILD, S_ERROR, S_DONE, S_PLAY, S_STOPPED, S_ABOUT, S_CARD };
+#define CARD_FRAMES 150                 /* the controls card: 2.5 seconds */
 static struct build job;
 static int screen = S_DROP;
 static char error_msg[512], shown_name[64], game_log[PATH_MAX + 16];
 static pid_t game = -1;
+static long card_until;
+static int card_is_music;
+static char prefs[PATH_MAX];            /* build/app-prefs.txt */
+
+/* The game window's size: whole steps of 256x240, kept between runs. */
+static int game_scale(void) {
+    int scale = 3;
+    FILE *f = fopen(prefs, "r");
+    if (f) {
+        if (fscanf(f, "game_scale %d", &scale) != 1 || scale < 1 || scale > 16) scale = 3;
+        fclose(f);
+    }
+    return scale;
+}
+
+/* ---- the file picker (a click on the TV), on a thread of its own: the
+   Mac's standard dialog, through osascript, so the window keeps
+   drawing while it is open ---- */
+static atomic_int picker;               /* 0 idle, 1 open, 2 a file chosen */
+static char picked[PATH_MAX];
+
+static void *picker_main(void *arg) {
+    (void)arg;
+    FILE *p = popen("osascript -e 'POSIX path of (choose file with prompt "
+                    "\"Choose an NES ROM, NSF or FDS file\")' 2>/dev/null", "r");
+    char line[PATH_MAX] = "";
+    if (p) {
+        if (!fgets(line, sizeof line, p)) line[0] = 0;
+        pclose(p);
+    }
+    line[strcspn(line, "\r\n")] = 0;
+    if (line[0]) {
+        snprintf(picked, sizeof picked, "%s", line);
+        atomic_store(&picker, 2);
+    } else {
+        atomic_store(&picker, 0);       /* cancelled */
+    }
+    return NULL;
+}
+
+static void open_picker(void) {
+    int idle = 0;
+    if (!atomic_compare_exchange_strong(&picker, &idle, 1)) return;
+    pthread_t t;
+    if (pthread_create(&t, NULL, picker_main, NULL) == 0) pthread_detach(t);
+    else atomic_store(&picker, 0);
+}
 
 /* Split ARGS at spaces into a NULL-ended list (for the game). */
 static char **split_args(const char *s) {
@@ -367,7 +486,7 @@ static int play_and_wait(const char *exe, const char *rom, const char *args, con
 
 /* A file arrived (dropped, or on the command line). */
 static void take(const char *path) {
-    if (screen == S_BUILD || screen == S_PLAY) return;     /* busy: ignore it */
+    if (screen == S_BUILD || screen == S_PLAY || screen == S_CARD) return;  /* busy */
     char why[128];
     screen_name(path, shown_name, sizeof shown_name);
     if (!build_check_file(path, why, sizeof why)) {
@@ -381,7 +500,7 @@ static void take(const char *path) {
 
 int main(int argc, char **argv) {
     const char *shot = NULL, *build_rom = NULL, *open_rom = NULL, *bdir = NULL;
-    int trace = 0, model = 0, then_play = 0;
+    int trace = 0, model = 0, then_play = 0, hit = 0, hw = 0, hh = 0, hx = 0, hy = 0;
     const char *play_args = NULL, *play_exe = NULL, *play_rom = NULL;
     long frames = 0;
     int sw = ART_W, sh = ART_H;
@@ -402,6 +521,12 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--trace-progress")) trace = 1;
         else if (!strcmp(argv[i], "--progress-model")) model = 1;
         else if (!strcmp(argv[i], "--then-play")) then_play = 1;
+        else if (!strcmp(argv[i], "--hit-test") && i + 3 < argc) {
+            hit = sscanf(argv[i + 1], "%dx%d", &hw, &hh) == 2;
+            hx = atoi(argv[i + 2]); hy = atoi(argv[i + 3]);
+            i += 3;
+            if (!hit) usage(argv[0]);
+        }
         else if (!strcmp(argv[i], "--play-args") && more) play_args = argv[++i];
         else if (!strcmp(argv[i], "--play-only") && i + 2 < argc) {
             play_exe = argv[++i];
@@ -411,6 +536,7 @@ int main(int argc, char **argv) {
         else usage(argv[0]);
     }
     if (shot) return screenshot(shot, frames, sw, sh) ? 1 : 0;
+    if (hit) { puts(on_tv(hx, hy, hw, hh) ? "tv" : "outside"); return 0; }
     if (model) {
         /* Each stage, with an estimate of 1 s, from 0 to 60 s; the
            runtime stage at each count of 15 files; then done. */
@@ -435,6 +561,7 @@ int main(int argc, char **argv) {
     char defdir[PATH_MAX];
     snprintf(defdir, sizeof defdir, "%s/build", root);
     build_setup(root, bdir ? bdir : defdir);
+    snprintf(prefs, sizeof prefs, "%s/app-prefs.txt", bdir ? bdir : defdir);
     if (play_exe) {
         snprintf(game_log, sizeof game_log, "%s.game.log", play_exe);
         return play_and_wait(play_exe, play_rom, play_args, game_log);
@@ -482,7 +609,29 @@ int main(int argc, char **argv) {
         while (SDL_PollEvent(&e)) {
             if (e.type == SDL_QUIT) goto done;
             if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_ESCAPE) goto done;
+            if (e.type == SDL_KEYDOWN && !e.key.repeat) {
+                if (screen == S_ABOUT) screen = S_DROP;     /* any key leaves it */
+                else if (screen == S_CARD) card_until = 0;  /* any key skips it */
+                else if (e.key.keysym.sym == SDLK_i &&
+                         (screen == S_DROP || screen == S_ERROR || screen == S_DONE ||
+                          screen == S_STOPPED))
+                    screen = S_ABOUT;
+            }
+            if (e.type == SDL_MOUSEBUTTONDOWN && e.button.button == SDL_BUTTON_LEFT) {
+                if (screen == S_ABOUT) screen = S_DROP;
+                else if (screen == S_DROP || screen == S_ERROR || screen == S_DONE ||
+                         screen == S_STOPPED) {
+                    /* Mouse points to window pixels (twice as many on a
+                       Retina screen), then: on the TV? */
+                    int ww, wh, pw, ph;
+                    SDL_GetWindowSize(win, &ww, &wh);
+                    SDL_GetRendererOutputSize(ren, &pw, &ph);
+                    int px = ww ? e.button.x * pw / ww : 0, py = wh ? e.button.y * ph / wh : 0;
+                    if (on_tv(px, py, pw, ph)) open_picker();
+                }
+            }
             if (e.type == SDL_DROPFILE) {
+                if (screen == S_ABOUT) screen = S_DROP;
                 take(e.drop.file);
                 SDL_free(e.drop.file);
             }
@@ -496,23 +645,41 @@ int main(int argc, char **argv) {
             out = malloc((size_t)w * h * 4);
             tw = w; th = h;
         }
+        if (atomic_load(&picker) == 2) {
+            atomic_store(&picker, 0);
+            if (screen == S_ABOUT) screen = S_DROP;
+            take(picked);
+        }
         if (screen == S_BUILD) {
             int st = atomic_load(&job.state);
             if (st == B_DONE) {
-                /* Built: play it, with this window out of the way. */
-                snprintf(game_log, sizeof game_log, "%s.game.log", job.out);
-                game = play_start(job.out, job.rom, NULL, game_log);
-                if (game < 0) {
-                    snprintf(error_msg, sizeof error_msg, "couldn't start the game");
-                    screen = S_STOPPED;
-                } else {
-                    screen = S_PLAY;
-                    SDL_HideWindow(win);
-                }
+                /* Built: the controls card first, then the game. */
+                unsigned char h[5] = { 0 };
+                FILE *rf = fopen(job.rom, "rb");
+                if (rf) { if (fread(h, 1, 5, rf) != 5) h[0] = 0; fclose(rf); }
+                card_is_music = !memcmp(h, "NESM\x1a", 5);
+                card_until = n + CARD_FRAMES;
+                screen = S_CARD;
             }
             else if (st == B_FAILED) {
                 snprintf(error_msg, sizeof error_msg, "%s", job.error);
                 screen = S_ERROR;
+            }
+        }
+        if (screen == S_CARD && n >= card_until) {
+            /* Play it, with this window out of the way, at the size the
+               last game's window had. */
+            char scale[16];
+            snprintf(scale, sizeof scale, "%d", game_scale());
+            char *args[] = { "--scale", scale, "--remember-size", prefs, NULL };
+            snprintf(game_log, sizeof game_log, "%s.game.log", job.out);
+            game = play_start(job.out, job.rom, args, game_log);
+            if (game < 0) {
+                snprintf(error_msg, sizeof error_msg, "couldn't start the game");
+                screen = S_STOPPED;
+            } else {
+                screen = S_PLAY;
+                SDL_HideWindow(win);
             }
         }
         if (screen == S_PLAY) {
@@ -539,6 +706,8 @@ int main(int argc, char **argv) {
         case S_STOPPED: draw_error(n, "THE GAME STOPPED", error_msg); break;
         case S_DONE: draw_done(n, shown_name); break;
         case S_PLAY: draw_play(n, shown_name); break;
+        case S_ABOUT: draw_about(n); break;
+        case S_CARD: draw_card(n, card_is_music); break;
         default: draw_drop(n);
         }
         n++;
