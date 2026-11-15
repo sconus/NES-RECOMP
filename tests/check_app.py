@@ -13,10 +13,26 @@ screenshots (build/nesrecomp-app --screenshot), against app/art.h:
      scanlines shimmer every 6 frames, the power light is off for the
      last 10 frames of each second, and nothing else moves (looked at
      on frames on both sides of the shimmer).
+  5. the other screens, pixel for pixel on the TV: recompiling (the name,
+     cut to fit; the tall "RECOMPILING IN PROGRESS"; the bar filled to the
+     progress; each stage's name), the error (the message wrapped), done;
+  6. building, with app/build.c as the window uses it (--build, on its
+     thread with --trace-progress), into build/app_check/builds:
+     - a free test ROM, from a path with spaces: the five stages in
+       order, the bar only moving forward and below 1 until the end,
+       all 15 runtime files compiled; the program runs and passes the
+       test ROM's own check; built again, no runtime file is compiled;
+     - a file that isn't a ROM: "NOT AN NES ROM", nothing run;
+     - a ROM of an unsupported mapper (made here): the recompiler's
+       message, stopping at stage 2;
+     - a runtime file that doesn't compile (a copy of the project with
+       one added): the compiler's message, stopping at stage 4, and no
+       program.
 Run by `make test-app`. Exit status 0 when all pass.
 """
 import os
 import re
+import shutil
 import struct
 import subprocess
 import sys
@@ -71,6 +87,45 @@ def shot(name, frame=0, size=None):
     if r.returncode:
         sys.exit("screenshot failed: " + r.stderr)
     return read_png(path)
+
+
+def glyph_pixels(font, s, cx, y, sx=1, sy=1):
+    """The pixels of a line of text, centred on cx, as the app draws it."""
+    x0 = cx - (len(s) * 6 * sx - sx) // 2
+    on = set()
+    for i, ch in enumerate(s):
+        o = ord(ch.upper()) if ch.isalpha() else ord(ch)
+        if o < 0x20 or o > 0x5F:
+            o = ord("?")
+        g = font[o - 0x20]
+        for r in range(7):
+            for c in range(5):
+                if g[r] & (0x10 >> c):
+                    for dy in range(sy):
+                        for dx in range(sx):
+                            on.add((x0 + i * 6 * sx + c * sx + dx, y + r * sy + dy))
+    return on
+
+
+def wrap(msg, width=18, most=5):
+    """The app's line breaking (wrap in app/app.c)."""
+    lines, p = [], msg
+    while p and len(lines) < most:
+        p = p.lstrip(" ")
+        if len(p) <= width:
+            if p:
+                lines.append(p)
+            break
+        cut = width
+        while cut > 0 and p[cut] != " ":
+            cut -= 1
+        if cut == 0:
+            cut = width
+        lines.append(p[:cut])
+        p = p[cut:]
+        if len(lines) == most and p:
+            lines[-1] = lines[-1][:width - 2] + ".."
+    return lines
 
 
 def text_pixels(defs, font, lines, scale=2, gap=6):
@@ -168,6 +223,185 @@ def main():
           "not on at frames 0 and 120 and off at 170")
     moved = [p for p in still for n in frames if frames[n][p[1]][p[0]] != base[p[1]][p[0]]]
     check("nothing else moves", not moved, "%d pixel(s) changed" % len(moved))
+
+    # 5. the other screens
+    cx = sx + sw // 2
+    dim = pal[defs["INK_MANE_HI"]]
+    bar_x, bar_y, bar_w, bar_h = cx - 50, sy + 58, 100, 8
+
+    def in_bar(x, y):
+        return bar_x - 1 <= x < bar_x + bar_w + 1 and bar_y - 1 <= y < bar_y + bar_h + 1
+
+    def screen_text(img, want_white, want_dim, skip=lambda x, y: False):
+        bad = 0
+        for y in range(sy, sy + sh):
+            for x in range(sx, sx + sw):
+                if skip(x, y):
+                    continue
+                bad += (img[y][x] == white) != ((x, y) in want_white)
+                bad += (img[y][x] == dim) != ((x, y) in want_dim)
+        return bad
+
+    def screen(name, *args):
+        path = os.path.join(OUT, name + ".png")
+        subprocess.run([APP, "--screenshot", path] + list(args), check=True)
+        return read_png(path)[2]
+
+    long_name = "a rather long game name.nes"
+    shown = long_name[:16] + ".."
+    stages = ["CHECKING THE FILE", "RECOMPILING", "COMPILING THE GAME", "BUILDING RUNTIME", "LINKING"]
+    neon, shade = pal[defs["INK_NEON"]], pal[defs["INK_SHADOW"]]
+    for stage, progress in ((0, 0.0), (1, 0.13), (2, 0.42), (3, 0.77), (4, 1.0)):
+        img = screen("build_%d" % stage, "--show", "build", "--rom", long_name,
+                     "--stage", str(stage), "--progress", str(progress))
+        w_set = glyph_pixels(font, "RECOMPILING", cx, sy + 20, 1, 2) | \
+            glyph_pixels(font, "IN PROGRESS", cx, sy + 38, 1, 2)
+        d_set = glyph_pixels(font, shown, cx, sy + 6) | glyph_pixels(font, stages[stage], cx, sy + 72)
+        bad = screen_text(img, w_set, d_set, in_bar)
+        check("build screen, stage %d: the text" % (stage + 1), not bad, "%d pixel(s) differ" % bad)
+        fill = int(progress * bar_w)
+        bad = 0
+        for y in range(bar_y - 1, bar_y + bar_h + 1):
+            for x in range(bar_x - 1, bar_x + bar_w + 1):
+                if bar_x <= x < bar_x + bar_w and bar_y <= y < bar_y + bar_h:
+                    lit = x - bar_x < fill
+                    want = (white if y == bar_y else neon) if lit else shade
+                else:
+                    want = pal[defs["INK_TEXT_LINE"]]
+                bad += img[y][x] != want
+        check("build screen, stage %d: the bar at %d%%" % (stage + 1, round(progress * 100)),
+              not bad, "%d pixel(s) differ" % bad)
+    msg = "mapper 99 is not supported (supported: 0 NROM, 1 MMC1, 2 UxROM, 3 CNROM, 4 MMC3, 5 MMC5)"
+    img = screen("error", "--show", "error", "--message", msg)
+    lines = wrap(msg)
+    w_set = glyph_pixels(font, "CAN'T RECOMPILE", cx, sy + 5, 1, 2)
+    for i, line in enumerate(lines):
+        w_set |= glyph_pixels(font, line, cx, sy + 25 + i * 9)
+    bad = screen_text(img, w_set, glyph_pixels(font, "DROP ANOTHER FILE", cx, sy + 74))
+    check("error screen (%d lines, the last cut)" % len(lines), not bad and lines[-1].endswith(".."),
+          "%d pixel(s) differ" % bad)
+    img = screen("done", "--show", "done", "--rom", "01-basics.nes")
+    w_set = glyph_pixels(font, "DONE!", cx, sy + 24, 2, 2) | glyph_pixels(font, "BUILT AND READY", cx, sy + 48)
+    d_set = glyph_pixels(font, "01-basics.nes", cx, sy + 8) | glyph_pixels(font, "DROP ANOTHER FILE", cx, sy + 70)
+    bad = screen_text(img, w_set, d_set)
+    check("done screen", not bad, "%d pixel(s) differ" % bad)
+
+    # 6. building
+    builds = os.path.join(OUT, "builds")
+    shutil.rmtree(builds, ignore_errors=True)
+    roms = os.path.join(OUT, "roms")
+    os.makedirs(roms, exist_ok=True)
+    free = os.path.join(ROOT, "tests", "roms", "nes-test-roms", "instr_test-v5", "rom_singles",
+                        "01-basics.nes")
+    spaced = os.path.join(roms, "my game (test).nes")
+    shutil.copy(free, spaced)
+
+    # The bar's arithmetic (--progress-model): each stage stays within its
+    # share of the bar and never reaches its end, never moves back, the
+    # shares add up to the whole bar, and done is the whole bar.
+    model = subprocess.run([APP, "--progress-model"], capture_output=True, text=True).stdout
+    rows = [l.split() for l in model.splitlines()]
+    per = {}
+    for r in rows:
+        if r[0] != "done":
+            per.setdefault(int(r[0]), []).append(float(r[2]))
+    starts = [v[0] for _, v in sorted(per.items())]
+    problems = []
+    for st, vals in sorted(per.items()):
+        upper = starts[st + 1] if st + 1 < len(starts) else 1.0
+        if any(b < a for a, b in zip(vals, vals[1:])):
+            problems.append("stage %d moves back" % (st + 1))
+        if max(vals) >= upper:
+            problems.append("stage %d reaches %.3f (its end is %.3f)" % (st + 1, max(vals), upper))
+    done = [float(r[1]) for r in rows if r[0] == "done"]
+    if done != [1.0]:
+        problems.append("done is %s" % done)
+    if len(starts) != 5 or starts[0] != 0.0:
+        problems.append("stages start at %s" % starts)
+    # The last stage's end is the whole bar: its share is what is left.
+    tail = max(per.get(4, [0]))
+    if not (0.99 <= tail < 1.0):
+        problems.append("the last stage tops out at %.3f, not just under 1" % tail)
+    check("the bar's arithmetic", not problems, "; ".join(problems))
+
+    def build(rom, bdir, trace=True, env=None):
+        cmd = [APP, "--build", rom, "--build-dir", bdir] + (["--trace-progress"] if trace else [])
+        r = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=120)
+        return r.returncode, r.stdout
+
+    def stages_of(out):
+        return [int(m) for m in re.findall(r"^stage (\d)/5", out, re.M)]
+
+    def last_line(out):
+        lines = out.strip().splitlines()
+        return lines[-1] if lines else ""
+
+    code, out = build(spaced, builds)
+    seen = stages_of(out)
+    prog = [float(m) for m in re.findall(r"^progress ([0-9.]+) stage", out, re.M)]
+    end = re.search(r"^progress ([0-9.]+) end", out, re.M)
+    check("build: the five stages in order", code == 0 and seen == [1, 2, 3, 4, 5],
+          "exit %d, stages %s" % (code, seen))
+    check("build: the bar only moves forward, below 1 until the end",
+          len(prog) > 3 and all(b >= a for a, b in zip(prog, prog[1:])) and max(prog) < 1.0
+          and end is not None and float(end.group(1)) == 1.0,
+          "%d samples, max %.3f, end %s" % (len(prog), max(prog or [0]), end and end.group(1)))
+    rt = re.search(r"runtime: .*", out)
+    check("build: all runtime files compiled", "runtime: 15 of 15" in out, rt.group(0) if rt else "")
+    exe = os.path.join(builds, "my_game__test_")
+    ran = subprocess.run([exe, spaced, "--headless", "--frames", "600", "--no-save"],
+                         capture_output=True, text=True) if os.path.exists(exe) else None
+    check("build: the program runs and passes its test",
+          ran is not None and "test status at $6000: $00" in ran.stderr,
+          "no program" if ran is None else ran.stderr[-120:])
+    code, out = build(spaced, builds, trace=False)
+    rt = re.search(r"runtime: .*", out)
+    check("build again: no runtime file compiled", code == 0 and "runtime: 0 of 15" in out,
+          rt.group(0) if rt else "exit %d" % code)
+    code, out = build(os.path.join(ROOT, "tests", "suite.txt"), builds, trace=False)
+    seen = stages_of(out)
+    check("not a ROM: refused", code == 1 and "error: NOT AN NES ROM" in out and seen == [1],
+          "exit %d, stages %s" % (code, seen))
+    bad_rom = os.path.join(roms, "mapper99.nes")
+    with open(bad_rom, "wb") as f:              # made here: mapper 99, empty
+        f.write(b"NES\x1a\x01\x01\x30\x60" + bytes(8) + bytes(0x4000 + 0x2000))
+    code, out = build(bad_rom, builds, trace=False)
+    seen = stages_of(out)
+    check("unsupported mapper: the recompiler's message",
+          code == 1 and "error: mapper 99 is not supported" in out and seen[-1:] == [2],
+          "exit %d, %s" % (code, last_line(out)))
+    nestest = os.path.join(ROOT, "tests", "nestest.nes")
+    if os.path.exists(nestest + ".missed"):
+        code, out = build(nestest, builds, trace=False)
+        log = open(os.path.join(builds, "nestest.log")).read() if code == 0 else ""
+        check("a ROM's .missed file goes to the recompiler",
+              code == 0 and "--missed " + nestest + ".missed" in log, "exit %d" % code)
+    fake = os.path.join(OUT, "fakeroot")
+    shutil.rmtree(fake, ignore_errors=True)
+    shutil.copytree(os.path.join(ROOT, "runtime"), os.path.join(fake, "runtime"))
+    shutil.copy(os.path.join(ROOT, "recomp.py"), fake)
+    fenv = dict(os.environ, NESRECOMP_ROOT=fake)
+    fh = os.path.join(OUT, "builds_header")
+    shutil.rmtree(fh, ignore_errors=True)
+    build(spaced, fh, trace=False, env=fenv)
+    later = os.path.getmtime(os.path.join(fake, "runtime", "rt.h")) + 10
+    for name in os.listdir(os.path.join(fh, "app-rt")):        # objects older...
+        os.utime(os.path.join(fh, "app-rt", name), (later - 5, later - 5))
+    os.utime(os.path.join(fake, "runtime", "rt.h"), (later, later))  # ...than a header
+    code, out = build(spaced, fh, trace=False, env=fenv)
+    rt = re.search(r"runtime: .*", out)
+    check("a newer runtime header: every runtime file again", code == 0 and "runtime: 15 of 15" in out,
+          rt.group(0) if rt else "exit %d" % code)
+    with open(os.path.join(fake, "runtime", "zz_broken.c"), "w") as f:
+        f.write("this is not C;\n")
+    fb = os.path.join(OUT, "builds_broken")
+    shutil.rmtree(fb, ignore_errors=True)
+    code, out = build(spaced, fb, trace=False, env=dict(os.environ, NESRECOMP_ROOT=fake))
+    seen = stages_of(out)
+    check("a runtime file that doesn't compile: the compiler's message",
+          code == 1 and "error: the C compiler:" in out and seen[-1:] == [4]
+          and not os.path.exists(os.path.join(fb, "my_game__test_")),
+          "exit %d, %s" % (code, last_line(out)))
 
     print("\n%d check(s) failed" % len(fails) if fails else "\nall checks pass")
     sys.exit(1 if fails else 0)

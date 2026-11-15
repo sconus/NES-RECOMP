@@ -179,6 +179,70 @@ up when it's right.
   - break each part (a stage not reported, an error swallowed, a
     wrong file accepted).
 
+- Done:
+  - **`app/build.c`:** the build in five stages, the same steps as
+    `make game`:
+    1. checking the file's first bytes (iNES, NSF or FDS);
+    2. `recomp.py`, with the ROM's `.missed` when there is one;
+    3. `cc -c` of the game's C;
+    4. the runtime's 15 files, each compiled on its own into
+       `build/app-rt/`, and compiled again only when its source or any
+       runtime header is newer;
+    5. linking.
+
+    The tools run through `posix_spawn` (no shell, so paths with
+    spaces work), with their output in `build/NAME.log`. The name is
+    the file's, with anything unusual made `_`. A failing tool stops
+    the build, and its message is kept for the screen: the recompiler's
+    last line, or the compiler's first "error:".
+  - **The bar:**
+    - each stage has a share of it: 2, 13, 45, 30 and 10%;
+    - the runtime stage counts its files;
+    - the other stages move by time against an estimate (the ROM's
+      size, then the C file's at 100 KB a second), slowing as they get
+      close to 95% of their share;
+    - so the bar never claims a stage is done before it is, and only
+      ever moves forward.
+  - **The screens (`app/app.c`):**
+    - recompiling: the file's name (cut to fit), "RECOMPILING / IN
+      PROGRESS" in tall 1x2 letters, a pink bar, and the stage;
+    - error: "CAN'T RECOMPILE", the message wrapped to 5 lines of 18,
+      and "DROP ANOTHER FILE";
+    - done: "DONE! BUILT AND READY".
+
+    The build runs on its own thread, so the window stays responsive.
+    The power light blinks fast while building, and drops are ignored
+    until the build ends.
+  - **Ways to run it:**
+    - `nesrecomp-app ROM` opens the window and builds;
+    - `--build ROM` builds with no window (`--trace-progress` uses the
+      thread and prints the bar);
+    - `--progress-model` prints the bar's arithmetic;
+    - `--screenshot` takes `--show`, `--rom`, `--stage`, `--progress`
+      and `--message`;
+    - `--build-dir` sets where builds go;
+    - the project is where `make app` ran, or `$NESRECOMP_ROOT`.
+  - **The checks:** 39 now, the 14 of step 1 plus:
+    - every build screen's text and bar, pixel for pixel, at 0, 13, 42,
+      77 and 100%;
+    - the error and done screens;
+    - the bar's arithmetic;
+    - a free test ROM built from a path with spaces: the stages in
+      order, the bar moving forward and below 1 until done, 15 runtime
+      files compiled, then 0 the second time, and the program passing
+      the ROM's own test;
+    - `.missed` reaching the recompiler;
+    - a newer header recompiling the runtime;
+    - and the three failures: a non-ROM, an unsupported mapper (a file
+      made by the check), and a runtime file that doesn't compile (in a
+      copy of the project).
+  - **Breaks, 17 tried, all caught.** Two only after the arithmetic
+    check was added: weights adding up to more than the bar, and a stage
+    going past its share. A real build of a test ROM is too quick to
+    show either.
+  - Not checked by the script: dropping a file onto the real window. The
+    window is open for you to try.
+
 ### 3. Playing the game
 - When the build is done, the game starts in its own window, and the
   app's window gets out of the way.

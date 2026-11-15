@@ -56,9 +56,13 @@ run: game
 
 # --- the app (app/, PLAN-gui.md) ------------------------------------
 # app/art.h is written by tools/make_app_art.py; run that after editing it.
-build/nesrecomp-app: app/app.c app/art.h
+# The app finds the project (recomp.py, runtime/) where it was built, and
+# builds games with the same SDL flags.
+APP_DEFS = -DPROJECT_ROOT='"$(CURDIR)"' -DAPP_SDL_CFLAGS='"$(SDL_CFLAGS)"' \
+           -DAPP_SDL_LIBS='"$(SDL_LIBS)"'
+build/nesrecomp-app: app/app.c app/build.c app/build.h app/art.h
 	@mkdir -p build
-	$(CC) $(CFLAGS) $(SDL_CFLAGS) -Iapp -o $@ app/app.c $(LDLIBS)
+	$(CC) $(CFLAGS) $(SDL_CFLAGS) $(APP_DEFS) -Iapp -o $@ app/app.c app/build.c $(LDLIBS)
 
 app: build/nesrecomp-app
 
