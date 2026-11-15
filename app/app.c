@@ -26,7 +26,8 @@
              folder
      done    "DONE!": the program is built
      about   I on the drop, error or done screens: who made it and its
-             license; any key or a drop leaves it
+             license, and "SUPPORT IT: PRESS D": D opens the support page
+             (support.h); any other key or a drop leaves it
      card    the keys, for a couple of seconds before a game starts (any
              key skips it); a music file (NSF) gets the player's keys
      play    the game runs in its own window (play.c) and this one hides;
@@ -64,6 +65,14 @@
            what a click at (X, Y) of a W x H window does on SCREEN (drop,
            error, needcc, ...); for the installer, run it (xcode-select
            --install, or $NESRECOMP_XCODE_SELECT) and say how it ended
+       nesrecomp-app --support-url
+           print the support page's address (support.h)
+       nesrecomp-app --key-test about d
+           what D on the About screen does, and do it (with
+           $NESRECOMP_OPEN for the checks)
+       nesrecomp-app --menu-test [--choose-support]
+           start SDL with no window, add the support item, and print the
+           app menu's titles; and choose the support item
        nesrecomp-app --progress-model
            print the loading bar's value for each stage over a long range
            of times (and runtime file counts), for tests/check_app.py
@@ -102,6 +111,7 @@
 #include "code.h"
 #include "hood.h"
 #include "play.h"
+#include "support.h"
 
 static uint32_t canvas[ART_H][ART_W];
 /* "The 6502 next to its C" (step 8) uses the whole window at a finer
@@ -454,12 +464,13 @@ static void draw_about(long n) {
     draw_room(n, 0);
     uint32_t white = ink(INK_TEXT), dim = ink(INK_MANE_HI);
     int y = ART_SCREEN_Y;
-    text_xy("NES RECOMP", SCREEN_CX, y + 4, 1, 2, white, 1);
-    text("FOR EDUCATIONAL", SCREEN_CX, y + 23, 1, dim, 1);
-    text("PURPOSES ONLY", SCREEN_CX, y + 32, 1, dim, 1);
-    text("BY SERGE AND CLAUDE", SCREEN_CX, y + 46, 1, white, 1);
-    text("FREE SOFTWARE UNDER", SCREEN_CX, y + 61, 1, dim, 1);
-    text("THE MIT LICENSE", SCREEN_CX, y + 70, 1, dim, 1);
+    text_xy("NES RECOMP", SCREEN_CX, y + 3, 1, 2, white, 1);
+    text("FOR EDUCATIONAL", SCREEN_CX, y + 21, 1, dim, 1);
+    text("PURPOSES ONLY", SCREEN_CX, y + 30, 1, dim, 1);
+    text("BY SERGE AND CLAUDE", SCREEN_CX, y + 42, 1, white, 1);
+    text("FREE SOFTWARE UNDER", SCREEN_CX, y + 54, 1, dim, 1);
+    text("THE MIT LICENSE", SCREEN_CX, y + 63, 1, dim, 1);
+    text("SUPPORT IT: PRESS D", SCREEN_CX, y + 77, 1, ink(INK_NEON), 1);   /* support.h */
 }
 
 /* The keys, before a game (or a music file) starts: key, what it does. */
@@ -802,6 +813,12 @@ extern char **environ;
 
 static int install_clicked;             /* the needcc screen: Apple's installer started */
 
+/* A key on the About screen: D opens the support page (support.h); any
+   other leaves. Returns 1 for D. */
+static int about_key_supports(int key) {
+    return key == 'd' || key == 'D';
+}
+
 /* The screen after a failed build: the compiler's own, or the error. */
 static int failed_screen(const struct build *b) {
     return b->no_compiler ? S_NEEDCC : S_ERROR;
@@ -867,7 +884,8 @@ int main(int argc, char **argv) {
     int trace = 0, model = 0, then_play = 0, hit = 0, hw = 0, hh = 0, hx = 0, hy = 0;
     int sdl_info = 0;
     const char *play_args = NULL, *play_exe = NULL, *play_rom = NULL, *click_screen = NULL;
-    int click = 0, cw = 0, ch = 0, cx = 0, cy = 0;
+    int click = 0, cw = 0, ch = 0, cx = 0, cy = 0, menu_test = 0, choose_support = 0;
+    const char *key_screen = NULL, *key_name = NULL;
     long frames = 0;
     int sw = ART_W, sh = ART_H;
     for (int i = 1; i < argc; i++) {
@@ -892,6 +910,13 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--progress-model")) model = 1;
         else if (!strcmp(argv[i], "--sdl-info")) sdl_info = 1;
         else if (!strcmp(argv[i], "--version")) { puts(APP_VERSION); return 0; }
+        else if (!strcmp(argv[i], "--support-url")) { puts(SUPPORT_URL); return 0; }
+        else if (!strcmp(argv[i], "--menu-test")) menu_test = 1;
+        else if (!strcmp(argv[i], "--choose-support")) choose_support = 1;
+        else if (!strcmp(argv[i], "--key-test") && i + 2 < argc) {
+            key_screen = argv[++i];
+            key_name = argv[++i];
+        }
         else if (!strcmp(argv[i], "--then-play")) then_play = 1;
         else if (!strcmp(argv[i], "--hit-test") && i + 3 < argc) {
             hit = sscanf(argv[i + 1], "%dx%d", &hw, &hh) == 2;
@@ -916,6 +941,28 @@ int main(int argc, char **argv) {
     }
     if (shot) return screenshot(shot, frames, sw, sh) ? 1 : 0;
     if (hit) { puts(on_tv(hx, hy, hw, hh) ? "tv" : "outside"); return 0; }
+    if (key_screen) {
+        /* A key on a screen, as the window takes it (the About screen's
+           D, for now): what it does, and run it. */
+        if (!strcmp(key_screen, "about") && about_key_supports(key_name[0]) && !key_name[1])
+            printf("key: support (%s), open ended %d\n", SUPPORT_URL, support_open());
+        else if (!strcmp(key_screen, "about"))
+            printf("key: leave\n");
+        else usage(argv[0]);
+        return 0;
+    }
+    if (menu_test) {
+        /* The app menu SDL makes, with the support item added: its titles,
+           and with --choose-support, what choosing it does. No window. */
+        if (SDL_Init(SDL_INIT_VIDEO) != 0) { fprintf(stderr, "SDL_Init: %s\n", SDL_GetError()); return 1; }
+        int added = support_menu_add();
+        char titles[2048];
+        support_menu_titles(titles, sizeof titles);
+        printf("added %d\n%s", added, titles);
+        if (choose_support) printf("chose: %d\n", support_menu_choose());
+        SDL_Quit();
+        return 0;
+    }
     if (click) {
         /* A click on a screen, as the window takes it: what it does, and
            for the installer, run it and say how it ended. */
@@ -1030,6 +1077,7 @@ int main(int argc, char **argv) {
         fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
         return 1;
     }
+    support_menu_add();                 /* "Support NES RECOMP..." in the app menu */
     SDL_Window *win = SDL_CreateWindow("nesrecomp", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
                                        ART_W * 3, ART_H * 3,
                                        SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI);
@@ -1070,7 +1118,8 @@ int main(int argc, char **argv) {
             }
             if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_ESCAPE) goto done;
             if (e.type == SDL_KEYDOWN && !e.key.repeat) {
-                if (screen == S_HOOD && e.key.keysym.sym == SDLK_c) {
+                if (screen == S_ABOUT && about_key_supports(e.key.keysym.sym)) support_open();
+                else if (screen == S_HOOD && e.key.keysym.sym == SDLK_c) {
                     if (open_code()) { screen = S_CODE; show_code = 1; }
                 }
                 else if (screen == S_ABOUT || screen == S_HOOD) screen = S_DROP;  /* any key leaves it */

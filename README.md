@@ -270,13 +270,36 @@ device instead (below).
 
 NES RECOMP also comes as a Mac app: a pixel-art room with a TV and a
 console, in the colours of the Polygon Legends channel. You drop a ROM
-on it and it recompiles and plays it.
+on it, and it recompiles the game to C, builds it on your Mac and plays
+it. It's a standalone app: it needs nothing from this project folder,
+from Python or from Homebrew, only Apple's free C compiler.
 
-    make app-bundle          # builds build/nesrecomp.app
-    open build/nesrecomp.app # or double-click it in Finder
+### Getting it, and opening it the first time
 
-(`make run-app` opens the same window without the bundle, keeping its
-builds in `build/` here.)
+`make release` makes `build/NES-RECOMP-1.0.zip`: the app, a "READ ME
+FIRST" for whoever gets it, the MIT License and SDL's license. Give
+that zip to someone, or unzip it yourself.
+
+The app is signed ad hoc, not by an Apple-registered developer, so the
+first time it's opened, macOS stops it:
+- **macOS 15 and later:** double-click it and close the message, then
+  open System Settings, Privacy & Security, scroll down and click
+  **Open Anyway** next to NES RECOMP, and confirm.
+- **macOS 11 to 14:** Control-click the app, choose Open, then Open.
+
+After that it opens normally. (Signing it with an Apple Developer ID
+and having Apple notarize it would remove this step; that needs the
+Apple Developer Program.)
+
+It needs a Mac with macOS 11 or later, Apple Silicon or Intel, and
+Apple's C compiler (the Command Line Tools, or Xcode). If the compiler
+isn't there, dropping a ROM shows "NEEDS APPLE'S C COMPILER" instead of
+building; a click on the TV opens Apple's own installer (or type
+`xcode-select --install` in Terminal), and when it's done, drop the ROM
+again. A game already built still plays without it. No ROMs come with
+it: you bring your own.
+
+### Using it
 
 - **Drop a file** (`.nes`, `.nsf` or `.fds`) on the window, or on the
   app's icon in the Dock, or click the TV for a file picker. The TV
@@ -285,11 +308,14 @@ builds in `build/` here.)
   building the runtime (once; reused after), linking.
 - **Then the keys** show for a couple of seconds (any key skips them),
   and the game opens in its own window while the app steps aside. Quit
-  the game and the app comes back.
+  the game and the app comes back. In the game, V records a movie and P
+  saves a picture (see "Recording" above).
 - **A ROM already built,** with nothing changed since, starts at once.
 - **It gets faster as you play:** like `make run`, each game writes the
   spots it had to interpret to `<rom>.missed` beside the ROM, and the
-  next build uses them.
+  next build uses them. Battery saves go to `<rom>.sav` there too. If
+  the ROM's folder can't be written (a locked disk, say), both are kept
+  in the app's own folder instead.
 - **Under the hood:** after a game (and with H on the drop screen, for
   the last game), the TV shows how many 6502 instructions were
   translated to C, what share of the instructions the game ran were C
@@ -308,9 +334,7 @@ builds in `build/` here.)
   bottom line says what the instruction does in plain English. Esc goes
   back. It comes from the recompiler's `--listing FILE`, which the app
   asks for with every build; the C itself is the same with or without
-  it. Battery saves go to `<rom>.sav` there too. If
-  the ROM's folder can't be written (a locked disk, say), both are kept
-  in the app's own folder instead.
+  it.
 - **If something goes wrong,** the TV says what: "NOT AN NES ROM", the
   recompiler's message (an unsupported mapper, say), the compiler's, or
   "THE GAME STOPPED" and why. The whole output is in `NAME.log` and
@@ -318,31 +342,44 @@ builds in `build/` here.)
 - **The app's folder** is `~/Library/Application Support/NES RECOMP`:
   the games it built, their logs, the runtime compiled once, and the
   game window's size. Deleting it is safe; games are built again.
+  Recordings go to `~/Movies/NES RECOMP`.
 - **The game's window** can be resized by dragging; Cmd+= and Cmd+-
   change it by a whole step and Cmd+F makes it full screen. The picture
   stays sharp, and the next game opens at the size you left.
 - **I** shows the About screen; the Mac menu's About box says the same:
   for educational purposes only, by Serge and Claude, free software
   under the MIT License.
+- **Supporting it:** NES RECOMP is free; to support it and the Polygon
+  Legends channel, there's [ko-fi.com/polygonlegends](https://ko-fi.com/polygonlegends).
+  The app has the same link as "Support NES RECOMP…" in its menu, D on
+  its About screen, and the last line of its About box. It's in one
+  place in the code, `app/support.h`.
 
-What it needs: only Apple's C compiler (the Command Line Tools, or
-Xcode). If it isn't there, dropping a ROM shows "NEEDS APPLE'S C
-COMPILER" instead of building; a click on the TV opens Apple's own
-installer (or type `xcode-select --install` in Terminal), and when it's
-done, drop the ROM again. A game already built still plays without it. Not this project folder, Python
-or Homebrew: the bundle carries the runtime's sources
+### Building it from this project
+
+    make app-bundle          # builds build/nesrecomp.app
+    open build/nesrecomp.app # or double-click it in Finder
+    make release             # build/NES-RECOMP-1.0.zip, to give away
+
+(`make run-app` opens the same window without the bundle, keeping its
+builds in `build/` here.)
+
+The bundle carries everything a build needs: the runtime's sources
 (`Contents/Resources/runtime`), the recompiler in C
 (`Contents/MacOS/nesrecomp-recomp`) and its own SDL2, built from SDL's
 source release by `make sdl2` (`tools/build_sdl2.sh`; the release
 unpacked in `build/sdl2/src` first), for Intel and Apple Silicon Macs
 from macOS 11. The games it builds use a copy of SDL2, so they still
-run after the app is moved. The app can be moved anywhere, and holds no
-path of this Mac. What's left before giving it to someone is in
-PLAN-standalone.md. `make test-app` checks its screens and builds, and
-`make test-app-bundle` checks the bundle and opens it with a file as
-Finder does (a window shows for a few seconds; the files it makes in
-the app's folder are removed). `make test-standalone` checks it needs
-nothing from Homebrew, Python or this folder.
+run after the app is moved. It holds no path of this Mac.
+
+- `make test-app` checks its screens and builds;
+- `make test-app-bundle` checks the bundle and opens it with a file as
+  Finder does (a window shows for a few seconds; the files it makes in
+  the app's folder are removed);
+- `make test-standalone` checks it needs nothing from Homebrew, Python
+  or this folder;
+- `make test-release` checks the zip as a downloaded copy would be
+  treated (PLAN-standalone.md step 9).
 
 ## The Arkanoid paddle
 

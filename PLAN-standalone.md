@@ -930,6 +930,88 @@ Every step keeps what holds today:
   - For you to try: give it to someone, or a second Mac or user
     account.
 
+- Done:
+  - **`make release`** (`tools/make_release.py`) makes
+    `build/NES-RECOMP-1.0.zip`, 2.2 MB (the version is the app's own). It
+    holds one folder, "NES RECOMP 1.0", with:
+    - "NES RECOMP.app";
+    - "READ ME FIRST.txt": what it is, what it needs, opening it the
+      first time, using it, where things go, the licenses;
+    - "LICENSE.txt" (MIT) and "SDL LICENSE.txt" (zlib).
+  - **Zipped with ditto**, which keeps the signature and permissions. It
+    leaves out this Mac's extended attributes, so the zip has no
+    `__MACOSX` folder. (The first zip had one, carrying the
+    `com.apple.provenance` marks this Mac puts on files it makes; the
+    check found it.)
+  - **Signing:** ad hoc, as suggested. The read-me explains Open Anyway
+    (macOS 15 on) and Control-click, Open (macOS 11 to 14).
+    Notarization stays for later, if people find the warning a problem;
+    it needs the Apple Developer Program.
+  - **No GitHub release.** The project has no GitHub remote, and posting
+    one is your go-ahead to give.
+  - **The README's "The app" section is rewritten** for the standalone
+    app: getting it and opening it the first time, what it needs, using
+    it, and building it from the project. That also mended two
+    paragraphs that steps 5, 7 and 8's additions had split.
+  - **Checks:** `tests/check_release.py` (`make test-release`), 32
+    checks.
+    - The zip: one folder, those four items, nothing else. The app in it
+      is `build/nesrecomp.app` file for file, with permissions, links
+      and signature. The licenses are the project's and SDL's.
+    - The read-me: the version, macOS 11, `xcode-select --install`, Open
+      Anyway, Control-click, where things go, the licenses; lines of 72
+      characters or fewer.
+    - As a download: copied to a scratch Downloads folder, marked as a
+      browser marks a download, unzipped with ditto. The app is
+      quarantined, its signature still whole, and Gatekeeper rejects it
+      (not notarized), which is what the read-me's steps are for.
+    - Once allowed (the quarantine off, as Open Anyway does): step 4's 18
+      checks pass on the app from the zip. That's far from the project,
+      with the project, Homebrew and Python unreadable, building and
+      playing a free test ROM, moved, and with a locked ROM folder.
+    - Nothing is opened as an app, so no window or macOS message shows.
+  - **Breaks, 8 tried, all caught,** each in a fresh copy with
+    `make release` and check_release. First, the copy with no break
+    passed. No check crashed.
+    - The breaks: SDL's license left out, the files' permissions lost,
+      this Mac's attributes zipped too, the version written wrongly, the
+      read-me without the first-time steps, something extra in the zip,
+      the app changed after it was signed, and the license's text
+      replaced.
+    - "Permissions lost" first changed nothing, because Python's zipfile
+      keeps them. It was rewritten to really drop them, and the check
+      now compares permissions too.
+  - **A support link,** added at your request: your Ko-fi page,
+    https://ko-fi.com/polygonlegends. It's written once, in
+    `app/support.h`, and appears in four places:
+    - "Support NES RECOMP…" in the app menu, right after "About NES
+      RECOMP" (`app/support_mac.m`, Objective-C, since SDL makes that
+      menu and C can't reach it);
+    - "SUPPORT IT: PRESS D" in pink on the About screen (I), whose lines
+      moved up a little to make room; D opens the page;
+    - the Mac's About box, as a clickable last line;
+    - READ ME FIRST, under "SUPPORTING IT"; the README mentions it too.
+    - The page opens with `open URL`. The checks use a stand-in for
+      `open` that only writes down what it was given, so no browser
+      opened during any check or break.
+    - Checks: `check_app.py` 94 (5 new): the link; the About screen
+      pixel for pixel, the pink line too; D opens it and another key
+      leaves; the menu item right after About; choosing it opens the
+      page. `check_app_bundle.py` 16 (2 new): the About box's link, and
+      the bundle's own menu ("About NES RECOMP", then the support item).
+      `check_release.py`: the read-me has the link.
+    - Breaks, 8 tried, all caught (the copy with no break passed): the
+      link mistyped, the menu item never added, put at the bottom,
+      doing nothing when chosen, D doing nothing, the About screen
+      without the line, the About box without the link, and the read-me
+      without it.
+  - **For you to try:** the zip on another Mac, or another user account,
+    with the real Open Anyway.
+  - Unchanged: `make test-all` (nestest exact, the suite 219 of 220 with
+    test28 as always, the app and recording checks), `make
+    test-standalone`'s 50, `make test-app-bundle`'s 14, and recomp.py
+    and the C version still agreeing on all 395 files.
+
 ## Order, and what can be trimmed
 
 - **Why this order:**

@@ -151,8 +151,12 @@ def make_icns(dest):
     subprocess.run(["iconutil", "-c", "icns", work, "-o", dest], check=True)
 
 
-def credits_rtf():
-    body = "\\\n".join(CREDITS)
+def credits_rtf(url):
+    """The About box's lines, then the support page as a link (its
+    address the program's own, app/support.h)."""
+    shown = url.split("://", 1)[-1]
+    link = ('{\\field{\\*\\fldinst HYPERLINK "%s"}{\\fldrslt Support it: %s}}' % (url, shown))
+    body = "\\\n".join(CREDITS + [link])
     return ("{\\rtf1\\ansi\\deff0{\\fonttbl{\\f0 Helvetica;}}\n"
             "\\f0\\fs22\\qc " + body + "\n}\n")
 
@@ -189,7 +193,9 @@ def main():
                              check=True).stdout.strip()
     make_icns(os.path.join(contents, "Resources", "nesrecomp.icns"))
     with open(os.path.join(contents, "Resources", "Credits.rtf"), "w") as f:
-        f.write(credits_rtf())
+        url = subprocess.run([exe, "--support-url"], capture_output=True, text=True,
+                             check=True).stdout.strip()
+        f.write(credits_rtf(url))
     plist = {
         "CFBundleName": NAME,
         "CFBundleDisplayName": NAME,

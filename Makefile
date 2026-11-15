@@ -20,6 +20,9 @@
 #                           window shows for 2 seconds)
 #   make test-standalone    check the app needs nothing from Homebrew
 #                           (tests/check_standalone.py, PLAN-standalone.md)
+#   make release            build/NES-RECOMP-<version>.zip: the app, a read-me
+#                           and the licenses, to give away
+#   make test-release       check it as a downloaded copy would be treated
 #   make clean
 # ROM paths with spaces are not supported.
 CC      ?= cc
@@ -118,11 +121,12 @@ $(SDL2_LIB): tools/build_sdl2.sh
 sdl2: $(SDL2_LIB)
 
 build/nesrecomp-app: app/app.c app/build.c app/build.h app/play.c app/play.h app/hood.c app/hood.h \
-                     app/code.c app/code.h \
+                     app/code.c app/code.h app/support.h app/support_mac.m \
                      app/art.h $(SDL2_LIB) \
                      $(RECOMP)
 	@mkdir -p build
-	$(CC) $(CFLAGS) $(APP_ARCH) $(APP_SDL) -Iapp -o $@ app/app.c app/build.c app/play.c app/hood.c app/code.c $(APP_LIBS)
+	$(CC) $(CFLAGS) $(APP_ARCH) $(APP_SDL) -Iapp -o $@ app/app.c app/build.c app/play.c app/hood.c app/code.c \
+	    app/support_mac.m $(APP_LIBS) -framework Cocoa
 
 app: build/nesrecomp-app
 
@@ -141,10 +145,17 @@ test-app-bundle: app-bundle
 test-standalone: app-bundle
 	python3 tests/check_standalone.py
 
+# --- a release (PLAN-standalone.md step 9) ------------------------------
+release: app-bundle tools/make_release.py LICENSE
+	python3 tools/make_release.py
+
+test-release: release
+	python3 tests/check_release.py
+
 # build/sdl2 stays: it holds SDL's downloaded source (`rm -rf build/sdl2`
 # to build it again from a new download).
 clean:
 	find build -mindepth 1 -maxdepth 1 ! -name sdl2 -exec rm -rf {} + 2>/dev/null; \
 	rm -f $(NESTEST).missed
 
-.PHONY: test test-ppu test-all test-record game run recomp test-recomp sdl2 app run-app test-app app-bundle test-app-bundle test-standalone clean
+.PHONY: test test-ppu test-all test-record release test-release game run recomp test-recomp sdl2 app run-app test-app app-bundle test-app-bundle test-standalone clean

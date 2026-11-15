@@ -65,6 +65,11 @@ screenshots (build/nesrecomp-app --screenshot), against app/art.h:
      C line cut; and the app's build writes NAME.listing beside NAME.c,
      every instruction's C where the listing says, and a build without
      its listing is built again.
+  12. supporting it: the link is Ko-fi's polygonlegends page; D on the
+     About screen opens it and another key leaves; the app menu has
+     "Support NES RECOMP..." right after About, and choosing it opens
+     the page (a stand-in for `open` writes down what it was given, so
+     no browser opens).
 Run by `make test-app`. Exit status 0 when all pass.
 """
 import os
@@ -557,14 +562,51 @@ def main():
     # 8. polish: the About screen, the controls cards, where a click opens
     # the file picker, and the game window's size remembered.
     img = screen("about", "--show", "about")
-    w_set = glyph_pixels(font, "NES RECOMP", cx, sy + 4, 1, 2) | \
-        glyph_pixels(font, "BY SERGE AND CLAUDE", cx, sy + 46)
+    w_set = glyph_pixels(font, "NES RECOMP", cx, sy + 3, 1, 2) | \
+        glyph_pixels(font, "BY SERGE AND CLAUDE", cx, sy + 42)
     d_set = set()
-    for text_, y in (("FOR EDUCATIONAL", 23), ("PURPOSES ONLY", 32), ("FREE SOFTWARE UNDER", 61),
-                     ("THE MIT LICENSE", 70)):
+    for text_, y in (("FOR EDUCATIONAL", 21), ("PURPOSES ONLY", 30), ("FREE SOFTWARE UNDER", 54),
+                     ("THE MIT LICENSE", 63)):
         d_set |= glyph_pixels(font, text_, cx, sy + y)
     bad = screen_text(img, w_set, d_set)
-    check("the About screen", not bad, "%d pixel(s) differ" % bad)
+    n_set = glyph_pixels(font, "SUPPORT IT: PRESS D", cx, sy + 77)
+    bad += sum((img[y][x] == neon) != ((x, y) in n_set)
+               for y in range(sy, sy + sh) for x in range(sx, sx + sw))
+    check("the About screen (with \"SUPPORT IT: PRESS D\" in pink)", not bad, "%d pixel(s) differ" % bad)
+
+    # Supporting it (app/support.h): the link, D on the About screen, and
+    # the app menu's item, with a stand-in for `open` that writes down
+    # what it was given (so no browser opens).
+    KOFI = "https://ko-fi.com/polygonlegends"
+    url = subprocess.run([APP, "--support-url"], capture_output=True, text=True).stdout.strip()
+    check("the support link is Ko-fi's polygonlegends page", url == KOFI, repr(url))
+    sdir = os.path.join(OUT, "support")
+    shutil.rmtree(sdir, ignore_errors=True)
+    os.makedirs(sdir)
+    said = os.path.join(sdir, "opened.txt")
+    fake_open = os.path.join(sdir, "open.sh")
+    with open(fake_open, "w") as f:
+        f.write("#!/bin/sh\necho \"$@\" >> '%s'\n" % said)
+    os.chmod(fake_open, 0o755)
+    oenv = dict(os.environ, NESRECOMP_OPEN=fake_open)
+    r_ = subprocess.run([APP, "--key-test", "about", "d"], capture_output=True, text=True, env=oenv)
+    got = open(said).read() if os.path.exists(said) else ""
+    check("D on the About screen opens the support page", "key: support" in r_.stdout and got == KOFI + "\n",
+          "%r, opened %r" % (r_.stdout.strip(), got))
+    if os.path.exists(said):
+        os.remove(said)
+    r_ = subprocess.run([APP, "--key-test", "about", "x"], capture_output=True, text=True, env=oenv)
+    check("another key on the About screen leaves it, opening nothing",
+          "key: leave" in r_.stdout and not os.path.exists(said), r_.stdout.strip())
+    r_ = subprocess.run([APP, "--menu-test", "--choose-support"], capture_output=True, text=True, env=oenv,
+                        timeout=60)
+    items = r_.stdout.splitlines()
+    got = open(said).read() if os.path.exists(said) else ""
+    check("the app menu: \"Support NES RECOMP\u2026\" right after About",
+          len(items) > 3 and items[0] == "added 0" and items[1].startswith("About ")
+          and items[2] == "Support NES RECOMP\u2026", "%s" % items[:4])
+    check("choosing it opens the support page", "chose: 0" in r_.stdout and got == KOFI + "\n",
+          "%s, opened %r" % (items[-1:], got))
     lic_path = os.path.join(ROOT, "LICENSE")
     lic = open(lic_path).read() if os.path.exists(lic_path) else ""
     check("the LICENSE file: MIT, Serge and Claude",

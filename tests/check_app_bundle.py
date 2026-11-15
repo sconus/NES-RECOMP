@@ -4,7 +4,8 @@
 shows for a few seconds.
   1. what it is: its Info.plist (name, identifier, version, the About
      box's copyright line, the icon, the program, the files it opens),
-     its Credits.rtf (the About box's lines), its icon (a 1024-pixel
+     its Credits.rtf (the About box's lines, and the support page as a
+     link), its menu (About NES RECOMP, then Support NES RECOMP...), its icon (a 1024-pixel
      image inside, with "NES RECOMP" in white on the TV), its program (the same as build/nesrecomp-app), its
      signature;
   2. opening a file with it, as Finder does (`open -a`): the app starts
@@ -115,6 +116,10 @@ def main():
                            "Free software under the MIT License") if l not in text]
     check("Credits.rtf: the About box's three lines", text.startswith("{\\rtf1") and not missing,
           "missing %s" % missing if text else "no file")
+    url = "https://ko-fi.com/polygonlegends"
+    check("Credits.rtf: then the support page, as a link",
+          ('HYPERLINK "%s"' % url) in text and "Support it: ko-fi.com/polygonlegends" in text,
+          "no link" if text else "no file")
     icns = os.path.join(contents, "Resources", "nesrecomp.icns")
     iconset = os.path.join(OUT, "icon.iconset")
     shutil.rmtree(iconset, ignore_errors=True)
@@ -146,6 +151,13 @@ def main():
         same = len(code[0]) > 1000 and code[0] == code[1]
     check("the program: build/nesrecomp-app (but for its signature), and runnable",
           same and os.access(prog, os.X_OK), "missing or different")
+    # Its menu, as the bundle names it, with the support item (no window;
+    # `open` replaced so nothing opens).
+    m = subprocess.run([prog, "--menu-test"], capture_output=True, text=True, timeout=60,
+                       env=dict(os.environ, NESRECOMP_OPEN="/usr/bin/true"))
+    items = m.stdout.splitlines()
+    check("its menu: \"About NES RECOMP\", then \"Support NES RECOMP\u2026\"",
+          items[1:3] == ["About NES RECOMP", "Support NES RECOMP\u2026"], "%s" % items[:4])
     sig = subprocess.run(["codesign", "--verify", "--deep", APP], capture_output=True, text=True)
     check("the signature holds", sig.returncode == 0, sig.stderr.strip()[-80:])
 
