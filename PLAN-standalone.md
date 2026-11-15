@@ -226,6 +226,72 @@ Every step keeps what holds today:
   - Breaks: a mapper's bank size wrong, the trainer skipped wrongly,
     NES 2.0's size exponent misread, an FDS file's address off by one.
 
+- Done:
+  - **`recomp/rom.c` and `rom.h`:** recomp.py's `read_header`, `MAPPERS`
+    and `class Rom` in C. Each part is named after the one it copies,
+    and recomp.py's comments explain why each thing is done.
+    - The FDS BIOS is built in from `runtime/fds_bios.h`; recomp.py
+      reads it from that file each time it runs.
+    - One trap: Python's `%` never gives a negative number, but C's
+      does, and negative bank numbers ("the last bank" is -1) depend on
+      it. The C version uses a Python-style one.
+  - **`recomp/main.c`:**
+    - the same options as recomp.py, including the abbreviations Python
+      allows (`--ent`);
+    - the entry points in the same order: the vectors, an NSF's init and
+      play, a disk's boot files, `--entry`, `.missed` in both formats;
+    - and `--dump-rom`.
+
+    `make recomp` builds `build/nesrecomp-recomp`. Without `--dump-rom`
+    it says translating comes in step 2b.
+  - **recomp.py** gets the same hidden `--dump-rom`. It now gives a
+    message instead of crashing (a Python traceback) on four kinds of
+    file:
+    - one too short for a header;
+    - an NSF too short for its header;
+    - a bank-switched NSF with no program;
+    - a file it can't open.
+
+    All 395 files under `tests/` give the same C as before (394
+    recompile; one is deliberately not a ROM).
+  - **`tests/check_recomp.py`** (`make test-recomp`), 64 checks:
+    - all 394 readable files under `tests/`, read alone: the same dumps,
+      line for line;
+    - the 130 that have a `.missed` file, read with it: the same;
+    - the one non-ROM: the same message;
+    - nestest as `make test` reads it;
+    - 37 files made by the check for what the collection lacks: a
+      trainer, old dumps' junk, every NES 2.0 field, its exponent sizes
+      (8 and 24 KB) and size MSB, a header claiming more than the file
+      holds, 256 and 512 KB MMC1, MMC1 submapper 5, MMC5, VRC4, Action
+      53, BNROM, MMC2, disks with and without a header, two sides, more
+      than 252 files, files reaching past $6000-$DFFF, a short file
+      count, a partial side, and NSFs at $8000, at $C123, too long, at
+      $6000 (FDS sound), banked with an offset, and wrapping banks;
+    - 16 files it refuses: the same message and exit status, and never a
+      traceback;
+    - entry points: `.missed` in both formats with spaces, blank lines,
+      `0x` and banks past the last; two `.missed` files; `--entry`; a
+      banked NSF; a disk image.
+  - **Breaks, 22 tried, all caught,** after one fix to the check:
+    - "the FDS tags stop one short" wasn't caught at first. In the made
+      disk with many files, the file that gets tag 255 (the last
+      translated) was empty, so it made no difference. It's now a real
+      file, and so is the one after it, which must be left out.
+    - Two made files didn't test what they meant to, because their
+      sizes came out differently from what was intended. Both versions
+      agreed on them, which is how it showed. Both were fixed before
+      the breaks.
+    - The others: MMC3's power-on banks, UxROM's fixed half, the
+      trainer, NES 2.0's exponent and its fallback, old dumps' junk,
+      `console_ext`, the 512 KB MMC1 rule, MMC1 submapper 5, C's `%`, a
+      banked NSF's offset, an FDS NSF's floor, an FDS file's address,
+      FDS boot files (`<` for `<=`, and from every side), a file of
+      another type kept, `.missed` banks not wrapped, the old `.missed`
+      format in bank 0, an NSF's play routine, entry points not
+      filtered, a mapper's name misspelt.
+  - Unchanged: `make test` (nestest exact, the header checks).
+
 ### 2b. The recompiler in C: tracing and writing the C
 - The tracer (following the code from the vectors, the entry points and
   `.missed`) and the C writer, line for line as `recomp.py` makes it.

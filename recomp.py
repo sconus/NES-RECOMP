@@ -366,6 +366,8 @@ def read_header(data):
     the same way; tests/check_headers.py compares the two. Returns a dict
     of every field; with iNES 1.0 the fields NES 2.0 adds get the values
     the runtime has always assumed."""
+    if len(data) < 16:
+        raise ValueError("truncated: the file is shorter than its header says")
     h = data[:16]
     battery = (h[6] & 2) != 0
     trainer = (h[6] & 4) != 0
@@ -410,7 +412,10 @@ def read_header(data):
 
 class Rom:
     def __init__(self, path):
-        data = open(path, "rb").read()
+        try:
+            data = open(path, "rb").read()
+        except OSError:
+            sys.exit("%s: can't open the file" % path)
         self.nsf = None
         self.ram_top = 0x8000               # code below this is RAM
         self.files = None                   # an FDS's files (load_fds)
@@ -528,6 +533,8 @@ class Rom:
         address's offset within 4 KB), $8000-$FFFF is eight 4 KB slots
         that each switch alone ($5FF8-$5FFF), and the header gives the
         starting bank of each."""
+        if len(data) < 0x80:
+            sys.exit("NSF header is cut short")
         h = data[:0x80]
         load, init, play = (h[i] | h[i + 1] << 8 for i in (8, 10, 12))
         self.nsf = dict(load=load, init=init, play=play, chips=h[0x7B] & 0x3F)
@@ -539,6 +546,8 @@ class Rom:
         if any(start):
             off = load & 0xFFF
             size = (off + len(body) + 0xFFF) & ~0xFFF
+            if size == 0:
+                sys.exit("NSF has no program")
             prg = bytearray(size)
             prg[off:off + len(body)] = body
             self.prg = bytes(prg)
@@ -1127,17 +1136,53 @@ def generate(rom, insns, unknown, src_name):
     return "\n".join(lines) + "\n"
 
 
+def dump_rom(rom, entries):
+    """--dump-rom: what was read, one fact a line, for comparing with the C
+    version's reading of the same file (tests/check_recomp.py)."""
+    import zlib
+
+    def slots(d):
+        return " ".join("%d:%d" % kv for kv in sorted(d.items()))
+    if rom.nsf is None and rom.files is None:
+        print("header " + " ".join("%s=%d" % (k, int(v)) for k, v in sorted(rom.header.items())))
+    print("mapper %d %s" % (rom.mapper, rom.mapper_name))
+    print("unit %s" % ("none" if rom.unit is None else rom.unit))
+    print("slot_bits %d banks %d ram_top %04X high_writes %d" % (
+        rom.slot_bits, rom.banks, rom.ram_top, rom.high_writes))
+    print("low_regs %s" % ("none" if not rom.low_regs else "%04X-%04X" % rom.low_regs))
+    print("power_on " + slots(rom.power_on))
+    print("fixed " + slots(rom.fixed))
+    print("prg %d %08X" % (len(rom.prg), zlib.crc32(rom.prg)))
+    print("nsf " + ("none" if rom.nsf is None else
+                    "load=%(load)04X init=%(init)04X play=%(play)04X chips=%(chips)d" % rom.nsf))
+    print("inline " + " ".join("%04X:%s" % (a, "none" if n is None else n)
+                               for a, n in sorted(rom.inline.items())))
+    print("guarded %d" % rom.guarded())
+    if rom.files is not None:
+        print("files_count %d" % rom.files_count)
+        for t, (lo, data) in sorted(rom.files.items()):
+            print("file %d %04X %d %08X" % (t, lo, len(data), zlib.crc32(data)))
+        print("boot_ram %08X boot_owner %08X" % (zlib.crc32(rom.boot_ram),
+                                                 zlib.crc32(bytes(rom.boot_owner))))
+    print("entries " + " ".join("%02X:%04X" % e for e in entries))
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawTextHelpFormatter)
     ap.add_argument("rom")
-    ap.add_argument("-o", "--out", required=True)
+    ap.add_argument("-o", "--out")
+    # For checking the C version (recomp/, PLAN-standalone.md step 2a):
+    # print everything read from the file, and the entry points, and stop.
+    ap.add_argument("--dump-rom", action="store_true", help=argparse.SUPPRESS)
     ap.add_argument("--entry", action="append", default=[],
                     help="extra entry point in hex (e.g. C000)")
     ap.add_argument("--missed", action="append", default=[],
                     help="file of addresses a previous run had to interpret;"
                          " they become entry points for native translation")
     args = ap.parse_args()
+    if not args.out and not args.dump_rom:
+        ap.error("the following arguments are required: -o/--out")
 
     rom = Rom(args.rom)
 
@@ -1160,6 +1205,9 @@ def main():
             else:                                # old format: AAAA
                 entries.append(rom.power_on_loc(int(line, 16)))
     entries = [e for e in entries if rom.translatable(e)]
+    if args.dump_rom:
+        dump_rom(rom, entries)
+        return
     insns, unknown = trace(rom, entries)
 
     with open(args.out, "w") as f:

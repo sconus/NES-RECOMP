@@ -5,6 +5,9 @@
 #   make test-all           both
 #   make game ROM=x.nes     recompile any NROM game into build/<name>
 #   make run ROM=x.nes      ...and run it in a window (options: ARGS="...")
+#   make recomp             the recompiler in C (build/nesrecomp-recomp)
+#   make test-recomp        check it reads (and later translates) every ROM
+#                           under tests/ as recomp.py does
 #   make sdl2               build the app's own SDL2 (tools/build_sdl2.sh;
 #                           needs SDL's source release in build/sdl2/src)
 #   make app                build the app (build/nesrecomp-app), PLAN-gui.md
@@ -61,6 +64,21 @@ game:
 run: game
 	./build/$(NAME) $(ROM) $(ARGS)
 
+# --- the recompiler in C (recomp/, PLAN-standalone.md step 2) -----------
+# The same program as recomp.py, which stays as the reference it is
+# checked against (tests/check_recomp.py). It builds in the project's
+# FDS BIOS (runtime/fds_bios.h).
+RECOMP_SRC = $(wildcard recomp/*.c)
+RECOMP_HDR = $(wildcard recomp/*.h)
+build/nesrecomp-recomp: $(RECOMP_SRC) $(RECOMP_HDR) runtime/fds_bios.h
+	@mkdir -p build
+	$(CC) -O2 -Wall -Wextra -o $@ $(RECOMP_SRC) -lz
+
+recomp: build/nesrecomp-recomp
+
+test-recomp: build/nesrecomp-recomp
+	python3 tests/check_recomp.py
+
 # --- the app (app/, PLAN-gui.md, PLAN-standalone.md) ------------------
 # app/art.h is written by tools/make_app_art.py; run that after editing it.
 # The app finds the project (recomp.py, runtime/) where it was built.
@@ -109,4 +127,4 @@ clean:
 	find build -mindepth 1 -maxdepth 1 ! -name sdl2 -exec rm -rf {} + 2>/dev/null; \
 	rm -f $(NESTEST).missed
 
-.PHONY: test test-ppu test-all game run sdl2 app run-app test-app app-bundle test-app-bundle test-standalone clean
+.PHONY: test test-ppu test-all game run recomp test-recomp sdl2 app run-app test-app app-bundle test-app-bundle test-standalone clean
