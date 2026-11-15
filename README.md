@@ -272,11 +272,15 @@ on it and it recompiles and plays it.
   under the MIT License.
 
 What it needs: this project folder (the app uses the recompiler and the
-runtime in the folder it was built in), Python 3, a C compiler and
-SDL2, as `make run` does. It isn't yet an app you could give to
-someone without those. `make test-app` checks its screens and builds,
+runtime in the folder it was built in), Python 3 and a C compiler. It
+carries its own SDL2, built from SDL's source release by `make sdl2`
+(`tools/build_sdl2.sh`; the release unpacked in `build/sdl2/src` first),
+for Intel and Apple Silicon Macs from macOS 11, and the games it builds
+use a copy of it. It isn't yet an app you could give to someone:
+PLAN-standalone.md is the plan for that. `make test-app` checks its screens and builds,
 and `make test-app-bundle` checks the bundle and opens it with a file
-as Finder does (a window shows for a few seconds).
+as Finder does (a window shows for a few seconds). `make
+test-standalone` checks it needs nothing from Homebrew.
 
 ## The Arkanoid paddle
 
@@ -759,11 +763,12 @@ or display-only `read_joy3` tests are left out of the suite, and so is
 `PLAN.md`, `PLAN-mappers.md`, `PLAN-sound.md`, `PLAN-cycles.md`,
 `PLAN-render.md`, `PLAN-mappers2.md`, `PLAN-expansion.md`,
 `PLAN-input.md`, `PLAN-nsf.md`, `PLAN-paddle.md`, `PLAN-zapper.md`,
-`PLAN-nes2.md`, `PLAN-split.md`, `PLAN-fds.md` and `PLAN-gui.md` have the
+`PLAN-nes2.md`, `PLAN-split.md`, `PLAN-fds.md`, `PLAN-gui.md` and
+`PLAN-standalone.md` have the
 step-by-step notes for each stage (graphics, mappers, sound, per-cycle
 timing, rendering, more mappers, expansion sound, controllers, NSF
 music, the paddle, the Zapper and four players, NES 2.0 headers, MMC5's
-split, the Famicom Disk System, the app), including how each timing value was tuned, what
+split, the Famicom Disk System, the app, the standalone app), including how each timing value was tuned, what
 was tried for what still fails, and where the documentation left a
 choice to make.
 

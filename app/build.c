@@ -8,6 +8,11 @@
                             build/app-rt/ and only compiled again when a
                             runtime source or header is newer
      5  linking             cc -o build/NAME ...
+   SDL2 is the app's own copy, not Homebrew's (PLAN-standalone.md step
+   1): games compile against its headers and link build/lib/libSDL2.dylib,
+   a copy of the app's library made before linking, which they find
+   beside them (their rpath is @executable_path/lib). So a game still
+   runs after the app is moved or replaced.
    A build that would make the same program again is skipped: build/
    NAME.stamp records what the program was built from (the ROM's path,
    size and time, its .missed file's, recomp.py's time, the newest
@@ -20,6 +25,7 @@
 #include "build.h"
 #include <dirent.h>
 #include <errno.h>
+#include <copyfile.h>
 #include <fcntl.h>
 #include <math.h>
 #include <pthread.h>
@@ -34,14 +40,8 @@
 
 extern char **environ;
 
-#ifndef APP_SDL_CFLAGS
-#define APP_SDL_CFLAGS ""
-#endif
-#ifndef APP_SDL_LIBS
-#define APP_SDL_LIBS ""
-#endif
-
 static char root[PATH_MAX], build_dir[PATH_MAX];
+static char sdl_lib[PATH_MAX], sdl_inc[PATH_MAX + 8], sdl_version_h[PATH_MAX];
 
 /* How much of the bar each stage has. */
 static const double weight[ST_COUNT] = { 0.02, 0.13, 0.45, 0.30, 0.10 };
@@ -63,6 +63,54 @@ double build_now(void) {
 void build_setup(const char *r, const char *b) {
     snprintf(root, sizeof root, "%s", r);
     snprintf(build_dir, sizeof build_dir, "%s", b);
+}
+
+static int exists(const char *path) {
+    struct stat st;
+    return stat(path, &st) == 0;
+}
+
+int build_find_sdl(const char *exe) {
+    char dir[PATH_MAX], lib[PATH_MAX], inc[PATH_MAX];
+    snprintf(dir, sizeof dir, "%s", exe);
+    char *slash = strrchr(dir, '/');
+    if (slash) *slash = 0; else snprintf(dir, sizeof dir, ".");
+    size_t len = strlen(dir);
+    if (len >= 15 && !strcmp(dir + len - 15, "/Contents/MacOS")) {
+        snprintf(lib, sizeof lib, "%s/../Frameworks/libSDL2.dylib", dir);
+        snprintf(inc, sizeof inc, "%s/../Resources/sdl2/include", dir);
+    } else {
+        snprintf(lib, sizeof lib, "%s/sdl2/lib/libSDL2.dylib", dir);
+        snprintf(inc, sizeof inc, "%s/sdl2/include", dir);
+    }
+    if (!realpath(lib, sdl_lib)) sdl_lib[0] = 0;
+    char real[PATH_MAX];
+    if (realpath(inc, real)) {
+        snprintf(sdl_inc, sizeof sdl_inc, "-I%s/SDL2", real);
+        snprintf(sdl_version_h, sizeof sdl_version_h, "%s/SDL2/SDL_version.h", real);
+    } else sdl_inc[0] = sdl_version_h[0] = 0;
+    return sdl_lib[0] && sdl_version_h[0] && exists(sdl_version_h);
+}
+
+const char *build_sdl_lib(void) { return sdl_lib; }
+
+/* Copy the app's SDL2 library to build/lib/, unless the copy there
+   already has its size and time. */
+static int copy_sdl(char *dest, size_t n) {
+    char dir[PATH_MAX];
+    snprintf(dir, sizeof dir, "%s/lib", build_dir);
+    mkdir(dir, 0755);
+    snprintf(dest, n, "%s/libSDL2.dylib", dir);
+    struct stat a, b;
+    if (stat(sdl_lib, &a)) return -1;
+    if (!stat(dest, &b) && a.st_size == b.st_size &&
+        a.st_mtimespec.tv_sec == b.st_mtimespec.tv_sec &&
+        a.st_mtimespec.tv_nsec == b.st_mtimespec.tv_nsec) return 0;
+    char tmp[PATH_MAX + 8];
+    snprintf(tmp, sizeof tmp, "%s.new", dest);
+    if (copyfile(sdl_lib, tmp, NULL, COPYFILE_DATA | COPYFILE_STAT) ||
+        rename(tmp, dest)) { unlink(tmp); return -1; }
+    return 0;
 }
 
 int build_check_file(const char *path, char *why, size_t n) {
@@ -111,14 +159,6 @@ static int fail(struct build *b, const char *fmt, const char *detail) {
     atomic_store(&b->state, B_FAILED);
     if (b->verbose) { printf("error: %s\n", b->error); fflush(stdout); }
     return 1;
-}
-
-/* Split a list of flags at spaces into argv. */
-static int split(const char *s, char *buf, size_t n, char **argv, int max) {
-    snprintf(buf, n, "%s", s);
-    int c = 0;
-    for (char *p = strtok(buf, " "); p && c < max; p = strtok(NULL, " ")) argv[c++] = p;
-    return c;
 }
 
 /* Run argv with its output appended to the log. Returns the exit status
@@ -200,9 +240,9 @@ static void stamp_text(const char *rom, char *out, size_t n) {
         }
     }
     if (d) closedir(d);
-    snprintf(out, n, "rom %s %ld %.9f missed %ld %.9f recomp %.9f runtime %.9f\n", rom,
-             file_size(rom), mtime_ns(rom), file_size(missed), mtime_ns(missed),
-             mtime_ns(recomp), newest);
+    snprintf(out, n, "rom %s %ld %.9f missed %ld %.9f recomp %.9f runtime %.9f sdl %.9f\n",
+             rom, file_size(rom), mtime_ns(rom), file_size(missed), mtime_ns(missed),
+             mtime_ns(recomp), newest, mtime_ns(sdl_version_h));
 }
 
 static int by_name(const void *a, const void *b) {
@@ -212,7 +252,6 @@ static int by_name(const void *a, const void *b) {
 int build_run(struct build *b, const char *rom) {
     char why[128], cfile[PATH_MAX], gobj[PATH_MAX], missed[PATH_MAX], rtdir[PATH_MAX];
     char rdir[PATH_MAX], recomp[PATH_MAX], inc[PATH_MAX + 2], msg[512];
-    char fbuf[1024], lbuf[1024];
     long from;
     if (rom != b->rom) snprintf(b->rom, sizeof b->rom, "%s", rom);
     rom = b->rom;
@@ -228,6 +267,8 @@ int build_run(struct build *b, const char *rom) {
 
     set_stage(b, ST_CHECK, 0.2);
     if (!build_check_file(rom, why, sizeof why)) return fail(b, "%s", why);
+    if (!sdl_lib[0] || !exists(sdl_version_h))
+        return fail(b, "%s", "the app's SDL2 is missing");
 
     /* Up to date? Then nothing to build. */
     char stamp[PATH_MAX], want[PATH_MAX * 2 + 256], have[sizeof want];
@@ -262,8 +303,8 @@ int build_run(struct build *b, const char *rom) {
     snprintf(gobj, sizeof gobj, "%s/%s.o", build_dir, b->name);
     snprintf(rdir, sizeof rdir, "%s/runtime", root);
     snprintf(inc, sizeof inc, "-I%s", rdir);
-    char *ga[32] = { "cc", "-O1", "-w", inc };
-    int gn = 4 + split(APP_SDL_CFLAGS, fbuf, sizeof fbuf, ga + 4, 20);
+    char *ga[32] = { "cc", "-O1", "-w", inc, sdl_inc, "-D_THREAD_SAFE" };
+    int gn = 6;
     ga[gn++] = "-c"; ga[gn++] = "-o"; ga[gn++] = gobj; ga[gn++] = cfile; ga[gn] = NULL;
     r = run(b, ga, &from);
     if (r) {
@@ -290,6 +331,7 @@ int build_run(struct build *b, const char *rom) {
             newest_h = mtime(path);
     }
     closedir(d);
+    if (mtime(sdl_version_h) > newest_h) newest_h = mtime(sdl_version_h);
     qsort(srcs, (size_t)ns, sizeof *srcs, by_name);
     char objs[256][PATH_MAX];
     int todo[256], ntodo = 0;
@@ -306,8 +348,8 @@ int build_run(struct build *b, const char *rom) {
         int i = todo[k];
         char src[PATH_MAX];
         snprintf(src, sizeof src, "%s/%s", rdir, srcs[i]);
-        char *ca[32] = { "cc", "-O1", "-w", inc };
-        int cn = 4 + split(APP_SDL_CFLAGS, fbuf, sizeof fbuf, ca + 4, 20);
+        char *ca[32] = { "cc", "-O1", "-w", inc, sdl_inc, "-D_THREAD_SAFE" };
+        int cn = 6;
         ca[cn++] = "-c"; ca[cn++] = "-o"; ca[cn++] = objs[i]; ca[cn++] = src; ca[cn] = NULL;
         r = run(b, ca, &from);
         if (r) {
@@ -326,11 +368,17 @@ int build_run(struct build *b, const char *rom) {
 
     /* 5: linking. */
     set_stage(b, ST_LINK, 0.5);
+    char sdl_copy[PATH_MAX];
+    if (copy_sdl(sdl_copy, sizeof sdl_copy)) {
+        for (int j = 0; j < ns; j++) free(srcs[j]);
+        return fail(b, "can't copy SDL2 from %s", sdl_lib[0] ? sdl_lib : "the app");
+    }
     char *la[300];
     int ln = 0;
     la[ln++] = "cc"; la[ln++] = "-o"; la[ln++] = b->out; la[ln++] = gobj;
     for (int i = 0; i < ns; i++) la[ln++] = objs[i];
-    ln += split(APP_SDL_LIBS, lbuf, sizeof lbuf, la + ln, 20);
+    la[ln++] = sdl_copy;
+    la[ln++] = "-Wl,-rpath,@executable_path/lib";
     la[ln++] = "-lz"; la[ln++] = "-lm"; la[ln] = NULL;
     r = run(b, la, &from);
     for (int j = 0; j < ns; j++) free(srcs[j]);

@@ -7,8 +7,14 @@ from build/nesrecomp-app (`make app`). Run by `make app-bundle`.
                             the files it opens (.nes, .nsf, .fds), so a
                             ROM can be dropped on its Dock icon or opened
                             with it from Finder
-        MacOS/nesrecomp     the program
+        MacOS/nesrecomp     the program, for Intel and Apple Silicon
+        Frameworks/
+            libSDL2.dylib   the app's own SDL2 (tools/build_sdl2.sh), which
+                            the program loads and the games it builds
+                            link a copy of (PLAN-standalone.md step 1)
         Resources/
+            sdl2/include/SDL2/  SDL's headers, for compiling games
+            sdl2/LICENSE.txt    SDL's license (zlib)
             nesrecomp.icns  the icon: the TV and the console from the
                             app's picture, "NES / RECOMP" on the TV,
                             on the wall's gradient in a rounded square
@@ -157,6 +163,15 @@ def main():
     os.makedirs(os.path.join(contents, "MacOS"))
     os.makedirs(os.path.join(contents, "Resources"))
     shutil.copy2(exe, os.path.join(contents, "MacOS", "nesrecomp"))
+    sdl = os.path.join(ROOT, "build", "sdl2")
+    if not os.path.exists(os.path.join(sdl, "lib", "libSDL2.dylib")):
+        sys.exit("build/sdl2 is missing: run `make sdl2` first")
+    os.makedirs(os.path.join(contents, "Frameworks"))
+    shutil.copy2(os.path.join(sdl, "lib", "libSDL2.dylib"),
+                 os.path.join(contents, "Frameworks", "libSDL2.dylib"))
+    res_sdl = os.path.join(contents, "Resources", "sdl2")
+    shutil.copytree(os.path.join(sdl, "include"), os.path.join(res_sdl, "include"))
+    shutil.copy2(os.path.join(sdl, "LICENSE.txt"), os.path.join(res_sdl, "LICENSE.txt"))
     make_icns(os.path.join(contents, "Resources", "nesrecomp.icns"))
     with open(os.path.join(contents, "Resources", "Credits.rtf"), "w") as f:
         f.write(credits_rtf())

@@ -30,6 +30,14 @@ int build_check_file(const char *path, char *why, size_t n);
 /* Where the project is (the recompiler, the runtime) and where builds
    go: set once before building. */
 void build_setup(const char *root, const char *build_dir);
+/* Where the app's own SDL2 is (PLAN-standalone.md step 1): the library
+   and the folder holding SDL2/SDL.h. Games compile against these
+   headers, and link a copy of the library kept next to them. Found from
+   the app's own place: in a bundle, Contents/Frameworks/libSDL2.dylib
+   and Contents/Resources/sdl2/include; otherwise sdl2/lib and
+   sdl2/include beside the program. Returns 0 if they aren't there. */
+int build_find_sdl(const char *exe);
+const char *build_sdl_lib(void);
 /* Build it, now (returns 0 when done), or on a thread of its own. */
 int build_run(struct build *b, const char *rom);
 void build_start(struct build *b, const char *rom);

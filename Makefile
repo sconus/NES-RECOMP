@@ -5,12 +5,16 @@
 #   make test-all           both
 #   make game ROM=x.nes     recompile any NROM game into build/<name>
 #   make run ROM=x.nes      ...and run it in a window (options: ARGS="...")
+#   make sdl2               build the app's own SDL2 (tools/build_sdl2.sh;
+#                           needs SDL's source release in build/sdl2/src)
 #   make app                build the app (build/nesrecomp-app), PLAN-gui.md
 #   make run-app            ...and open it
 #   make test-app           check its screens (tests/check_app.py)
 #   make app-bundle         build/nesrecomp.app, to double-click
 #   make test-app-bundle    check it, opening it as Finder would (it shows
 #                           a window briefly)
+#   make test-standalone    check the app needs nothing from Homebrew
+#                           (tests/check_standalone.py, PLAN-standalone.md)
 #   make clean
 # ROM paths with spaces are not supported.
 CC      ?= cc
@@ -57,15 +61,30 @@ game:
 run: game
 	./build/$(NAME) $(ROM) $(ARGS)
 
-# --- the app (app/, PLAN-gui.md) ------------------------------------
+# --- the app (app/, PLAN-gui.md, PLAN-standalone.md) ------------------
 # app/art.h is written by tools/make_app_art.py; run that after editing it.
-# The app finds the project (recomp.py, runtime/) where it was built, and
-# builds games with the same SDL flags.
-APP_DEFS = -DPROJECT_ROOT='"$(CURDIR)"' -DAPP_SDL_CFLAGS='"$(SDL_CFLAGS)"' \
-           -DAPP_SDL_LIBS='"$(SDL_LIBS)"'
-build/nesrecomp-app: app/app.c app/build.c app/build.h app/play.c app/play.h app/art.h
+# The app finds the project (recomp.py, runtime/) where it was built.
+# It uses its own SDL2, not Homebrew's: built from SDL's source release
+# by tools/build_sdl2.sh into build/sdl2/ (for Intel and Apple Silicon,
+# macOS 11 on), and the app is built for both too. It finds the library
+# at sdl2/lib beside it (or in the bundle's Frameworks), and builds games
+# against it.
+SDL2_DIR  = build/sdl2
+SDL2_LIB  = $(SDL2_DIR)/lib/libSDL2.dylib
+APP_ARCH  = -arch arm64 -arch x86_64 -mmacosx-version-min=11.0
+APP_SDL   = -I$(SDL2_DIR)/include/SDL2 -D_THREAD_SAFE
+APP_LIBS  = $(SDL2_LIB) -Wl,-rpath,@executable_path/sdl2/lib \
+            -Wl,-rpath,@executable_path/../Frameworks -lz -lm
+APP_DEFS = -DPROJECT_ROOT='"$(CURDIR)"'
+
+$(SDL2_LIB): tools/build_sdl2.sh
+	sh tools/build_sdl2.sh
+
+sdl2: $(SDL2_LIB)
+
+build/nesrecomp-app: app/app.c app/build.c app/build.h app/play.c app/play.h app/art.h $(SDL2_LIB)
 	@mkdir -p build
-	$(CC) $(CFLAGS) $(SDL_CFLAGS) $(APP_DEFS) -Iapp -o $@ app/app.c app/build.c app/play.c $(LDLIBS)
+	$(CC) $(CFLAGS) $(APP_ARCH) $(APP_SDL) $(APP_DEFS) -Iapp -o $@ app/app.c app/build.c app/play.c $(APP_LIBS)
 
 app: build/nesrecomp-app
 
@@ -81,7 +100,13 @@ app-bundle: build/nesrecomp-app tools/make_app_bundle.py tools/make_app_art.py
 test-app-bundle: app-bundle
 	python3 tests/check_app_bundle.py
 
-clean:
-	rm -rf build $(NESTEST).missed
+test-standalone: app-bundle
+	python3 tests/check_standalone.py
 
-.PHONY: test test-ppu test-all game run app run-app test-app app-bundle test-app-bundle clean
+# build/sdl2 stays: it holds SDL's downloaded source (`rm -rf build/sdl2`
+# to build it again from a new download).
+clean:
+	find build -mindepth 1 -maxdepth 1 ! -name sdl2 -exec rm -rf {} + 2>/dev/null; \
+	rm -f $(NESTEST).missed
+
+.PHONY: test test-ppu test-all game run sdl2 app run-app test-app app-bundle test-app-bundle test-standalone clean

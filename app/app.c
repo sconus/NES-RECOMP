@@ -51,6 +51,10 @@
        nesrecomp-app --progress-model
            print the loading bar's value for each stage over a long range
            of times (and runtime file counts), for tests/check_app.py
+       nesrecomp-app --sdl-info
+           say where the app's own SDL2 is (PLAN-standalone.md step 1):
+           Contents/Frameworks in the bundle, sdl2/ beside the program
+           otherwise; games are built against it
        --build-dir D   where builds go (default: build/ in the project)
    The project (recomp.py, runtime/) is where `make app` was run, or
    $NESRECOMP_ROOT. */
@@ -63,6 +67,7 @@
 #include <pthread.h>
 #include <stdatomic.h>
 #include <zlib.h>
+#include <mach-o/dyld.h>
 #include "art.h"
 #include "build.h"
 #include "play.h"
@@ -501,6 +506,7 @@ static void take(const char *path) {
 int main(int argc, char **argv) {
     const char *shot = NULL, *build_rom = NULL, *open_rom = NULL, *bdir = NULL;
     int trace = 0, model = 0, then_play = 0, hit = 0, hw = 0, hh = 0, hx = 0, hy = 0;
+    int sdl_info = 0;
     const char *play_args = NULL, *play_exe = NULL, *play_rom = NULL;
     long frames = 0;
     int sw = ART_W, sh = ART_H;
@@ -520,6 +526,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--build-dir") && more) bdir = argv[++i];
         else if (!strcmp(argv[i], "--trace-progress")) trace = 1;
         else if (!strcmp(argv[i], "--progress-model")) model = 1;
+        else if (!strcmp(argv[i], "--sdl-info")) sdl_info = 1;
         else if (!strcmp(argv[i], "--then-play")) then_play = 1;
         else if (!strcmp(argv[i], "--hit-test") && i + 3 < argc) {
             hit = sscanf(argv[i + 1], "%dx%d", &hw, &hh) == 2;
@@ -571,6 +578,16 @@ int main(int argc, char **argv) {
     char defdir[PATH_MAX];
     snprintf(defdir, sizeof defdir, "%s/build", root);
     build_setup(root, bdir ? bdir : defdir);
+    /* The app's own SDL2, found from where the program is. */
+    char exe[PATH_MAX], exe_real[PATH_MAX];
+    uint32_t exe_n = sizeof exe;
+    if (_NSGetExecutablePath(exe, &exe_n) || !realpath(exe, exe_real))
+        snprintf(exe_real, sizeof exe_real, "%s", argv[0]);
+    int have_sdl = build_find_sdl(exe_real);
+    if (sdl_info) {
+        printf("sdl2 %s %s\n", have_sdl ? "found" : "missing", build_sdl_lib());
+        return have_sdl ? 0 : 1;
+    }
     snprintf(prefs, sizeof prefs, "%s/app-prefs.txt", bdir ? bdir : defdir);
     if (play_exe) {
         snprintf(game_log, sizeof game_log, "%s.game.log", play_exe);
