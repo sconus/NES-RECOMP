@@ -10,8 +10,8 @@ from build/nesrecomp-app (`make app`). Run by `make app-bundle`.
         MacOS/nesrecomp     the program
         Resources/
             nesrecomp.icns  the icon: the TV and the console from the
-                            app's picture, on the wall's gradient in a
-                            rounded square
+                            app's picture, "NES / RECOMP" on the TV,
+                            on the wall's gradient in a rounded square
             Credits.rtf     what the Mac's About box shows under the name
 
 The program still uses the project folder it was built in (recomp.py,
@@ -55,11 +55,43 @@ def write_png(path, rows):
                 + chunk(b"IDAT", zlib.compress(raw, 9)) + chunk(b"IEND", b""))
 
 
+ICON_WORDS = ["NES", "RECOMP"]          # on the icon's TV, the font at 3x
+
+
+def tv_words(c):
+    """Write ICON_WORDS on the TV's screen in the picture, centred, the
+    font 3 picture pixels a dot, outlined like the app's lettering."""
+    glyphs = art.font()
+    sx, sy, sw, sh = art.SCREEN
+    scale, gap = 3, 6
+    top = sy + (sh - (len(ICON_WORDS) * 7 * scale + (len(ICON_WORDS) - 1) * gap)) // 2
+    on = set()
+    for li, word in enumerate(ICON_WORDS):
+        x0 = sx + sw // 2 - (len(word) * 6 * scale - scale) // 2
+        y0 = top + li * (7 * scale + gap)
+        for i, ch in enumerate(word):
+            g = glyphs[ord(ch) - 0x20]
+            for r in range(7):
+                for col in range(5):
+                    if g[r] & (0x10 >> col):
+                        for dy in range(scale):
+                            for dx in range(scale):
+                                on.add((x0 + i * 6 * scale + col * scale + dx, y0 + r * scale + dy))
+    for x, y in on:
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                c.put(x + dx, y + dy, "text_line")
+    for x, y in on:
+        c.put(x, y, "text")
+    return on
+
+
 def icon_master():
     """The 1024x1024 icon: a rounded square of the wall's gradient (its
     pixels 8 icon pixels wide), the TV and the console drawn 5 icon
     pixels a canvas pixel, centred."""
     c = art.draw()
+    tv_words(c)
     pal = [col for _, col in art.PALETTE]
     size, radius, inset = 1024, 180, 80
     rows = [[(0, 0, 0, 0)] * size for _ in range(size)]

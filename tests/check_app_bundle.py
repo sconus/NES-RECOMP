@@ -5,7 +5,7 @@ shows for a few seconds.
   1. what it is: its Info.plist (name, identifier, version, the About
      box's copyright line, the icon, the program, the files it opens),
      its Credits.rtf (the About box's lines), its icon (a 1024-pixel
-     image inside), its program (the same as build/nesrecomp-app), its
+     image inside, with "NES RECOMP" in white on the TV), its program (the same as build/nesrecomp-app), its
      signature;
   2. opening a file with it, as Finder does (`open -a`): the app starts
      with Finder's bare environment, the file reaches it as a drop, it
@@ -20,12 +20,50 @@ import shutil
 import subprocess
 import sys
 import time
+import zlib
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 APP = os.path.join(ROOT, "build", "nesrecomp.app")
 OUT = os.path.join(ROOT, "build", "app_check", "bundle")
 IDENT = "local.nesrecomp"
+
+
+def read_png(path):
+    """Width, height and rows of (r, g, b) of an 8-bit RGB or RGBA PNG,
+    with any of the five row filters."""
+    d = open(path, "rb").read()
+    i, idat, w, h, ct = 8, b"", 0, 0, 0
+    while i < len(d):
+        n = int.from_bytes(d[i:i + 4], "big")
+        t = d[i + 4:i + 8]
+        if t == b"IHDR":
+            w, h = int.from_bytes(d[i + 8:i + 12], "big"), int.from_bytes(d[i + 12:i + 16], "big")
+            ct = d[i + 17]
+        elif t == b"IDAT":
+            idat += d[i + 8:i + 8 + n]
+        i += 12 + n
+    bpp = {2: 3, 6: 4}[ct]
+    raw, stride, prev, rows, at = zlib.decompress(idat), w * bpp, bytearray(w * bpp), [], 0
+    for _ in range(h):
+        f, line = raw[at], bytearray(raw[at + 1:at + 1 + stride])
+        at += 1 + stride
+        for x in range(stride):
+            a = line[x - bpp] if x >= bpp else 0
+            b, c = prev[x], prev[x - bpp] if x >= bpp else 0
+            if f == 1:
+                line[x] = (line[x] + a) & 255
+            elif f == 2:
+                line[x] = (line[x] + b) & 255
+            elif f == 3:
+                line[x] = (line[x] + (a + b) // 2) & 255
+            elif f == 4:
+                p = a + b - c
+                pa, pb, pc = abs(p - a), abs(p - b), abs(p - c)
+                line[x] = (line[x] + (a if pa <= pb and pa <= pc else b if pb <= pc else c)) & 255
+        rows.append([tuple(line[x * bpp:x * bpp + 3]) for x in range(w)])
+        prev = line
+    return w, h, rows
 
 
 def main():
@@ -74,6 +112,17 @@ def main():
         if os.path.exists(big) else ""
     check("the icon: a 1024-pixel image inside", r.returncode == 0 and "pixelWidth: 1024" in size,
           (r.stderr or size).strip()[-80:])
+    # The TV's screen in the icon: the picture's screen (92, 24, 116, 86)
+    # from the crop at (76, 6), 5 icon pixels a picture pixel, centred.
+    white = 0
+    if os.path.exists(big):
+        _, _, rows = read_png(big)
+        for y in range(92 + 18 * 5, 92 + (18 + 86) * 5):
+            for x in range(92 + 16 * 5, 92 + (16 + 116) * 5):
+                white += min(rows[y][x]) > 200
+    # NES RECOMP at 3x: 148 lit dots of the font, 9 picture pixels each,
+    # 25 icon pixels each: 33,300 (most of it must be there).
+    check("the icon: NES RECOMP in white on the TV", white > 30000, "%d white pixels there" % white)
     prog = os.path.join(contents, "MacOS", "nesrecomp")
     # Signing the bundle rewrites the program's signature (and a byte of
     # its header saying how it was signed): compare their code.

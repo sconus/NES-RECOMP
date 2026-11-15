@@ -474,6 +474,11 @@ script can see it, and tried in the window where it can't.
   - Not checked by a script: dragging a ROM onto the Dock icon (`open
     -a` sends the same "open this file" request), which the user tried
     and which works; and the About box itself on screen.
+  - **Asked for afterwards:** the icon's TV says "NES / RECOMP", in the
+    app's outlined white lettering, the font at 3x (readable even at 64
+    pixels). `make test-app-bundle` checks the icon's screen shows it
+    (12 checks). Two breaks, no words and only one word, are both
+    caught.
 
 ## Not in this version
 - A self-contained app that runs without the project folder, Python and
