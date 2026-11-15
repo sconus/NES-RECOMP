@@ -26,6 +26,7 @@ struct build {
     double stage_start;             /* when the stage began (seconds) */
     double estimate;                /* how long it might take (seconds) */
     int verbose;                    /* print each stage (--build) */
+    int no_compiler;                /* it failed for want of Apple's C compiler */
 };
 
 /* The stage's name, as the screen shows it. */
@@ -52,6 +53,12 @@ const char *build_sdl_lib(void);
 /* The recompiler, nesrecomp-recomp beside the app's program (found by
    build_find_parts too). */
 const char *build_recompiler(void);
+/* Is Apple's C compiler there? (xcode-select -p, and clang in the
+   folder it names.) If so, where clang is, in where. */
+int build_have_compiler(char *where, size_t n);
+/* The xcode-select to ask (and to run --install): /usr/bin/xcode-select,
+   or $NESRECOMP_XCODE_SELECT for the checks. */
+const char *build_xcode_select(void);
 /* Build it, now (returns 0 when done), or on a thread of its own. */
 int build_run(struct build *b, const char *rom);
 void build_start(struct build *b, const char *rom);

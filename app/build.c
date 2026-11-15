@@ -28,6 +28,13 @@
    recompiler's time, the newest runtime file's, SDL's header's), and
    when all match and the program is there, the build is "up to date"
    and done at once.
+   Apple's C compiler (the Command Line Tools, or Xcode) is looked for
+   before compiling, and never run blindly: on a Mac without it,
+   /usr/bin/cc is a stand-in that pops up Apple's install box in the
+   middle of a build. `xcode-select -p` says where the tools would be,
+   and clang must be there. If not, the build stops before stage 2 with
+   b->no_compiler set, and the window says what to do (app.c). A game
+   already built and up to date still plays without it.
    The tools run with posix_spawn (no shell, so paths with spaces work),
    their output appended to build/NAME.log. A tool that fails stops the
    build; its message (the recompiler's last line, the compiler's first
@@ -265,6 +272,55 @@ static void stamp_text(const char *rom, const char *missed, char *out, size_t n)
              mtime_ns(recomp), newest, mtime_ns(sdl_version_h));
 }
 
+const char *build_xcode_select(void) {
+    const char *x = getenv("NESRECOMP_XCODE_SELECT");     /* for the checks */
+    return x && *x ? x : "/usr/bin/xcode-select";
+}
+
+int build_have_compiler(char *where, size_t n) {
+    if (where && n) where[0] = 0;
+    int fd[2];
+    if (pipe(fd)) return 0;
+    posix_spawn_file_actions_t fa;
+    posix_spawn_file_actions_init(&fa);
+    posix_spawn_file_actions_adddup2(&fa, fd[1], 1);
+    posix_spawn_file_actions_addopen(&fa, 2, "/dev/null", O_WRONLY, 0);
+    posix_spawn_file_actions_addclose(&fa, fd[0]);
+    char *argv[] = { (char *)build_xcode_select(), "-p", NULL };
+    pid_t pid;
+    int err = posix_spawn(&pid, argv[0], &fa, NULL, argv, environ);
+    posix_spawn_file_actions_destroy(&fa);
+    close(fd[1]);
+    char dir[PATH_MAX] = "";
+    if (!err) {
+        size_t got = 0;
+        ssize_t k;
+        while (got + 1 < sizeof dir && (k = read(fd[0], dir + got, sizeof dir - 1 - got)) > 0)
+            got += (size_t)k;
+        dir[got] = 0;
+        int status;
+        while (waitpid(pid, &status, 0) < 0 && errno == EINTR) {}
+        if (!WIFEXITED(status) || WEXITSTATUS(status)) dir[0] = 0;
+    }
+    close(fd[0]);
+    dir[strcspn(dir, "\r\n")] = 0;
+    if (!dir[0]) return 0;
+    /* The Command Line Tools have usr/bin/clang; Xcode has it in its
+       default toolchain. */
+    static const char *const at[] = {
+        "usr/bin/clang", "Toolchains/XcodeDefault.xctoolchain/usr/bin/clang",
+    };
+    for (size_t i = 0; i < sizeof at / sizeof *at; i++) {
+        char p[PATH_MAX + 64];
+        snprintf(p, sizeof p, "%s/%s", dir, at[i]);
+        if (access(p, X_OK) == 0) {
+            if (where) snprintf(where, n, "%s", p);
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static int by_name(const void *a, const void *b) {
     return strcmp(*(char *const *)a, *(char *const *)b);
 }
@@ -289,6 +345,7 @@ int build_run(struct build *b, const char *rom) {
     if (access(rom_dir, W_OK) == 0) snprintf(b->files_at, sizeof b->files_at, "%s", rom);
     else snprintf(b->files_at, sizeof b->files_at, "%s/%s", build_dir, b->name);
     b->error[0] = 0;
+    b->no_compiler = 0;
     atomic_store(&b->rt_done, 0);
     atomic_store(&b->rt_total, 0);
     atomic_store(&b->state, B_RUNNING);
@@ -321,6 +378,12 @@ int build_run(struct build *b, const char *rom) {
         return 0;
     }
     unlink(stamp);                  /* only a finished build is trusted */
+
+    /* Apple's C compiler, before anything is compiled. */
+    if (!build_have_compiler(NULL, 0)) {
+        b->no_compiler = 1;
+        return fail(b, "%s", "needs Apple's C compiler: xcode-select --install");
+    }
 
     /* 2: the recompiler. */
     set_stage(b, ST_RECOMP, 0.5 + file_size(rom) / 200000.0);

@@ -16,6 +16,11 @@
      build   the file's name, "RECOMPILING IN PROGRESS", the loading bar
              and the stage (build.c does the work, on its own thread, so
              the window stays responsive)
+     needcc  no C compiler on this Mac: "NEEDS APPLE'S C COMPILER", "CLICK
+             TO INSTALL IT" and the command for Terminal; a click on the
+             TV runs `xcode-select --install` (Apple's installer), then
+             "WHEN IT'S DONE, DROP THE ROM AGAIN" (PLAN-standalone.md
+             step 5)
      error   "CAN'T RECOMPILE" and why (a wrong file, or the tool's
              message); the whole output is in NAME.log in the build
              folder
@@ -49,12 +54,17 @@
        nesrecomp-app --hit-test WxH X Y
            is the pixel (X, Y) of a W x H window on the TV's screen (where
            a click opens the file picker)? Prints "tv" or "outside"
+       nesrecomp-app --click-test SCREEN WxH X Y
+           what a click at (X, Y) of a W x H window does on SCREEN (drop,
+           error, needcc, ...); for the installer, run it (xcode-select
+           --install, or $NESRECOMP_XCODE_SELECT) and say how it ended
        nesrecomp-app --progress-model
            print the loading bar's value for each stage over a long range
            of times (and runtime file counts), for tests/check_app.py
        nesrecomp-app --sdl-info
-           say where the app's own SDL2, recompiler and runtime are, and
-           where builds go (PLAN-standalone.md steps 1, 3 and 4)
+           say where the app's own SDL2, recompiler and runtime are, where
+           builds go, and where Apple's C compiler is (PLAN-standalone.md
+           steps 1, 3, 4 and 5)
        nesrecomp-app --version
            print the app's version
        --build-dir D   where builds go (default: ~/Library/Application
@@ -74,7 +84,11 @@
 #include <stdatomic.h>
 #include <zlib.h>
 #include <mach-o/dyld.h>
+#include <errno.h>
+#include <fcntl.h>
 #include <pwd.h>
+#include <spawn.h>
+#include <sys/wait.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #include "art.h"
@@ -103,15 +117,37 @@ static void text(const char *s, int cx, int y, int scale, uint32_t colour, int o
     text_xy(s, cx, y, scale, scale, colour, outline);
 }
 
+/* The font has capitals only. A command for Terminal must be typed as
+   it is, so these lowercase letters (the ones `xcode-select --install`
+   needs) are drawn where text_lower is set; any other letter is drawn
+   as its capital. Each row: 5 bits, the leftmost 0x10. */
+static const struct { char ch; unsigned char rows[7]; } lower_font[] = {
+    { 'a', { 0x00, 0x00, 0x0E, 0x01, 0x0F, 0x11, 0x0F } },
+    { 'c', { 0x00, 0x00, 0x0E, 0x10, 0x10, 0x11, 0x0E } },
+    { 'd', { 0x01, 0x01, 0x0D, 0x13, 0x11, 0x13, 0x0D } },
+    { 'e', { 0x00, 0x00, 0x0E, 0x11, 0x1F, 0x10, 0x0E } },
+    { 'i', { 0x04, 0x00, 0x0C, 0x04, 0x04, 0x04, 0x0E } },
+    { 'l', { 0x0C, 0x04, 0x04, 0x04, 0x04, 0x04, 0x0E } },
+    { 'n', { 0x00, 0x00, 0x16, 0x19, 0x11, 0x11, 0x11 } },
+    { 'o', { 0x00, 0x00, 0x0E, 0x11, 0x11, 0x11, 0x0E } },
+    { 's', { 0x00, 0x00, 0x0F, 0x10, 0x0E, 0x01, 0x1E } },
+    { 't', { 0x08, 0x08, 0x1C, 0x08, 0x08, 0x09, 0x06 } },
+    { 'x', { 0x00, 0x00, 0x11, 0x0A, 0x04, 0x0A, 0x11 } },
+};
+static int text_lower;
+
 /* sx, sy: the font's pixels are sx wide and sy tall (the build screen's
    tall letters are 1 x 2). */
 static void text_pass(const char *s, int cx, int y, int sx, int sy, uint32_t colour, int grow) {
     int len = (int)strlen(s), x0 = cx - (len * 6 * sx - sx) / 2;
     for (int i = 0; i < len; i++) {
         int ch = (unsigned char)s[i];
+        const unsigned char *g = NULL;
+        for (size_t k = 0; text_lower && k < sizeof lower_font / sizeof *lower_font; k++)
+            if (lower_font[k].ch == ch) g = lower_font[k].rows;
         if (ch >= 'a' && ch <= 'z') ch -= 32;
         if (ch < 0x20 || ch > 0x5F) ch = '?';
-        const unsigned char *g = art_font[ch - 0x20];
+        if (!g) g = art_font[ch - 0x20];
         for (int r = 0; r < 7; r++)
             for (int c = 0; c < 5; c++)
                 if (g[r] & (0x10 >> c))
@@ -227,6 +263,27 @@ static void draw_error(long n, const char *title, const char *msg) {
     int k = wrap(msg, lines, 5);
     for (int i = 0; i < k; i++) text(lines[i], SCREEN_CX, y + 25 + i * 9, 1, white, 1);
     text("DROP ANOTHER FILE", SCREEN_CX, y + 74, 1, dim, 1);
+}
+
+/* No C compiler (build.c): what to do. After a click on the TV started
+   Apple's installer (`clicked`), what to do when it's done. */
+static void draw_needcc(long n, int clicked) {
+    draw_room(n, 0);
+    uint32_t white = ink(INK_TEXT), dim = ink(INK_MANE_HI);
+    int y = ART_SCREEN_Y;
+    text_xy("NEEDS APPLE'S", SCREEN_CX, y + 5, 1, 2, white, 1);
+    text_xy("C COMPILER", SCREEN_CX, y + 21, 1, 2, white, 1);
+    if (clicked) {
+        text("WHEN IT'S DONE,", SCREEN_CX, y + 46, 1, white, 1);
+        text("DROP THE ROM AGAIN", SCREEN_CX, y + 60, 1, dim, 1);
+        return;
+    }
+    text("CLICK TO INSTALL IT", SCREEN_CX, y + 41, 1, white, 1);
+    text("OR IN TERMINAL:", SCREEN_CX, y + 54, 1, dim, 1);
+    text_lower = 1;
+    text("xcode-select", SCREEN_CX, y + 63, 1, white, 1);
+    text("--install", SCREEN_CX, y + 72, 1, white, 1);
+    text_lower = 0;
 }
 
 static void draw_done(long n, const char *name) {
@@ -396,6 +453,8 @@ static int screenshot(const char *path, long frame, int w, int h) {
     else if (!strcmp(shot_opts.show, "error")) draw_error(frame, "CAN'T RECOMPILE", shot_opts.message);
     else if (!strcmp(shot_opts.show, "stopped")) draw_error(frame, "THE GAME STOPPED", shot_opts.message);
     else if (!strcmp(shot_opts.show, "done")) draw_done(frame, name);
+    else if (!strcmp(shot_opts.show, "needcc")) draw_needcc(frame, 0);
+    else if (!strcmp(shot_opts.show, "needcc_clicked")) draw_needcc(frame, 1);
     else if (!strcmp(shot_opts.show, "play")) draw_play(frame, name);
     else if (!strcmp(shot_opts.show, "about")) draw_about(frame);
     else if (!strcmp(shot_opts.show, "card")) draw_card(frame, 0);
@@ -415,7 +474,10 @@ static void usage(const char *prog) {
 }
 
 /* The window's state. */
-enum { S_DROP, S_BUILD, S_ERROR, S_DONE, S_PLAY, S_STOPPED, S_ABOUT, S_CARD };
+enum { S_DROP, S_BUILD, S_ERROR, S_DONE, S_PLAY, S_STOPPED, S_ABOUT, S_CARD, S_NEEDCC };
+static const char *const screen_names[] = {
+    "drop", "build", "error", "done", "play", "stopped", "about", "card", "needcc",
+};
 #define CARD_FRAMES 150                 /* the controls card: 2.5 seconds */
 static struct build job;
 static int screen = S_DROP;
@@ -501,6 +563,56 @@ static int play_and_wait(const char *exe, const char *rom, const char *args, con
     return r > 0 ? 0 : 1;
 }
 
+extern char **environ;
+
+static int install_clicked;             /* the needcc screen: Apple's installer started */
+
+/* The screen after a failed build: the compiler's own, or the error. */
+static int failed_screen(const struct build *b) {
+    return b->no_compiler ? S_NEEDCC : S_ERROR;
+}
+
+/* What a click at window pixel (x, y), in a window of w x h pixels, does
+   on screen s. */
+enum { ACT_NONE, ACT_PICKER, ACT_INSTALL, ACT_LEAVE };
+static const char *const act_names[] = { "nothing", "file picker", "install", "leave" };
+static int click_action(int s, int x, int y, int w, int h) {
+    if (s == S_ABOUT) return ACT_LEAVE;
+    if (!on_tv(x, y, w, h)) return ACT_NONE;
+    if (s == S_NEEDCC) return ACT_INSTALL;
+    if (s == S_DROP || s == S_ERROR || s == S_DONE || s == S_STOPPED) return ACT_PICKER;
+    return ACT_NONE;
+}
+
+/* Start Apple's installer of the Command Line Tools: `xcode-select
+   --install` opens its own box. With `wait`, wait for it and give its
+   exit status; otherwise a thread waits, so it leaves no zombie. */
+static void *reap(void *arg) {
+    int status;
+    pid_t pid = (pid_t)(intptr_t)arg;
+    while (waitpid(pid, &status, 0) < 0 && errno == EINTR) {}
+    return NULL;
+}
+static int install_tools(int wait) {
+    char *argv[] = { (char *)build_xcode_select(), "--install", NULL };
+    posix_spawn_file_actions_t fa;
+    posix_spawn_file_actions_init(&fa);
+    posix_spawn_file_actions_addopen(&fa, 1, "/dev/null", O_WRONLY, 0);
+    posix_spawn_file_actions_addopen(&fa, 2, "/dev/null", O_WRONLY, 0);
+    pid_t pid;
+    int err = posix_spawn(&pid, argv[0], &fa, NULL, argv, environ);
+    posix_spawn_file_actions_destroy(&fa);
+    if (err) return -1;
+    if (wait) {
+        int status;
+        while (waitpid(pid, &status, 0) < 0 && errno == EINTR) {}
+        return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+    }
+    pthread_t t;
+    if (pthread_create(&t, NULL, reap, (void *)(intptr_t)pid) == 0) pthread_detach(t);
+    return 0;
+}
+
 /* A file arrived (dropped, or on the command line). */
 static void take(const char *path) {
     if (screen == S_BUILD || screen == S_PLAY || screen == S_CARD) return;  /* busy */
@@ -519,7 +631,8 @@ int main(int argc, char **argv) {
     const char *shot = NULL, *build_rom = NULL, *open_rom = NULL, *bdir = NULL;
     int trace = 0, model = 0, then_play = 0, hit = 0, hw = 0, hh = 0, hx = 0, hy = 0;
     int sdl_info = 0;
-    const char *play_args = NULL, *play_exe = NULL, *play_rom = NULL;
+    const char *play_args = NULL, *play_exe = NULL, *play_rom = NULL, *click_screen = NULL;
+    int click = 0, cw = 0, ch = 0, cx = 0, cy = 0;
     long frames = 0;
     int sw = ART_W, sh = ART_H;
     for (int i = 1; i < argc; i++) {
@@ -548,6 +661,13 @@ int main(int argc, char **argv) {
             if (!hit) usage(argv[0]);
         }
         else if (!strcmp(argv[i], "--play-args") && more) play_args = argv[++i];
+        else if (!strcmp(argv[i], "--click-test") && i + 4 < argc) {
+            click_screen = argv[++i];
+            click = sscanf(argv[i + 1], "%dx%d", &cw, &ch) == 2;
+            cx = atoi(argv[i + 2]); cy = atoi(argv[i + 3]);
+            i += 3;
+            if (!click) usage(argv[0]);
+        }
         else if (!strcmp(argv[i], "--play-only") && i + 2 < argc) {
             play_exe = argv[++i];
             play_rom = argv[++i];
@@ -557,6 +677,18 @@ int main(int argc, char **argv) {
     }
     if (shot) return screenshot(shot, frames, sw, sh) ? 1 : 0;
     if (hit) { puts(on_tv(hx, hy, hw, hh) ? "tv" : "outside"); return 0; }
+    if (click) {
+        /* A click on a screen, as the window takes it: what it does, and
+           for the installer, run it and say how it ended. */
+        int s = -1;
+        for (int k = 0; k < (int)(sizeof screen_names / sizeof *screen_names); k++)
+            if (!strcmp(click_screen, screen_names[k])) s = k;
+        if (s < 0) usage(argv[0]);
+        int a = click_action(s, cx, cy, cw, ch);
+        printf("click: %s\n", act_names[a]);
+        if (a == ACT_INSTALL) printf("ran: %s --install (exit %d)\n", build_xcode_select(), install_tools(1));
+        return 0;
+    }
     if (model) {
         /* Each stage, with an estimate of 1 s, from 0 to 60 s; the
            runtime stage at each count of 15 files; then done. */
@@ -609,6 +741,8 @@ int main(int argc, char **argv) {
         printf("recompiler %s\n", build_recompiler());
         printf("runtime %s\n", build_runtime());
         printf("builds %s\n", dir);
+        char cc_at[PATH_MAX];
+        printf("compiler %s\n", build_have_compiler(cc_at, sizeof cc_at) ? cc_at : "missing");
         return have_sdl ? 0 : 1;
     }
     char part[PATH_MAX];                        /* make it, and the folders above it */
@@ -624,11 +758,18 @@ int main(int argc, char **argv) {
     if (build_rom) {
         job.verbose = 1;
         if (then_play) {
-            if (build_run(&job, build_rom)) return 1;
+            if (build_run(&job, build_rom)) {
+                printf("screen: %s\n", screen_names[failed_screen(&job)]);
+                return 1;
+            }
             snprintf(game_log, sizeof game_log, "%s.game.log", job.out);
             return play_and_wait(job.out, job.rom, play_args, job.files_at, game_log);
         }
-        if (!trace) return build_run(&job, build_rom) ? 1 : 0;
+        if (!trace) {
+            if (!build_run(&job, build_rom)) return 0;
+            printf("screen: %s\n", screen_names[failed_screen(&job)]);
+            return 1;
+        }
         build_start(&job, build_rom);
         while (atomic_load(&job.state) == B_RUNNING) {
             printf("progress %.4f stage %d\n", build_progress(&job, build_now()),
@@ -669,20 +810,21 @@ int main(int argc, char **argv) {
                 else if (screen == S_CARD) card_until = 0;  /* any key skips it */
                 else if (e.key.keysym.sym == SDLK_i &&
                          (screen == S_DROP || screen == S_ERROR || screen == S_DONE ||
-                          screen == S_STOPPED))
+                          screen == S_STOPPED || screen == S_NEEDCC))
                     screen = S_ABOUT;
             }
             if (e.type == SDL_MOUSEBUTTONDOWN && e.button.button == SDL_BUTTON_LEFT) {
-                if (screen == S_ABOUT) screen = S_DROP;
-                else if (screen == S_DROP || screen == S_ERROR || screen == S_DONE ||
-                         screen == S_STOPPED) {
-                    /* Mouse points to window pixels (twice as many on a
-                       Retina screen), then: on the TV? */
-                    int ww, wh, pw, ph;
-                    SDL_GetWindowSize(win, &ww, &wh);
-                    SDL_GetRendererOutputSize(ren, &pw, &ph);
-                    int px = ww ? e.button.x * pw / ww : 0, py = wh ? e.button.y * ph / wh : 0;
-                    if (on_tv(px, py, pw, ph)) open_picker();
+                /* Mouse points to window pixels (twice as many on a Retina
+                   screen), then what a click there does. */
+                int ww, wh, pw, ph;
+                SDL_GetWindowSize(win, &ww, &wh);
+                SDL_GetRendererOutputSize(ren, &pw, &ph);
+                int px = ww ? e.button.x * pw / ww : 0, py = wh ? e.button.y * ph / wh : 0;
+                switch (click_action(screen, px, py, pw, ph)) {
+                case ACT_LEAVE: screen = S_DROP; break;
+                case ACT_PICKER: open_picker(); break;
+                case ACT_INSTALL: if (install_tools(0) == 0) install_clicked = 1; break;
+                default: break;
                 }
             }
             if (e.type == SDL_DROPFILE) {
@@ -718,7 +860,8 @@ int main(int argc, char **argv) {
             }
             else if (st == B_FAILED) {
                 snprintf(error_msg, sizeof error_msg, "%s", job.error);
-                screen = S_ERROR;
+                screen = failed_screen(&job);
+                install_clicked = 0;
             }
         }
         if (screen == S_CARD && n >= card_until) {
@@ -760,6 +903,7 @@ int main(int argc, char **argv) {
             break;
         case S_ERROR: draw_error(n, "CAN'T RECOMPILE", error_msg); break;
         case S_STOPPED: draw_error(n, "THE GAME STOPPED", error_msg); break;
+        case S_NEEDCC: draw_needcc(n, install_clicked); break;
         case S_DONE: draw_done(n, shown_name); break;
         case S_PLAY: draw_play(n, shown_name); break;
         case S_ABOUT: draw_about(n); break;

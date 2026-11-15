@@ -28,6 +28,19 @@ screenshots (build/nesrecomp-app --screenshot), against app/art.h:
      - a runtime file that doesn't compile (a copy of the project with
        one added): the compiler's message, stopping at stage 4, and no
        program.
+  7.-8. playing, and polish (the About screen, the cards, the click,
+     the game window's size);
+  9. without Apple's C compiler (PLAN-standalone.md step 5):
+     - its screen, pixel for pixel, before and after the click (the
+       command for Terminal in lower case, as it must be typed);
+     - the compiler found where `xcode-select -p` says;
+     - with reading /Library/Developer forbidden (sandbox-exec; first
+       checked to be), a build stops at stage 1 with that screen and
+       compiles nothing, and an xcode-select that fails, or names a folder
+       with no clang, does the same; a game already built still plays;
+     - a click on the TV there runs `xcode-select --install` (a stand-in
+       here, through $NESRECOMP_XCODE_SELECT, that writes down its
+       arguments), and a click beside it runs nothing.
 Run by `make test-app`. Exit status 0 when all pass.
 """
 import os
@@ -573,6 +586,127 @@ def main():
                         "--remember-size", remember], capture_output=True)
     said = open(remember).read() if os.path.exists(remember) else ""
     check("the game remembers its window's size", said == "game_scale 5\n", repr(said))
+
+    # 9. without Apple's C compiler.
+    lower = {                                   # the lowercase letters it draws
+        "a": ".....|.....|.###.|....#|.####|#...#|.####",
+        "c": ".....|.....|.###.|#....|#....|#...#|.###.",
+        "d": "....#|....#|.##.#|#..##|#...#|#..##|.##.#",
+        "e": ".....|.....|.###.|#...#|#####|#....|.###.",
+        "i": "..#..|.....|.##..|..#..|..#..|..#..|.###.",
+        "l": ".##..|..#..|..#..|..#..|..#..|..#..|.###.",
+        "n": ".....|.....|#.##.|##..#|#...#|#...#|#...#",
+        "o": ".....|.....|.###.|#...#|#...#|#...#|.###.",
+        "s": ".....|.....|.####|#....|.###.|....#|####.",
+        "t": ".#...|.#...|###..|.#...|.#...|.#..#|..##.",
+        "x": ".....|.....|#...#|.#.#.|..#..|.#.#.|#...#",
+    }
+
+    def lower_pixels(text_, cx_, y):
+        x0 = cx_ - (len(text_) * 6 - 1) // 2
+        on = set()
+        for i, ch in enumerate(text_):
+            if ch in lower:
+                for rr, row in enumerate(lower[ch].split("|")):
+                    on |= {(x0 + i * 6 + c, y + rr) for c in range(5) if row[c] == "#"}
+            else:
+                on |= glyph_pixels(font, ch, x0 + i * 6 + 2, y)
+        return on
+
+    img = screen("needcc", "--show", "needcc")
+    w_set = glyph_pixels(font, "NEEDS APPLE'S", cx, sy + 5, 1, 2) | \
+        glyph_pixels(font, "C COMPILER", cx, sy + 21, 1, 2) | \
+        glyph_pixels(font, "CLICK TO INSTALL IT", cx, sy + 41) | \
+        lower_pixels("xcode-select", cx, sy + 63) | lower_pixels("--install", cx, sy + 72)
+    bad = screen_text(img, w_set, glyph_pixels(font, "OR IN TERMINAL:", cx, sy + 54))
+    check("the no-compiler screen (the command in lower case)", not bad, "%d pixel(s) differ" % bad)
+    img = screen("needcc_clicked", "--show", "needcc_clicked")
+    w_set = glyph_pixels(font, "NEEDS APPLE'S", cx, sy + 5, 1, 2) | \
+        glyph_pixels(font, "C COMPILER", cx, sy + 21, 1, 2) | \
+        glyph_pixels(font, "WHEN IT'S DONE,", cx, sy + 46)
+    bad = screen_text(img, w_set, glyph_pixels(font, "DROP THE ROM AGAIN", cx, sy + 60))
+    check("the no-compiler screen after the click", not bad, "%d pixel(s) differ" % bad)
+
+    xs = subprocess.run(["xcode-select", "-p"], capture_output=True, text=True).stdout.strip()
+    info = subprocess.run([APP, "--sdl-info"], capture_output=True, text=True).stdout
+    cc_line = [l for l in info.splitlines() if l.startswith("compiler ")]
+    check("the compiler: found where xcode-select -p says",
+          xs and len(cc_line) == 1 and cc_line[0][9:].startswith(xs + "/") and cc_line[0].endswith("/clang"),
+          "xcode-select %r, app %s" % (xs, cc_line))
+    # /Library/Developer unreadable, as on a Mac without the tools. And
+    # Apple's stand-ins (/usr/bin/cc and the like) can't run: on such a
+    # Mac they pop up Apple's installer, which a wrong app (a break) would
+    # otherwise do here on a real Mac.
+    nocc = ("(version 1)(allow default)(deny file-read* (subpath \"/Library/Developer\"))"
+            "(deny process-exec (literal \"/usr/bin/cc\") (literal \"/usr/bin/clang\")"
+            " (literal \"/usr/bin/gcc\") (literal \"/usr/bin/c++\") (literal \"/usr/bin/clang++\")"
+            " (literal \"/usr/bin/xcrun\") (literal \"/usr/bin/ld\") (literal \"/usr/bin/make\"))")
+    probe = subprocess.run(["sandbox-exec", "-p", nocc, "/bin/ls", "/Library/Developer"],
+                           capture_output=True, text=True)
+    probe_cc = subprocess.run(["sandbox-exec", "-p", nocc, "/usr/bin/cc", "--version"],
+                              capture_output=True, text=True)
+    check("the sandbox really forbids reading /Library/Developer, and running cc",
+          probe.returncode != 0 and probe_cc.returncode != 0 and "clang" not in probe_cc.stdout,
+          "ls %d, cc %d" % (probe.returncode, probe_cc.returncode))
+    ncdir = os.path.join(OUT, "builds_nocc")
+    shutil.rmtree(ncdir, ignore_errors=True)
+    ncrom = os.path.join(roms, "no compiler.nes")
+    shutil.copy(free, ncrom)
+
+    def nocc_build(env=None, sandbox=True, *more):
+        cmd = [APP, "--build", ncrom, "--build-dir", ncdir] + list(more)
+        if sandbox:
+            cmd = ["sandbox-exec", "-p", nocc] + cmd
+        return subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=300)
+
+    def stopped_at_1(r):
+        made = sorted(f for f in os.listdir(ncdir) if f.startswith("no_compiler")) \
+            if os.path.isdir(ncdir) else []
+        return (r.returncode == 1 and "screen: needcc" in r.stdout and stages_of(r.stdout) == [1]
+                and "error: needs Apple's C compiler: xcode-select --install" in r.stdout
+                and made == []), made
+
+    r = nocc_build()
+    ok, made = stopped_at_1(r)
+    check("no compiler: stops at stage 1 with its screen, nothing compiled", ok,
+          "exit %d, %s, made %s" % (r.returncode, last_line(r.stdout), made))
+    fake = os.path.join(OUT, "fake_xcode_select")
+    os.makedirs(fake, exist_ok=True)
+    said = os.path.join(fake, "said.txt")
+    fails_xs = os.path.join(fake, "fails.sh")
+    with open(fails_xs, "w") as f:
+        f.write("#!/bin/sh\necho \"$@\" >> '%s'\n"
+                "echo 'xcode-select: error: unable to get active developer directory' >&2\nexit 2\n" % said)
+    empty_xs = os.path.join(fake, "empty.sh")
+    with open(empty_xs, "w") as f:
+        f.write("#!/bin/sh\necho '%s'\n" % fake)
+    for x in (fails_xs, empty_xs):
+        os.chmod(x, 0o755)
+    for x, what in ((fails_xs, "an xcode-select that fails"), (empty_xs, "a folder with no clang")):
+        r = nocc_build(dict(os.environ, NESRECOMP_XCODE_SELECT=x), False)
+        ok, made = stopped_at_1(r)
+        check("no compiler, %s: the same" % what, ok,
+              "exit %d, %s, made %s" % (r.returncode, last_line(r.stdout), made))
+    r = nocc_build(None, False)
+    built = r.returncode == 0 and "built: " in r.stdout
+    r = nocc_build(None, True, "--then-play", "--play-args", "--headless --frames 600 --no-save")
+    check("no compiler, a game already built: up to date, and it plays",
+          built and "up to date" in r.stdout and "played: the game ended well" in r.stdout,
+          "built first: %s; %s" % (built, last_line(r.stdout)))
+    if os.path.exists(said):
+        os.remove(said)
+    env = dict(os.environ, NESRECOMP_XCODE_SELECT=fails_xs)
+    on = subprocess.run([APP, "--click-test", "needcc", "960x540", "480", "200"],
+                        capture_output=True, text=True, env=env).stdout
+    ran = open(said).read() if os.path.exists(said) else ""
+    check("a click on the TV there runs xcode-select --install",
+          "click: install" in on and ran == "--install\n", "%r, it was given %r" % (on.strip(), ran))
+    if os.path.exists(said):
+        os.remove(said)
+    off = subprocess.run([APP, "--click-test", "needcc", "960x540", "20", "20"],
+                         capture_output=True, text=True, env=env).stdout
+    check("a click beside the TV runs nothing", "click: nothing" in off and not os.path.exists(said),
+          off.strip())
 
     print("\n%d check(s) failed" % len(fails) if fails else "\nall checks pass")
     sys.exit(1 if fails else 0)

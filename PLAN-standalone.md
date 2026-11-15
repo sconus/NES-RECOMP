@@ -553,6 +553,61 @@ Every step keeps what holds today:
     would need a second Mac or a fresh macOS install in a virtual
     machine; it's optional, and for you to decide.
 
+- Done:
+  - **Before compiling**, the build asks `xcode-select -p` and looks for
+    clang there (the Command Line Tools' `usr/bin/clang`, or Xcode's
+    toolchain). If it's missing, the build stops at stage 1 with "needs
+    Apple's C compiler: xcode-select --install" and compiles nothing.
+    - It checks after "up to date", so a game already built still plays
+      without the compiler.
+  - **The screen:** "NEEDS APPLE'S C COMPILER", "CLICK TO INSTALL IT",
+    "OR IN TERMINAL:" and `xcode-select --install`.
+    - The TV's font had capitals only, and a command must be typed
+      exactly. So the app now has the 11 lowercase letters that command
+      needs, used only for that line.
+    - A click on the TV runs `xcode-select --install`, which opens
+      Apple's installer. The screen then says "WHEN IT'S DONE, DROP THE
+      ROM AGAIN". I is the About screen there too.
+  - `--sdl-info` also says where the compiler is. `--build` says which
+    screen the window would show after a failure. `--click-test` does
+    what a click on a screen would.
+  - **Checks:** `tests/check_app.py`, 70 now (12 new):
+    - both screens pixel for pixel, the lowercase letters written out
+      in the check itself;
+    - the compiler found where `xcode-select -p` says.
+    - With reading `/Library/Developer` forbidden (first checked to be),
+      the build stops at stage 1 with the screen and compiles nothing.
+      The same happens with an `xcode-select` that fails, or one that
+      names a folder with no clang. A game already built still plays.
+    - A click on the TV runs `xcode-select --install` (a stand-in that
+      writes down what it was given), and a click beside it runs
+      nothing.
+  - **Breaks, 10 tried, all caught,** each in a fresh copy with
+    `make app-bundle` and check_app. First, the copy with no break
+    passed. No check crashed. The breaks: the tools always reported
+    present, the screen replaced by the general error, the flag for it
+    never set, a click there opening the file picker, `xcode-select`
+    run without `--install`, a click anywhere installing, the compiler
+    needed even for a game already built, a lowercase letter drawn
+    wrong, the command drawn in capitals, and a line of the screen
+    changed.
+  - **Found on the way:** the break "the tools always reported present"
+    let a build run `/usr/bin/cc` with `/Library/Developer` hidden.
+    Apple's stand-in `cc` then opened its real installer on this Mac,
+    and you installed the tools again. The check now also stops `cc`,
+    `clang`, `xcrun` and the like from running at all (first checked to
+    be), so a wrong app fails the check without the pop-up. That break
+    and the one about games already built were run again: both caught,
+    no installer.
+  - **Not checked for real:** a Mac that has never had the tools (no
+    second Mac or virtual machine here, as planned). While testing, I
+    once ran the real `xcode-select --install` by hand. With the tools
+    already installed, it only said so and opened nothing.
+  - Unchanged: `make test-all` (nestest exact, the suite 219 of 220 with
+    test28 as always), `make test-standalone`'s 50 and
+    `make test-app-bundle`'s 14, and recomp.py and the C version still
+    agreeing on all 395 files.
+
 ### 6. Recording gameplay
 - In the game's window, **V** starts and stops a recording. A small red
   "REC" shows in the window's corner, and it isn't in the movie.

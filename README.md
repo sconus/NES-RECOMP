@@ -284,7 +284,11 @@ builds in `build/` here.)
   for educational purposes only, by Serge and Claude, free software
   under the MIT License.
 
-What it needs: only Apple's C compiler. Not this project folder, Python
+What it needs: only Apple's C compiler (the Command Line Tools, or
+Xcode). If it isn't there, dropping a ROM shows "NEEDS APPLE'S C
+COMPILER" instead of building; a click on the TV opens Apple's own
+installer (or type `xcode-select --install` in Terminal), and when it's
+done, drop the ROM again. A game already built still plays without it. Not this project folder, Python
 or Homebrew: the bundle carries the runtime's sources
 (`Contents/Resources/runtime`), the recompiler in C
 (`Contents/MacOS/nesrecomp-recomp`) and its own SDL2, built from SDL's
