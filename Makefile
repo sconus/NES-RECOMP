@@ -5,6 +5,9 @@
 #   make test-all           both
 #   make game ROM=x.nes     recompile any NROM game into build/<name>
 #   make run ROM=x.nes      ...and run it in a window (options: ARGS="...")
+#   make app                build the app (build/nesrecomp-app), PLAN-gui.md
+#   make run-app            ...and open it
+#   make test-app           check its screens (tests/check_app.py)
 #   make clean
 # ROM paths with spaces are not supported.
 CC      ?= cc
@@ -37,7 +40,7 @@ test: build/nestest
 test-ppu:
 	python3 tests/run_tests.py
 
-test-all: test test-ppu
+test-all: test test-ppu test-app
 
 # --- any ROM ----------------------------------------------------------
 NAME = $(basename $(notdir $(ROM)))
@@ -51,7 +54,21 @@ game:
 run: game
 	./build/$(NAME) $(ROM) $(ARGS)
 
+# --- the app (app/, PLAN-gui.md) ------------------------------------
+# app/art.h is written by tools/make_app_art.py; run that after editing it.
+build/nesrecomp-app: app/app.c app/art.h
+	@mkdir -p build
+	$(CC) $(CFLAGS) $(SDL_CFLAGS) -Iapp -o $@ app/app.c $(LDLIBS)
+
+app: build/nesrecomp-app
+
+run-app: build/nesrecomp-app
+	./build/nesrecomp-app
+
+test-app: build/nesrecomp-app
+	python3 tests/check_app.py
+
 clean:
 	rm -rf build $(NESTEST).missed
 
-.PHONY: test test-ppu test-all game run clean
+.PHONY: test test-ppu test-all game run app run-app test-app clean
