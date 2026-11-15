@@ -748,6 +748,68 @@ Every step keeps what holds today:
   - Breaks: the numbers from the wrong run, the history not saved, a
     bar for the wrong run, the counts swapped.
 
+- Done:
+  - **The screen**, "UNDER THE HOOD", shows for the last game:
+    - "TRANSLATED: N": the recompiler's own count for the build it
+      played;
+    - "RAN AS C: 99.99%": the share of instructions run as C, rounded
+      down, so it never says 100% while anything was interpreted;
+    - "RUN R, SPOTS: S", then a bar for each of the last 10 runs' spots,
+      scaled to the most shown, the latest in white;
+    - "A SPOT: WHERE THE INTERPRETER STARTED".
+    - It shows after a game that ended well, and with H on the drop
+      screen. Any key or a click leaves it.
+  - **The share was done** (the optional part), in the runtime's header
+    alone. `STEP` now counts each instruction, telling translated code
+    (a constant address) from the interpreter (the variable `pc`) with
+    `__builtin_constant_p`. The generated C doesn't change; the 395-file
+    check proves it. Every game now ends its output with "ran N
+    instruction(s) as translated C, M in the interpreter".
+  - **The history:** `NAME.history` in the app's folder, one line a
+    game.
+    - `NAME.translated` keeps the recompiler's count, so a game that's
+      already up to date still knows it.
+    - `last-game.txt` names the last game, for H.
+    - `--then-play` prints each run it adds ("hood: run ...").
+  - **Found on the way:** nestest suits this less than the plan thought.
+    From reset it has nothing to interpret, and from $C000 it ends by
+    running code in RAM, which is interpreted every time, so its spots
+    can't shrink. The check plays the free test ROM 01-basics instead:
+    4 spots, then 2, then 1, with 818, 840, then 846 instructions
+    translated.
+  - **Checks:** `tests/check_app.py`, 81 now (11 new):
+    - the screen pixel for pixel with 12 runs (the last 10 as bars), with
+      3, and with none;
+    - the share's rounding;
+    - 01-basics built without its `.missed` and played 3 times: each
+      run's numbers are the recompiler's and the game's own lines; the
+      history grows by one line a game; the spots shrink and the
+      translation grows; a game already up to date keeps its count; the
+      last game is kept for H.
+    - The runtime's counts against what's known without them: nestest
+      from reset (all translated) counts none as interpreted. Its total
+      equals the instructions `--trace` traced. From $C000 nearly all
+      are interpreted.
+  - **Breaks, 11 tried, all caught,** each in a fresh copy with
+    `make app` and check_app. First, the copy with no break passed. No
+    check crashed.
+    - The breaks: the numbers from the first run, the history not
+      saved, the white bar on the wrong run, the runtime's counts
+      swapped, the app reading them swapped, the share rounded up, the
+      count lost when up to date, the spots never read, the bars not
+      scaled, the first 10 runs as bars, and the last game not kept.
+    - "The runtime's counts swapped" wasn't caught at first: the app
+      only checked its numbers against the runtime's own line, swapped
+      too. The three checks against what's known without the counts were
+      added for it.
+  - Not checked: the window going to this screen after a game, and the H
+    key. Both need a real window and keys; the parts they call are
+    checked.
+  - Unchanged: `make test-all` (nestest exact, the suite 219 of 220 with
+    test28 as always, the recording checks), `make test-standalone`'s 50
+    and `make test-app-bundle`'s 14, and recomp.py and the C version
+    still agreeing on all 395 files.
+
 ### 8. Under the hood: the 6502 next to its C
 - The C recompiler's `--listing FILE` writes the side file (see
   Choices), and the app's build asks for it.

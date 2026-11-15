@@ -42,6 +42,22 @@ screenshots (build/nesrecomp-app --screenshot), against app/art.h:
      - a click on the TV there runs `xcode-select --install` (a stand-in
        here, through $NESRECOMP_XCODE_SELECT, that writes down its
        arguments), and a click beside it runs nothing.
+  10. under the hood (PLAN-standalone.md step 7):
+     - the screen pixel for pixel, from a history made here (the bars
+       scaled to the most spots shown, at least a line each, the last 10
+       runs, the latest white), and with no history;
+     - the share: rounded down, never 100% while anything ran in the
+       interpreter;
+     - a free test ROM built without its .missed and played 3 times
+       (--then-play): the history grows by one line a game, its numbers
+       are the recompiler's and the game's own lines for that run, the
+       spots shrink, and a game already built keeps its translated
+       count; the last game's name is kept for H;
+     - the runtime's own counts, against what is known without them:
+       nestest built without its .missed and run from reset (all of it
+       translated) counts nothing as interpreted, and, with --trace, as
+       many instructions as it traced; run from $C000 (never traced from
+       there), nearly all interpreted.
 Run by `make test-app`. Exit status 0 when all pass.
 """
 import os
@@ -713,6 +729,159 @@ def main():
                          capture_output=True, text=True, env=env).stdout
     check("a click beside the TV runs nothing", "click: nothing" in off and not os.path.exists(said),
           off.strip())
+
+    # 10. under the hood.
+    def hood_screen(runs):
+        """What the app draws: the texts (white, dim) and the bars."""
+        w_set = glyph_pixels(font, "UNDER THE HOOD", cx, sy + 2, 1, 2)
+        d_set, bars = set(), {}
+        if not runs:
+            return w_set, glyph_pixels(font, "PLAY A GAME FIRST", cx, sy + 40), bars
+        last = runs[-1]
+        native, interp = last[3], last[4]
+        if not interp:
+            share = "100%"
+        else:
+            h = native * 10000 // (native + interp)
+            share = "%d.%02d%%" % (h // 100, h % 100)
+        for text_, y in (("TRANSLATED: %d" % last[1], 19), ("RAN AS C: " + share, 28),
+                         ("RUN %d, SPOTS: %d" % (last[0], last[2]), 37)):
+            w_set |= glyph_pixels(font, text_, cx, sy + y)
+        d_set = glyph_pixels(font, "A SPOT: WHERE THE", cx, sy + 68) | \
+            glyph_pixels(font, "INTERPRETER STARTED", cx, sy + 77)
+        shown = runs[-10:]
+        most = max([1] + [r_[2] for r_ in shown])
+        width = len(shown) * 11 - 3
+        x0 = cx - width // 2
+        for i, r_ in enumerate(shown):
+            h = max(1, (r_[2] * 18 + most - 1) // most)
+            colour = "white" if i == len(shown) - 1 else "neon"
+            for yy in range(sy + 64 - h, sy + 64):
+                for xx in range(x0 + i * 11, x0 + i * 11 + 8):
+                    bars[(xx, yy)] = colour
+        return w_set, d_set, bars
+
+    def hood_bad(img, runs):
+        w_set, d_set, bars = hood_screen(runs)
+        bad = 0
+        for y in range(sy, sy + sh):
+            for x in range(sx, sx + sw):
+                if (x, y) in bars:
+                    bad += img[y][x] != (white if bars[(x, y)] == "white" else neon)
+                    continue
+                bad += (img[y][x] == white) != ((x, y) in w_set)
+                bad += (img[y][x] == dim) != ((x, y) in d_set)
+                bad += img[y][x] == neon and (x, y) not in w_set | d_set
+        return bad
+
+    hist = os.path.join(OUT, "made.history")
+    made = [(i + 1, 800 + 3 * i, sp, 1000000 - 7 * i, 7 * i)
+            for i, sp in enumerate([40, 33, 20, 25, 12, 9, 9, 4, 2, 1, 0, 0])]
+    with open(hist, "w") as f:
+        for r_ in made:
+            f.write("run %d translated %d spots %d native %d interp %d\n" % r_)
+    img = screen("hood", "--show", "hood", "--history", hist)
+    bad = hood_bad(img, made)
+    check("under the hood: 12 runs (the last 10 as bars), pixel for pixel", not bad,
+          "%d pixel(s) differ" % bad)
+    few = made[:3]
+    with open(hist, "w") as f:
+        for r_ in few:
+            f.write("run %d translated %d spots %d native %d interp %d\n" % r_)
+    img = screen("hood3", "--show", "hood", "--history", hist)
+    bad = hood_bad(img, few)
+    check("under the hood: 3 runs, pixel for pixel", not bad, "%d pixel(s) differ" % bad)
+    img = screen("hood_none", "--show", "hood", "--history", os.path.join(OUT, "no such history"))
+    bad = hood_bad(img, [])
+    check("under the hood, nothing played yet", not bad, "%d pixel(s) differ" % bad)
+    shares = []
+    for native, interp, want in ((99999, 1, "99.99%"), (1999999, 1, "99.99%"), (5, 0, "100%"),
+                                 (1, 3, "25.00%"), (0, 0, "-")):
+        with open(hist, "w") as f:
+            f.write("run 1 translated 5 spots 1 native %d interp %d\n" % (native, interp))
+        img = screen("hood_share", "--show", "hood", "--history", hist)
+        w_set = glyph_pixels(font, "RAN AS C: " + want, cx, sy + 28)
+        lit = {(x, y) for y in range(sy + 27, sy + 36) for x in range(sx, sx + sw) if img[y][x] == white}
+        shares.append((native, interp, want, lit == w_set))
+    check("the share: rounded down, never 100% while anything was interpreted",
+          all(ok for *_, ok in shares), "%s" % [s_ for s_ in shares if not s_[3]])
+
+    hb = os.path.join(OUT, "builds_hood")
+    shutil.rmtree(hb, ignore_errors=True)
+    hroms = os.path.join(OUT, "hood roms")
+    shutil.rmtree(hroms, ignore_errors=True)
+    os.makedirs(hroms)
+    hrom = os.path.join(hroms, "01-basics.nes")
+    shutil.copy(free, hrom)                     # no .missed yet
+    runs, lines_ok, problems = [], True, []
+    for k in range(3):
+        pre = None
+        if k == 2:      # the third: built first, so the play finds it up to date
+            subprocess.run([APP, "--build", hrom, "--build-dir", hb], capture_output=True)
+            pl = os.path.join(hb, "01-basics.log")
+            pre = re.search(r"translated (\d+) instructions", open(pl).read() if os.path.exists(pl) else "")
+        r_ = subprocess.run([APP, "--build", hrom, "--build-dir", hb, "--then-play", "--play-args",
+                             "--headless --frames 600 --no-save"], capture_output=True, text=True,
+                            timeout=300)
+        m = re.search(r"hood: run (\d+) translated (-?\d+) spots (\d+) native (\d+) interp (\d+)",
+                      r_.stdout)
+        if not m:
+            problems.append("game %d: no hood line (%s)" % (k + 1, last_line(r_.stdout)))
+            break
+        run_ = tuple(int(g) for g in m.groups())
+        runs.append(run_)
+        blog = open(os.path.join(hb, "01-basics.log")).read() if os.path.exists(os.path.join(hb, "01-basics.log")) else ""
+        glog = open(os.path.join(hb, "01-basics.game.log")).read()
+        t = re.search(r"translated (\d+) instructions", blog)
+        sp = re.search(r"(\d+) spot\(s\) ran in the interpreter", glog)
+        ran = re.search(r"ran (\d+) instruction\(s\) as translated C, (\d+) in the interpreter", glog)
+        if k < 2 and (not t or int(t.group(1)) != run_[1]):
+            problems.append("game %d: translated %d, the recompiler said %s" % (k + 1, run_[1], t and t.group(1)))
+        if k == 2 and ("up to date" not in r_.stdout or not pre or run_[1] != int(pre.group(1))):
+            problems.append("game 3 (up to date: %s): translated %d, the build before it said %s" % (
+                "up to date" in r_.stdout, run_[1], pre and pre.group(1)))
+        if (int(sp.group(1)) if sp else 0) != run_[2]:
+            problems.append("game %d: %d spots, the game said %s" % (k + 1, run_[2], sp and sp.group(1)))
+        if not ran or (int(ran.group(1)), int(ran.group(2))) != run_[3:]:
+            problems.append("game %d: native/interp %s, the game said %s" % (k + 1, run_[3:], ran and ran.groups()))
+        if run_[0] != k + 1:
+            problems.append("game %d numbered %d" % (k + 1, run_[0]))
+    check("3 games: each run's numbers are the recompiler's and the game's own", not problems,
+          "; ".join(problems))
+    saved = open(os.path.join(hb, "01-basics.history")).read().splitlines() \
+        if os.path.exists(os.path.join(hb, "01-basics.history")) else []
+    check("the history grows by one line a game (3), as said",
+          len(saved) == 3 and all(l == "run %d translated %d spots %d native %d interp %d" % r_
+                                  for l, r_ in zip(saved, runs)), "%s" % saved)
+    check("the spots shrink as it's played (built again with them), the translation grows",
+          len(runs) == 3 and runs[0][2] > runs[1][2] > 0 and runs[1][1] > runs[0][1],
+          "%s" % [(r_[1], r_[2]) for r_ in runs])
+    nrom = os.path.join(hroms, "nestest.nes")
+    shutil.copy(os.path.join(ROOT, "tests", "nestest.nes"), nrom)     # no .missed
+    subprocess.run([APP, "--build", nrom, "--build-dir", hb], capture_output=True)
+    nexe = os.path.join(hb, "nestest")
+
+    def counts(*args):
+        r_ = subprocess.run([nexe, nrom, "--headless", "--no-save"] + list(args),
+                            capture_output=True, text=True, timeout=300)
+        m = re.search(r"ran (\d+) instruction\(s\) as translated C, (\d+) in the interpreter", r_.stderr)
+        return (int(m.group(1)), int(m.group(2))) if m else None, r_
+    c1, _ = counts("--frames", "60")
+    c2, tr = counts("--frames", "3", "--trace")
+    traced = sum(1 for l in tr.stdout.splitlines() if re.match(r"[0-9A-F]{4} ", l))
+    c3, _ = counts("--frames", "60", "--start", "C000")
+    for p_ in (nrom + ".missed",):
+        if os.path.exists(p_):
+            os.remove(p_)
+    check("the runtime's counts: nestest from reset, all translated: none interpreted",
+          c1 is not None and c1[0] > 100000 and c1[1] == 0, "%s" % (c1,))
+    check("the runtime's counts: the total is what --trace traced",
+          c2 is not None and traced > 1000 and c2[0] + c2[1] == traced, "%s, %d traced" % (c2, traced))
+    check("the runtime's counts: from $C000 (never traced from there), nearly all interpreted",
+          c3 is not None and c3[1] > 20 * c3[0] and c3[1] > 1000, "%s" % (c3,))
+    lastg = os.path.join(hb, "last-game.txt")
+    check("the last game's name kept for H", os.path.exists(lastg) and open(lastg).read() == "01-basics\n",
+          repr(open(lastg).read() if os.path.exists(lastg) else None))
 
     print("\n%d check(s) failed" % len(fails) if fails else "\nall checks pass")
     sys.exit(1 if fails else 0)

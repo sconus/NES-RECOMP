@@ -372,7 +372,14 @@ int build_run(struct build *b, const char *rom) {
     FILE *sf = fopen(stamp, "r");
     have[0] = 0;
     if (sf) { if (!fgets(have, sizeof have, sf)) have[0] = 0; fclose(sf); }
+    /* What the recompiler translated, for "under the hood" (hood.h): its
+       "translated N instructions" line, kept beside the program. */
+    char counted[PATH_MAX + 16];
+    snprintf(counted, sizeof counted, "%s/%s.translated", build_dir, b->name);
+    b->translated = -1;
     if (!strcmp(have, want) && access(b->out, X_OK) == 0) {
+        FILE *cf = fopen(counted, "r");
+        if (cf) { if (fscanf(cf, "%ld", &b->translated) != 1) b->translated = -1; fclose(cf); }
         atomic_store(&b->stage, ST_LINK);
         atomic_store(&b->state, B_DONE);
         if (b->verbose) { printf("up to date: %s\n", b->out); fflush(stdout); }
@@ -397,6 +404,10 @@ int build_run(struct build *b, const char *rom) {
         message(b, from, NULL, msg, sizeof msg);
         return fail(b, "%s", r < 0 ? "the recompiler didn't start" : msg);
     }
+    message(b, from, "translated ", msg, sizeof msg);
+    if (sscanf(msg, "%ld instructions", &b->translated) != 1) b->translated = -1;
+    FILE *cf = fopen(counted, "w");
+    if (cf) { fprintf(cf, "%ld\n", b->translated); fclose(cf); }
 
     /* 3: the game's C. */
     set_stage(b, ST_GAME, file_size(cfile) / 100000.0);

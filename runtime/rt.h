@@ -66,8 +66,15 @@ static inline void code_ram_write(uint8_t *p, uint16_t addr, uint8_t val) {
 /* Instructions in RAM run translated and interpreted (--ram-stats). */
 extern uint64_t ram_native, ram_interp;
 
-/* Runs before every instruction: optional trace output. */
-#define STEP(addr) do { if (trace_on) trace_step(addr); } while (0)
+/* Instructions run so far: [1] as translated C, [0] in the interpreter
+   (PLAN-standalone.md step 7). STEP tells them apart without any change
+   to the generated C: translated code gives it the instruction's fixed
+   address, a constant; the interpreter gives it the variable pc. */
+extern uint64_t insn_count[2];
+
+/* Runs before every instruction: counts it, and optional trace output. */
+#define STEP(addr) do { insn_count[__builtin_constant_p(addr)]++; \
+                        if (trace_on) trace_step(addr); } while (0)
 /* Interrupts are checked between instructions, as on the real CPU. The
    generated code puts EVENT_CHECK at the top of every translated
    instruction and INTERRUPT_CHECK at dispatch, which the interpreter

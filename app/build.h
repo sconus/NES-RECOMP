@@ -27,6 +27,8 @@ struct build {
     double estimate;                /* how long it might take (seconds) */
     int verbose;                    /* print each stage (--build) */
     int no_compiler;                /* it failed for want of Apple's C compiler */
+    long translated;                /* instructions the recompiler translated
+                                       (kept in NAME.translated), or -1 */
 };
 
 /* The stage's name, as the screen shows it. */

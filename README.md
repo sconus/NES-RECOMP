@@ -289,7 +289,16 @@ builds in `build/` here.)
 - **A ROM already built,** with nothing changed since, starts at once.
 - **It gets faster as you play:** like `make run`, each game writes the
   spots it had to interpret to `<rom>.missed` beside the ROM, and the
-  next build uses them. Battery saves go to `<rom>.sav` there too. If
+  next build uses them.
+- **Under the hood:** after a game (and with H on the drop screen, for
+  the last game), the TV shows how many 6502 instructions were
+  translated to C, what share of the instructions the game ran were C
+  rather than the interpreter, and its spots: places the interpreter
+  had to start. A bar for each run shows them shrinking as you play
+  (the latest in white). The history is kept per game in the app's
+  folder (`NAME.history`). Every built game says the same at the end of
+  its output: "ran N instruction(s) as translated C, M in the
+  interpreter". Battery saves go to `<rom>.sav` there too. If
   the ROM's folder can't be written (a locked disk, say), both are kept
   in the app's own folder instead.
 - **If something goes wrong,** the TV says what: "NOT AN NES ROM", the

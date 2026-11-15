@@ -30,8 +30,13 @@
      card    the keys, for a couple of seconds before a game starts (any
              key skips it); a music file (NSF) gets the player's keys
      play    the game runs in its own window (play.c) and this one hides;
-             when the game quits, back to the drop screen, or, if it
-             stopped or crashed, "THE GAME STOPPED" and why
+             when the game quits, "under the hood", or, if it stopped or
+             crashed, "THE GAME STOPPED" and why
+     hood    "UNDER THE HOOD" (hood.h, PLAN-standalone.md step 7): for the
+             last game, the instructions translated, the share that ran
+             as C, its spots this run, and a bar for the spots of each
+             run so far; after each game, and with H on the drop screen.
+             Any key or a click leaves it
    From the error and done screens, another drop starts again.
 
        nesrecomp-app [ROM]                    open the window (and build ROM)
@@ -42,12 +47,13 @@
            the loading bar's value every 20 ms
        nesrecomp-app --screenshot F [--frames N] [--size WxH]
                      [--show drop|build|error|done] [--rom NAME]
-                     [--stage N] [--progress P] [--message M]
+                     [--stage N] [--progress P] [--message M] [--history FILE]
            draw a screen into a window of W x H pixels (default 320x180)
            and save it as a PNG, with no window: for tests/check_app.py
        nesrecomp-app --build ROM --then-play [--play-args "ARGS"]
            build it, then play it (with ARGS for the game, such as
-           "--headless --frames 600"), and say how the game ended
+           "--headless --frames 600"), and say how the game ended; the
+           run goes into its history ("hood: run ..." says what)
        nesrecomp-app --play-only EXE ROM [--play-args "ARGS"]
            just play: run EXE on ROM as the app does, and say how it
            ended (for the checks)
@@ -93,6 +99,7 @@
 #include <unistd.h>
 #include "art.h"
 #include "build.h"
+#include "hood.h"
 #include "play.h"
 
 static uint32_t canvas[ART_H][ART_W];
@@ -286,6 +293,52 @@ static void draw_needcc(long n, int clicked) {
     text_lower = 0;
 }
 
+/* "UNDER THE HOOD" (hood.h): the last run of a ROM, and the spots of
+   its last HOOD_BARS runs as bars, the latest white. */
+#define HOOD_BARS 10
+#define HOOD_BAR_W 8
+#define HOOD_BAR_GAP 3
+#define HOOD_BAR_H 18
+#define HOOD_BAR_BOTTOM 64                  /* below the screen's top */
+static void draw_hood(long n, const struct hood_run *runs, int count) {
+    draw_room(n, 0);
+    uint32_t white = ink(INK_TEXT), dim = ink(INK_MANE_HI);
+    int y = ART_SCREEN_Y;
+    char line[40];
+    text_xy("UNDER THE HOOD", SCREEN_CX, y + 2, 1, 2, white, 1);
+    if (count == 0) {
+        text("PLAY A GAME FIRST", SCREEN_CX, y + 40, 1, dim, 1);
+        return;
+    }
+    const struct hood_run *last = &runs[count - 1];
+    if (last->translated >= 0) snprintf(line, sizeof line, "TRANSLATED: %ld", last->translated);
+    else snprintf(line, sizeof line, "TRANSLATED: ?");
+    text(line, SCREEN_CX, y + 19, 1, white, 1);
+    char share[16];
+    hood_share(last, share, sizeof share);
+    snprintf(line, sizeof line, "RAN AS C: %s", share);
+    text(line, SCREEN_CX, y + 28, 1, white, 1);
+    snprintf(line, sizeof line, "RUN %d, SPOTS: %ld", last->run, last->spots);
+    text(line, SCREEN_CX, y + 37, 1, white, 1);
+    /* The bars: each run's spots against the most of those shown; a run
+       with none still gets a line, so it shows. */
+    int first = count > HOOD_BARS ? count - HOOD_BARS : 0, shown = count - first;
+    long most = 1;
+    for (int i = first; i < count; i++) if (runs[i].spots > most) most = runs[i].spots;
+    int width = shown * (HOOD_BAR_W + HOOD_BAR_GAP) - HOOD_BAR_GAP;
+    int x0 = SCREEN_CX - width / 2;
+    for (int i = first; i < count; i++) {
+        int h = (int)((runs[i].spots * HOOD_BAR_H + most - 1) / most);
+        if (h < 1) h = 1;
+        uint32_t c = i == count - 1 ? white : ink(INK_NEON);
+        int bx = x0 + (i - first) * (HOOD_BAR_W + HOOD_BAR_GAP);
+        for (int yy = y + HOOD_BAR_BOTTOM - h; yy < y + HOOD_BAR_BOTTOM; yy++)
+            for (int xx = bx; xx < bx + HOOD_BAR_W; xx++) canvas[yy][xx] = c;
+    }
+    text("A SPOT: WHERE THE", SCREEN_CX, y + 68, 1, dim, 1);
+    text("INTERPRETER STARTED", SCREEN_CX, y + 77, 1, dim, 1);
+}
+
 static void draw_done(long n, const char *name) {
     draw_room(n, 0);
     uint32_t white = ink(INK_TEXT), dim = ink(INK_MANE_HI);
@@ -449,10 +502,12 @@ static int save_png(const char *path, const uint32_t *px, int w, int h) {
 
 /* What a screenshot shows. */
 static struct {
-    const char *show, *rom, *message;
+    const char *show, *rom, *message, *history;
     int stage;
     double progress;
-} shot_opts = { "drop", "GAME.NES", "NOT AN NES ROM", ST_RECOMP, 0.5 };
+} shot_opts = { "drop", "GAME.NES", "NOT AN NES ROM", NULL, ST_RECOMP, 0.5 };
+static struct hood_run hood_runs[HOOD_MAX];
+static int hood_count;
 
 static int screenshot(const char *path, long frame, int w, int h) {
     uint32_t *out = malloc((size_t)w * h * 4);
@@ -463,6 +518,10 @@ static int screenshot(const char *path, long frame, int w, int h) {
     else if (!strcmp(shot_opts.show, "stopped")) draw_error(frame, "THE GAME STOPPED", shot_opts.message);
     else if (!strcmp(shot_opts.show, "done")) draw_done(frame, name);
     else if (!strcmp(shot_opts.show, "needcc")) draw_needcc(frame, 0);
+    else if (!strcmp(shot_opts.show, "hood")) {
+        hood_count = shot_opts.history ? hood_load(shot_opts.history, hood_runs, HOOD_MAX) : 0;
+        draw_hood(frame, hood_runs, hood_count);
+    }
     else if (!strcmp(shot_opts.show, "needcc_clicked")) draw_needcc(frame, 1);
     else if (!strcmp(shot_opts.show, "play")) draw_play(frame, name);
     else if (!strcmp(shot_opts.show, "about")) draw_about(frame);
@@ -483,15 +542,37 @@ static void usage(const char *prog) {
 }
 
 /* The window's state. */
-enum { S_DROP, S_BUILD, S_ERROR, S_DONE, S_PLAY, S_STOPPED, S_ABOUT, S_CARD, S_NEEDCC };
+enum { S_DROP, S_BUILD, S_ERROR, S_DONE, S_PLAY, S_STOPPED, S_ABOUT, S_CARD, S_NEEDCC, S_HOOD };
 static const char *const screen_names[] = {
-    "drop", "build", "error", "done", "play", "stopped", "about", "card", "needcc",
+    "drop", "build", "error", "done", "play", "stopped", "about", "card", "needcc", "hood",
 };
 #define CARD_FRAMES 150                 /* the controls card: 2.5 seconds */
 static struct build job;
 static int screen = S_DROP;
 static char error_msg[512], shown_name[64], game_log[PATH_MAX + 16];
 static pid_t game = -1;
+static char builds[PATH_MAX];           /* the build folder */
+
+/* After a game: its run into its history, and the last game's name kept
+   for H (last-game.txt). */
+static int add_run(const struct build *b, const char *log, struct hood_run *added) {
+    char last[PATH_MAX + 16];
+    snprintf(last, sizeof last, "%s/last-game.txt", builds);
+    FILE *f = fopen(last, "w");
+    if (f) { fprintf(f, "%s\n", b->name); fclose(f); }
+    return hood_add(builds, b->name, b->translated, log, added);
+}
+
+/* The last game's history, for H. */
+static void load_last_history(void) {
+    char last[PATH_MAX + 16], name[256] = "", path[PATH_MAX + 300];
+    snprintf(last, sizeof last, "%s/last-game.txt", builds);
+    FILE *f = fopen(last, "r");
+    if (f) { if (!fgets(name, sizeof name, f)) name[0] = 0; fclose(f); }
+    name[strcspn(name, "\r\n")] = 0;
+    snprintf(path, sizeof path, "%s/%s.history", builds, name);
+    hood_count = name[0] ? hood_load(path, hood_runs, HOOD_MAX) : 0;
+}
 static long card_until;
 static int card_is_music;
 static char prefs[PATH_MAX];            /* app-prefs.txt in the build folder */
@@ -586,7 +667,7 @@ static int failed_screen(const struct build *b) {
 enum { ACT_NONE, ACT_PICKER, ACT_INSTALL, ACT_LEAVE };
 static const char *const act_names[] = { "nothing", "file picker", "install", "leave" };
 static int click_action(int s, int x, int y, int w, int h) {
-    if (s == S_ABOUT) return ACT_LEAVE;
+    if (s == S_ABOUT || s == S_HOOD) return ACT_LEAVE;
     if (!on_tv(x, y, w, h)) return ACT_NONE;
     if (s == S_NEEDCC) return ACT_INSTALL;
     if (s == S_DROP || s == S_ERROR || s == S_DONE || s == S_STOPPED) return ACT_PICKER;
@@ -656,6 +737,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--stage") && more) shot_opts.stage = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--progress") && more) shot_opts.progress = atof(argv[++i]);
         else if (!strcmp(argv[i], "--message") && more) shot_opts.message = argv[++i];
+        else if (!strcmp(argv[i], "--history") && more) shot_opts.history = argv[++i];
         else if (!strcmp(argv[i], "--build") && more) build_rom = argv[++i];
         else if (!strcmp(argv[i], "--build-dir") && more) bdir = argv[++i];
         else if (!strcmp(argv[i], "--trace-progress")) trace = 1;
@@ -760,6 +842,7 @@ int main(int argc, char **argv) {
         if (*p == '/') { *p = 0; mkdir(part, 0755); *p = '/'; }
     mkdir(part, 0755);
     snprintf(prefs, sizeof prefs, "%s/app-prefs.txt", dir);
+    snprintf(builds, sizeof builds, "%s", dir);
     if (play_exe) {
         snprintf(game_log, sizeof game_log, "%s.game.log", play_exe);
         return play_and_wait(play_exe, play_rom, play_args, NULL, game_log);
@@ -772,7 +855,12 @@ int main(int argc, char **argv) {
                 return 1;
             }
             snprintf(game_log, sizeof game_log, "%s.game.log", job.out);
-            return play_and_wait(job.out, job.rom, play_args, job.files_at, game_log);
+            int pr = play_and_wait(job.out, job.rom, play_args, job.files_at, game_log);
+            struct hood_run h;
+            if (add_run(&job, game_log, &h) == 0)
+                printf("hood: run %d translated %ld spots %ld native %llu interp %llu\n",
+                       h.run, h.translated, h.spots, h.native, h.interp);
+            return pr;
         }
         if (!trace) {
             if (!build_run(&job, build_rom)) return 0;
@@ -815,12 +903,16 @@ int main(int argc, char **argv) {
             if (e.type == SDL_QUIT) goto done;
             if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_ESCAPE) goto done;
             if (e.type == SDL_KEYDOWN && !e.key.repeat) {
-                if (screen == S_ABOUT) screen = S_DROP;     /* any key leaves it */
+                if (screen == S_ABOUT || screen == S_HOOD) screen = S_DROP;  /* any key leaves it */
                 else if (screen == S_CARD) card_until = 0;  /* any key skips it */
                 else if (e.key.keysym.sym == SDLK_i &&
                          (screen == S_DROP || screen == S_ERROR || screen == S_DONE ||
                           screen == S_STOPPED || screen == S_NEEDCC))
                     screen = S_ABOUT;
+                else if (e.key.keysym.sym == SDLK_h && screen == S_DROP) {
+                    load_last_history();
+                    screen = S_HOOD;
+                }
             }
             if (e.type == SDL_MOUSEBUTTONDOWN && e.button.button == SDL_BUTTON_LEFT) {
                 /* Mouse points to window pixels (twice as many on a Retina
@@ -898,8 +990,13 @@ int main(int argc, char **argv) {
                 continue;
             }
             game = -1;
-            if (r > 0) screen = S_DROP;
-            else {
+            /* Its run into the history; after a game that ended well,
+               the numbers. */
+            int added = add_run(&job, game_log, NULL) == 0;
+            if (r > 0) {
+                if (added) { load_last_history(); screen = S_HOOD; }
+                else screen = S_DROP;
+            } else {
                 snprintf(error_msg, sizeof error_msg, "%s", why);
                 screen = S_STOPPED;
             }
@@ -913,6 +1010,7 @@ int main(int argc, char **argv) {
         case S_ERROR: draw_error(n, "CAN'T RECOMPILE", error_msg); break;
         case S_STOPPED: draw_error(n, "THE GAME STOPPED", error_msg); break;
         case S_NEEDCC: draw_needcc(n, install_clicked); break;
+        case S_HOOD: draw_hood(n, hood_runs, hood_count); break;
         case S_DONE: draw_done(n, shown_name); break;
         case S_PLAY: draw_play(n, shown_name); break;
         case S_ABOUT: draw_about(n); break;

@@ -101,6 +101,7 @@ void wr(uint16_t a, uint8_t v) {
 
 uint8_t code_owner[0x8000] = { 0 };
 uint64_t ram_native, ram_interp;
+uint64_t insn_count[2];
 
 void code_owner_set(uint16_t addr, unsigned len, uint8_t tag) {
     for (unsigned i = 0; i < len; i++) {
@@ -336,6 +337,9 @@ static void at_exit(void) {
     if (wav_path) wav_close();
     record_stop();
     save_missed();
+    /* What ran how, for the app's "under the hood" screen. */
+    fprintf(stderr, "ran %llu instruction(s) as translated C, %llu in the interpreter\n",
+            (unsigned long long)insn_count[1], (unsigned long long)insn_count[0]);
     if (ram_stats)
         fprintf(stderr, "code in RAM: %llu instruction(s) ran translated, %llu interpreted\n",
                 (unsigned long long)ram_native, (unsigned long long)ram_interp);
