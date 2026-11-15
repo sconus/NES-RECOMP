@@ -642,6 +642,83 @@ Every step keeps what holds today:
     the suite and nestest as before.
   - For you to try: a recording in QuickTime and in the editor you use.
 
+- Done:
+  - **V** starts and stops a recording, and **P** saves a picture. Both
+    go to `~/Movies/NES RECOMP/`, named like "GAME 2026-11-15 at
+    10.13.41.mov" (" 2" if two start in the same second).
+    `--record-dir` chooses another folder. While recording, a red dot
+    and "REC" show in the window's corner, drawn over the picture in the
+    window only, not in the movie.
+  - **The movie** (`runtime/record_mac.m`, AVFoundation):
+    - H.264, 1024x960 (4x, sharp), each frame stamped N x 655171 /
+      39375000 s;
+    - the sound uncompressed, 48 kHz, stamped by its sample count.
+    - What the writer isn't ready for waits in a queue. The game only
+      waits if 10 seconds of frames pile up.
+  - **Finishing:** Esc, closing the window, `--frames`, and Ctrl+C or a
+    quit signal (now caught while recording) all finish the file. A
+    crash or a forced quit can't.
+  - While recording, the speakers' small speed correction is off, so
+    the movie's sound keeps exactly to game time.
+  - A muted game still records sound: starting a recording turns the
+    sound on.
+  - `--record FILE` records a whole run, with or without a window. In
+    input scripts, `record` and `snap` do what V and P do.
+  - **The runtime gained one file in Objective-C,** so the Makefile,
+    the test suite, the app's builder and the bundle all take `.m` files
+    and Apple's movie frameworks. The app now compiles 16 runtime files.
+  - **The app's controls card** has "V RECORD". Nine rows only fit under
+    a smaller title, so the game's card has one; the music card keeps
+    its big title.
+  - Trimmed: the ProRes choice. P was cheap, so it's in.
+  - **Found on the way:** with neither input in "real time" mode, the
+    writer stops taking frames after about a second when they come at
+    60 a second. Recording without a window ran fast and never showed
+    it; a window did. The inputs are now in real-time mode (as for a
+    camera), and the queue covers what the writer isn't ready for.
+  - **Checks:** `tests/check_record.py` (`make test-record`, part of
+    `make test-all`), 21 checks. It makes `tests/make_av_sync_test.py`'s
+    ROM: a pattern, a white flash and a beep once a second, from the
+    same NMI. It reads the movies back with `tests/read_movie.m`
+    (AVFoundation, built by the check).
+    - 300 frames, 1024x960, 60.0988 a second, every step exactly
+      655171/39375000 s;
+    - 10 frames against the runtime's screenshots, at most a few levels
+      off (H.264);
+    - the flashes 4 frames each, 60 apart;
+    - the sound identical, sample for sample, to `--wav` of the same
+      run;
+    - each beep within a frame of its flash (measured 0.06).
+    - Stopped by Ctrl+C or a quit signal, the movie still opens. In a
+      window, muted, 120 frames in about 2 seconds, with sound, in sync.
+    - V's way through a script: from press to press, in the folder
+      given, named right, two in one second kept apart, in sync. P's
+      picture equals `--screenshot`. With no folder given, the movies go
+      to `~/Movies/NES RECOMP` (a scratch home).
+    - `check_app.py` checks the new card (still 70 checks), and
+      `check_standalone.py` that the bundle carries `record_mac.m`.
+  - **Breaks, 14 tried, all caught,** each in a fresh copy. First, the
+    copy with no break passed. No check crashed.
+    - The breaks: the sound a frame late, a frame lost every 100, the
+      wrong rate, no sound, no sound when muted, a recording that
+      doesn't stop, the file not finished on quit, Ctrl+C not handled, a
+      second recording replacing the first, the wrong default folder,
+      the picture at 3x, frames handed over when the writer isn't ready,
+      the writer out of real-time mode, and the card without V.
+    - Three needed work first. "No sound when muted" first broke a line
+      that made no difference, so that line was removed and the break
+      moved to the one that does. Two recordings in one second depended
+      on timing, so the check now makes them so. "Out of real-time
+      mode" had changed only the picture's input; the stall needs both.
+  - **Not checked:** the speakers' speed correction being off while
+    recording. That needs sound playing through the speakers, which the
+    checks avoid. A recording opened in your video editor is for you to
+    try (one is in `build/recordings/`).
+  - Unchanged: `make test-all` (nestest exact, the suite 219 of 220 with
+    test28 as always), `make test-standalone`'s 50 and
+    `make test-app-bundle`'s 14, and recomp.py and the C version still
+    agreeing on all 395 files: the generated C doesn't change.
+
 ### 7. Under the hood: the numbers
 - After a game, and with **H** on the drop screen for the last ROM, an
   "UNDER THE HOOD" screen on the TV shows:

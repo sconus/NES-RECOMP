@@ -17,7 +17,7 @@ from build/nesrecomp-app (`make app`). Run by `make app-bundle`.
         Resources/
             sdl2/include/SDL2/  SDL's headers, for compiling games
             sdl2/LICENSE.txt    SDL's license (zlib)
-            runtime/        the runtime's .c and .h files, which each game
+            runtime/        the runtime's .c, .m and .h files, which each game
                             is compiled with (PLAN-standalone.md step 4)
             nesrecomp.icns  the icon: the TV and the console from the
                             app's picture, "NES / RECOMP" on the TV,
@@ -183,7 +183,7 @@ def main():
     rt = os.path.join(contents, "Resources", "runtime")
     os.makedirs(rt)
     for f in sorted(os.listdir(os.path.join(ROOT, "runtime"))):
-        if f.endswith((".c", ".h")):
+        if f.endswith((".c", ".h", ".m")):
             shutil.copy2(os.path.join(ROOT, "runtime", f), os.path.join(rt, f))
     version = subprocess.run([exe, "--version"], capture_output=True, text=True,
                              check=True).stdout.strip()

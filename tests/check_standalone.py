@@ -170,11 +170,12 @@ def anywhere(blib):
     contents = os.path.join(APP, "Contents")
     # 9. what the bundle carries.
     brt = os.path.join(contents, "Resources", "runtime")
-    src = sorted(f for f in os.listdir(os.path.join(ROOT, "runtime")) if f.endswith((".c", ".h")))
+    src = sorted(f for f in os.listdir(os.path.join(ROOT, "runtime")) if f.endswith((".c", ".h", ".m")))
     have = sorted(os.listdir(brt)) if os.path.isdir(brt) else []
     same = have == src and all(open(os.path.join(brt, f), "rb").read() ==
                                open(os.path.join(ROOT, "runtime", f), "rb").read() for f in have)
-    check("the bundle: the runtime's %d .c and .h files" % len(src), same and "rt.h" in have,
+    check("the bundle: the runtime's %d .c, .m and .h files" % len(src), same and "rt.h" in have
+          and "record_mac.m" in have,
           "%d of %d, missing %s" % (len(have), len(src), sorted(set(src) - set(have))[:3]))
     home = os.path.expanduser("~")
     needles = [ROOT.encode(), os.path.realpath(ROOT).encode(), home.encode()]

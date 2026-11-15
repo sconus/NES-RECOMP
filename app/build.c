@@ -5,7 +5,7 @@
                             recompiler in C beside the app's program
                             (with ROM.missed when there is one)
      3  compiling the game  cc -c build/NAME.c
-     4  the runtime         cc -c runtime/X.c for each file, kept in
+     4  the runtime         cc -c runtime/X.c (and X.m) for each file, kept in
                             build/app-rt/ and only compiled again when a
                             runtime source or header is newer
      5  linking             cc -o build/NAME ...
@@ -259,7 +259,8 @@ static void stamp_text(const char *rom, const char *missed, char *out, size_t n)
     struct dirent *e;
     while (d && (e = readdir(d))) {
         size_t len = strlen(e->d_name);
-        if (len > 2 && (!strcmp(e->d_name + len - 2, ".c") || !strcmp(e->d_name + len - 2, ".h"))) {
+        if (len > 2 && (!strcmp(e->d_name + len - 2, ".c") || !strcmp(e->d_name + len - 2, ".h") ||
+                        !strcmp(e->d_name + len - 2, ".m"))) {
             char path[PATH_MAX];
             snprintf(path, sizeof path, "%s/%s", rdir, e->d_name);
             double t = mtime_ns(path);
@@ -425,7 +426,8 @@ int build_run(struct build *b, const char *rom) {
         size_t len = strlen(e->d_name);
         char path[PATH_MAX];
         snprintf(path, sizeof path, "%s/%s", rdir, e->d_name);
-        if (len > 2 && !strcmp(e->d_name + len - 2, ".c")) srcs[ns++] = strdup(e->d_name);
+        if (len > 2 && (!strcmp(e->d_name + len - 2, ".c") || !strcmp(e->d_name + len - 2, ".m")))
+            srcs[ns++] = strdup(e->d_name);         /* .m: record_mac.m, Objective-C */
         else if (len > 2 && !strcmp(e->d_name + len - 2, ".h") && mtime(path) > newest_h)
             newest_h = mtime(path);
     }
@@ -478,7 +480,11 @@ int build_run(struct build *b, const char *rom) {
     for (int i = 0; i < ns; i++) la[ln++] = objs[i];
     la[ln++] = sdl_copy;
     la[ln++] = "-Wl,-rpath,@executable_path/lib";
-    la[ln++] = "-lz"; la[ln++] = "-lm"; la[ln] = NULL;
+    la[ln++] = "-lz"; la[ln++] = "-lm";
+    /* Recording (record_mac.m): Apple's AVFoundation. */
+    static char *fw[] = { "AVFoundation", "CoreMedia", "CoreVideo", "Foundation" };
+    for (int i = 0; i < 4; i++) { la[ln++] = "-framework"; la[ln++] = fw[i]; }
+    la[ln] = NULL;
     r = run(b, la, &from);
     for (int j = 0; j < ns; j++) free(srcs[j]);
     if (r) {

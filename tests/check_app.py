@@ -20,7 +20,8 @@ screenshots (build/nesrecomp-app --screenshot), against app/art.h:
      thread with --trace-progress), into build/app_check/builds:
      - a free test ROM, from a path with spaces: the five stages in
        order, the bar only moving forward and below 1 until the end,
-       all 15 runtime files compiled; the program runs and passes the
+       all 16 runtime files compiled (one in
+       Objective-C, for recording); the program runs and passes the
        test ROM's own check; built again, no runtime file is compiled;
      - a file that isn't a ROM: "NOT AN NES ROM", nothing run;
      - a ROM of an unsupported mapper (made here): the recompiler's
@@ -360,7 +361,7 @@ def main():
           and end is not None and float(end.group(1)) == 1.0,
           "%d samples, max %.3f, end %s" % (len(prog), max(prog or [0]), end and end.group(1)))
     rt = re.search(r"runtime: .*", out)
-    check("build: all runtime files compiled", "runtime: 15 of 15" in out, rt.group(0) if rt else "")
+    check("build: all runtime files compiled", "runtime: 16 of 16" in out, rt.group(0) if rt else "")
     exe = os.path.join(builds, "my_game__test_")
     ran = subprocess.run([exe, spaced, "--headless", "--frames", "600", "--no-save"],
                          capture_output=True, text=True) if os.path.exists(exe) else None
@@ -382,7 +383,7 @@ def main():
     code, out = build(spaced, builds, trace=False)
     rt = re.search(r"runtime: .*", out)
     check("the ROM changed: built again, no runtime file compiled",
-          code == 0 and stages_of(out) == [1, 2, 3, 4, 5] and "runtime: 0 of 15" in out,
+          code == 0 and stages_of(out) == [1, 2, 3, 4, 5] and "runtime: 0 of 16" in out,
           rt.group(0) if rt else "exit %d, stages %s" % (code, stages_of(out)))
     with open(spaced + ".missed", "w") as f:    # a .missed file appears: again
         f.write("")
@@ -436,7 +437,7 @@ def main():
     os.utime(os.path.join(fake, "runtime", "rt.h"), (later, later))  # ...than a header
     code, out = build(spaced, fh, trace=False, env=fenv, app=fapp)
     rt = re.search(r"runtime: .*", out)
-    check("a newer runtime header: every runtime file again", code == 0 and "runtime: 15 of 15" in out,
+    check("a newer runtime header: every runtime file again", code == 0 and "runtime: 16 of 16" in out,
           rt.group(0) if rt else "exit %d" % code)
     code, out = build(spaced, fh, trace=False, env=fenv, app=fapp)
     up = code == 0 and "up to date: " in out
@@ -551,15 +552,20 @@ def main():
     for name, title, rows in (
             ("card", "CONTROLS", [("ARROWS", "D-PAD"), ("X", "A BUTTON"), ("Z", "B BUTTON"),
                                   ("RETURN", "START"), ("R.SHIFT", "SELECT"), ("M", "MUTE"),
-                                  ("R", "RESET"), ("ESC", "QUIT")]),
+                                  ("R", "RESET"), ("V", "RECORD"), ("ESC", "QUIT")]),
             ("card_music", "MUSIC PLAYER", [("LEFT", "LAST SONG"), ("RIGHT", "NEXT SONG"),
-                                            ("R", "RESTART"), ("M", "MUTE"), ("ESC", "QUIT")])):
+                                            ("R", "RESTART"), ("M", "MUTE"), ("V", "RECORD"),
+                                            ("ESC", "QUIT")])):
         img = screen(name, "--show", name)
-        w_set = glyph_pixels(font, title, cx, sy + 3, 1, 2)
+        # Nine rows fit only under a title of one height (PLAN-standalone
+        # step 6 added V).
+        small = len(rows) > 8
+        w_set = glyph_pixels(font, title, cx, sy + (2 if small else 3), 1, 1 if small else 2)
+        top = 12 if small else 20
         d_set = set()
         for i, (k, v) in enumerate(rows):
-            w_set |= glyph_pixels(font, k, at(k, sx + 9), sy + 20 + i * 8)
-            d_set |= glyph_pixels(font, v, at(v, sx + 57), sy + 20 + i * 8)
+            w_set |= glyph_pixels(font, k, at(k, sx + 9), sy + top + i * 8)
+            d_set |= glyph_pixels(font, v, at(v, sx + 57), sy + top + i * 8)
         bad = screen_text(img, w_set, d_set)
         check("the %s card" % title.lower(), not bad, "%d pixel(s) differ" % bad)
 

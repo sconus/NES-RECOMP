@@ -312,11 +312,11 @@ static void draw_about(long n) {
 static const char *const card_game[][2] = {
     { "ARROWS", "D-PAD" }, { "X", "A BUTTON" }, { "Z", "B BUTTON" },
     { "RETURN", "START" }, { "R.SHIFT", "SELECT" }, { "M", "MUTE" },
-    { "R", "RESET" }, { "ESC", "QUIT" }, { NULL, NULL },
+    { "R", "RESET" }, { "V", "RECORD" }, { "ESC", "QUIT" }, { NULL, NULL },
 };
 static const char *const card_music[][2] = {
     { "LEFT", "LAST SONG" }, { "RIGHT", "NEXT SONG" }, { "R", "RESTART" },
-    { "M", "MUTE" }, { "ESC", "QUIT" }, { NULL, NULL },
+    { "M", "MUTE" }, { "V", "RECORD" }, { "ESC", "QUIT" }, { NULL, NULL },
 };
 #define CARD_KEY_X (ART_SCREEN_X + 9)       /* the two columns */
 #define CARD_DO_X (ART_SCREEN_X + 57)
@@ -330,11 +330,20 @@ static void draw_card(long n, int music) {
     draw_room(n, 0);
     uint32_t white = ink(INK_TEXT), dim = ink(INK_MANE_HI);
     int y = ART_SCREEN_Y;
-    text_xy(music ? "MUSIC PLAYER" : "CONTROLS", SCREEN_CX, y + 3, 1, 2, white, 1);
     const char *const (*rows)[2] = music ? card_music : card_game;
+    int n_rows = 0;
+    while (rows[n_rows][0]) n_rows++;
+    /* Nine rows (the game's, with V) only fit under a title of one
+       height. */
+    int top = 20;
+    if (n_rows > 8) {
+        text(music ? "MUSIC PLAYER" : "CONTROLS", SCREEN_CX, y + 2, 1, white, 1);
+        top = 12;
+    } else
+        text_xy(music ? "MUSIC PLAYER" : "CONTROLS", SCREEN_CX, y + 3, 1, 2, white, 1);
     for (int i = 0; rows[i][0]; i++) {
-        text_at(rows[i][0], CARD_KEY_X, y + 20 + i * 8, white);
-        text_at(rows[i][1], CARD_DO_X, y + 20 + i * 8, dim);
+        text_at(rows[i][0], CARD_KEY_X, y + top + i * 8, white);
+        text_at(rows[i][1], CARD_DO_X, y + top + i * 8, dim);
     }
 }
 

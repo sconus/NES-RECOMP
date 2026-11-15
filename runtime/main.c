@@ -1,4 +1,9 @@
 #include <ctype.h>
+#include <pwd.h>
+#include <signal.h>
+#include <sys/stat.h>
+#include <time.h>
+#include <unistd.h>
 /* nesrecomp runtime: the CPU memory bus and the program entry point.
    The .nes file is loaded at runtime; the generated code holds only the
    translated instruction logic. */
@@ -16,6 +21,7 @@
 #include "nsf.h"
 #include "palette.h"
 #include "ppu.h"
+#include "record.h"
 #include "video.h"
 #include "wav.h"
 
@@ -173,7 +179,6 @@ void note_missed(uint16_t a) {
     if (!*m) { *m = 1; missed_count++; }
 }
 
-static const char *rom_path;
 /* Where <rom>.missed and <rom>.sav are kept: beside the ROM, or, with
    --files-at P, P.missed and P.sav (the nesrecomp app's own folder, when
    the ROM's folder can't be written). */
@@ -226,7 +231,8 @@ static int speakers, audio_stats, ram_stats;
 static const char *remember_size;
 static int start_scale;
 
-/* Hand the APU's finished samples to the speakers and/or WAV file. */
+/* Hand the APU's finished samples to the speakers, the WAV file and the
+   recording. */
 static void drain_sound(void) {
     int16_t buf[4096];
     apu_catch_up();
@@ -234,7 +240,90 @@ static void drain_sound(void) {
     while ((n = apu_take_samples(buf, 4096)) > 0) {
         if (wav_path) wav_write(buf, n);
         if (speakers) video_queue_audio(buf, n);
+        record_audio(buf, n);
     }
+}
+
+/* ---- recording (PLAN-standalone.md step 6, record.h) ----
+   V in the window starts and stops a recording, P saves a picture of the
+   screen; both go to ~/Movies/NES RECOMP (or --record-dir), named by the
+   game and the date and time. --record FILE records the whole run. A
+   recording is finished when the program exits: by Esc, the window
+   closing, --frames, or Ctrl+C and the like (handled here, so the movie
+   can still be opened). */
+static int sound_on;                /* the APU's samples are taken each frame */
+static const char *record_path, *record_dir;
+static const uint16_t *last_frame;
+static volatile sig_atomic_t stop_signal;
+static const char *rom_path;
+
+static void on_stop_signal(int sig) {
+    if (stop_signal) _exit(128 + sig);  /* a second one: at once */
+    stop_signal = sig;
+}
+
+/* "DIR/GAME 2026-11-15 at 09.30.12.EXT", in the recordings folder (made
+   if need be); " 2", " 3"... if that name is taken. */
+static int media_path(char *out, size_t n, const char *ext) {
+    char dir[1024];
+    if (record_dir) snprintf(dir, sizeof dir, "%s", record_dir);
+    else {
+        const char *home = getenv("HOME");
+        struct passwd *pw = (!home || !*home) ? getpwuid(getuid()) : NULL;
+        if (pw) home = pw->pw_dir;
+        snprintf(dir, sizeof dir, "%s/Movies/NES RECOMP", home ? home : "/tmp");
+    }
+    char part[1024];
+    snprintf(part, sizeof part, "%s", dir);
+    for (char *p = part + 1; *p; p++)
+        if (*p == '/') { *p = 0; mkdir(part, 0755); *p = '/'; }
+    mkdir(part, 0755);
+    const char *base = strrchr(rom_path, '/');
+    base = base ? base + 1 : rom_path;
+    char name[256];
+    snprintf(name, sizeof name, "%s", base);
+    char *dot = strrchr(name, '.');
+    if (dot && dot != name) *dot = 0;
+    char when[64];
+    time_t now = time(NULL);
+    strftime(when, sizeof when, "%Y-%m-%d at %H.%M.%S", localtime(&now));
+    for (int k = 1; k < 100; k++) {
+        if (k == 1) snprintf(out, n, "%s/%s %s.%s", dir, name, when, ext);
+        else snprintf(out, n, "%s/%s %s %d.%s", dir, name, when, k, ext);
+        if (access(out, F_OK) != 0) return 0;
+    }
+    return -1;
+}
+
+static void watch_stop_signals(void) {
+    static int done;
+    if (done++) return;
+    signal(SIGINT, on_stop_signal);
+    signal(SIGTERM, on_stop_signal);
+    signal(SIGHUP, on_stop_signal);
+}
+
+static void start_recording(const char *path) {
+    if (!sound_on) {                /* a headless run with no sound yet */
+        apu_enable_sound();
+        sound_on = 1;
+    }
+    if (record_start(path) == 0) watch_stop_signals();
+}
+
+/* V: start or stop a recording. */
+void runtime_record_key(void) {
+    if (record_active()) { record_stop(); return; }
+    char path[1200];
+    if (media_path(path, sizeof path, "mov") == 0) start_recording(path);
+    else fprintf(stderr, "can't record: no free file name\n");
+}
+
+/* P: a picture of the last frame. */
+void runtime_snap_key(void) {
+    char path[1200];
+    if (!last_frame || media_path(path, sizeof path, "png")) return;
+    if (video_save_png(last_frame, path) == 0) fprintf(stderr, "saved a picture to %s\n", path);
 }
 
 static void at_exit(void) {
@@ -243,7 +332,9 @@ static void at_exit(void) {
         FILE *f = fopen(remember_size, "w");
         if (f) { fprintf(f, "game_scale %d\n", s ? s : start_scale); fclose(f); }
     }
-    if (wav_path) { drain_sound(); wav_close(); }
+    if (sound_on) drain_sound();        /* the last part of a frame */
+    if (wav_path) wav_close();
+    record_stop();
     save_missed();
     if (ram_stats)
         fprintf(stderr, "code in RAM: %llu instruction(s) ran translated, %llu interpreted\n",
@@ -267,7 +358,9 @@ static void at_exit(void) {
                         aim=off points it away from the screen
        600 disk=eject   FDS: take the disk out
        660 disk=2       FDS: put in side 2 (disk 1 side B; side 3 is disk
-                        2 side A, ...) */
+                        2 side A, ...)
+       700 record       start (or stop) a recording, as V does
+       760 snap         save a picture of the screen, as P does */
 #define MAX_SCRIPT 4096
 static struct {
     long frame;
@@ -275,6 +368,7 @@ static struct {
     int knob[2];                    /* -1: unchanged */
     int aim_x, aim_y;               /* aim_x: -2 unchanged, -1 off */
     int disk;                       /* -2 unchanged, -1 eject, else a side */
+    uint8_t record, snap;           /* as V and P in the window */
 } script[MAX_SCRIPT];
 static int script_len, script_pos;
 static uint8_t script_buttons[4], script_fire[2], script_trigger;
@@ -302,7 +396,10 @@ static void load_input_script(const char *path) {
         int knob[2] = { -1, -1 }, aim_x = -2, aim_y = 0;
         uint8_t trigger = 0;
         int disk = -2;
+        uint8_t record = 0, snap = 0;
         while ((tok = strtok(NULL, " \t\r\n"))) {
+            if (!strcmp(tok, "record")) { record = 1; continue; }
+            if (!strcmp(tok, "snap")) { snap = 1; continue; }
             if (!strncmp(tok, "disk=", 5)) {
                 char *end;
                 long n = strtol(tok + 5, &end, 10);
@@ -361,6 +458,8 @@ static void load_input_script(const char *path) {
         script[script_len].aim_x = aim_x;
         script[script_len].aim_y = aim_y;
         script[script_len].disk = disk;
+        script[script_len].record = record;
+        script[script_len].snap = snap;
         for (int p = 0; p < 2; p++) {
             script[script_len].fire[p] = fire[p];
             script[script_len].knob[p] = knob[p];
@@ -469,7 +568,9 @@ static void frame_done(const uint16_t *ppu_fb) {
         nsf_draw(nsf_screen, song_frames++);
         fb = nsf_screen;
     }
-    if (wav_path || speakers) drain_sound();
+    if (sound_on) drain_sound();
+    record_frame(fb);
+    last_frame = fb;
     if (audio_stats && ppu.frame % 60 == 0)
         fprintf(stderr, "frame %llu: %d samples queued\n",
                 (unsigned long long)ppu.frame, video_audio_queued());
@@ -483,6 +584,8 @@ static void frame_done(const uint16_t *ppu_fb) {
             if (script[script_pos].disk == -1) fds_eject();
             else fds_insert(script[script_pos].disk);
         }
+        if (script[script_pos].record) runtime_record_key();
+        if (script[script_pos].snap) runtime_snap_key();
         if (script[script_pos].aim_x != -2) {
             zapper.x = script[script_pos].aim_x;
             zapper.y = script[script_pos].aim_y;
@@ -503,6 +606,10 @@ static void frame_done(const uint16_t *ppu_fb) {
     if (cart.mapper == MAPPER_NSF) nsf_controls();
     if (stop_after_frames && (long)ppu.frame >= stop_after_frames)
         finish_run(fb);
+    if (stop_signal) {
+        fprintf(stderr, "stopped by a signal (%d)\n", (int)stop_signal);
+        exit(0);
+    }
     /* Headless runs stop as soon as a $6000 test reports its result. */
     if (headless && test_rom_finished()) finish_run(fb);
     /* Status $81 means "press reset, at least 100 ms from now": in
@@ -527,6 +634,9 @@ static void usage(const char *prog) {
         "  --no-save          don't load or write <rom>.sav (battery RAM)\n"
         "  --files-at P       keep <rom>.missed and <rom>.sav as P.missed, P.sav\n"
         "  --wav FILE         write the sound to a WAV file\n"
+        "  --record FILE      record the run to a movie (.mov; V does it in the window)\n"
+        "  --record-dir D     where V's movies and P's pictures go\n"
+        "                     (default ~/Movies/NES RECOMP)\n"
         "  --mute             no sound from the speakers (M toggles it)\n"
         "  --audio-stats      print the sound queue depth once a second\n"
         "  --remember-size F  on exit, write the window's size (game_scale N) to F\n"
@@ -601,6 +711,8 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "--no-save")) no_save = 1;
         else if (!strcmp(a, "--files-at") && more) files_at = argv[++i];
         else if (!strcmp(a, "--wav") && more) wav_path = argv[++i];
+        else if (!strcmp(a, "--record") && more) record_path = argv[++i];
+        else if (!strcmp(a, "--record-dir") && more) record_dir = argv[++i];
         else if (!strcmp(a, "--mute")) mute = 1;
         else if (!strcmp(a, "--audio-stats")) audio_stats = 1;
         else if (!strcmp(a, "--ram-stats")) ram_stats = 1;
@@ -683,7 +795,11 @@ int main(int argc, char **argv) {
     apu_reset();
     if (!headless && !mute) { video_init_audio(); speakers = 1; }
     if (wav_path) wav_open(wav_path);
-    if (wav_path || speakers) apu_enable_sound();
+    /* (Muted, or with no window, the sound is made from when a recording
+       starts: start_recording.) */
+    sound_on = wav_path || speakers;
+    if (sound_on) apu_enable_sound();
+    if (record_path) start_recording(record_path);
     ppu_schedule();
     apu_schedule();
 

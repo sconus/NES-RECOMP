@@ -169,7 +169,25 @@ Sound plays through the speakers unless you pass `--mute` (or press M).
 |---|---|
 | M | Mute / unmute |
 | R | Reset button |
+| V | Start / stop recording a movie (below) |
+| P | Save a picture of the screen |
 | Escape | Quit |
+
+**Recording.** V starts a recording and V again stops it; a small red
+REC shows in the window's corner meanwhile (it isn't in the movie).
+Each recording is one `.mov` in `~/Movies/NES RECOMP/`, named by the
+game and the date and time, ready for QuickTime or a video editor:
+- the picture in H.264, 256x240 at 4x with sharp pixels (1024x960), at
+  the NES's own 60.0988 frames a second;
+- the sound uncompressed, 48 kHz, in the same file. Muting the
+  speakers doesn't mute the recording.
+- The movie runs on game time, so picture and sound stay together even
+  if the Mac stutters (the game slows a little instead, if the encoder
+  ever falls behind).
+- Quitting (Esc, closing the window, Ctrl+C in Terminal) finishes the
+  movie properly; only a crash or a forced quit loses it.
+P saves a PNG of the screen to the same folder. `--record FILE` records
+a whole run, with or without a window.
 
 Game controllers (Xbox, PlayStation, Switch Pro and others SDL knows)
 work too, alongside the keyboard: the first one connected plays
@@ -194,6 +212,9 @@ The built program takes options after the ROM path:
     --no-save          don't load or write <rom>.sav (battery RAM)
     --files-at P       keep <rom>.missed and <rom>.sav as P.missed, P.sav
     --wav FILE         write the sound to a WAV file
+    --record FILE      record the run to a movie (V does it in the window)
+    --record-dir D     where V's movies and P's pictures go
+                       (default ~/Movies/NES RECOMP)
     --mute             no sound from the speakers (M toggles it)
     --audio-stats      print the sound queue depth once a second
     --input FILE       scripted button presses (below)
@@ -235,7 +256,8 @@ the button, like the others, is released. For the Zapper, `aim=X,Y`
 (0-255, 0-239) points it at a pixel and `aim=off` away from the screen;
 the aim stays put like the knob, and `trigger` is held only on its line.
 For a Famicom Disk System image, `disk=eject` takes the disk out and
-`disk=N` puts in side N.
+`disk=N` puts in side N. `record` starts or stops a recording and `snap`
+saves a picture, as V and P do.
 
 With none of the controller options, an NES 2.0 header can choose the
 device instead (below).
@@ -586,7 +608,8 @@ and the newer NSF2 and NSFe formats.
 
     make test       # CPU: nestest, cycle-exact
     make test-ppu   # everything in tests/suite.txt (needs the ROM clone)
-    make test-all   # both
+    make test-record  # recording movies (tests/check_record.py)
+    make test-all   # all of these, and the app's checks
 
 `make test` also runs `--test-gamepads`, which plugs in virtual game
 controllers, presses and tilts them, and checks the NES buttons that

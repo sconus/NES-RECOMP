@@ -9,6 +9,7 @@
 #include "input.h"
 #include "palette.h"
 #include "ppu.h"
+#include "record.h"
 #include "video.h"
 
 static SDL_Window *window;
@@ -26,7 +27,11 @@ static const char *window_title;
    sound has to follow it: if the queue grows, the APU is producing a
    touch too fast for this Mac's sound card, and the other way round. A
    small correction to the APU's sample clock (at most 0.5%, far too
-   little to hear as a pitch change) keeps the queue near AUDIO_TARGET. */
+   little to hear as a pitch change) keeps the queue near AUDIO_TARGET.
+   Not while recording: the movie's sound must keep exactly to game time
+   (48000 samples a game second), so the queue is left to drift, which
+   at the sound card's tiny clock difference takes many minutes to
+   matter (AUDIO_TOO_FULL catches it if it does). */
 #define AUDIO_TARGET 2400                /* samples queued: 50 ms */
 #define AUDIO_TOO_FULL 12000             /* 250 ms: drop it and start again */
 
@@ -67,7 +72,7 @@ void video_queue_audio(const int16_t *samples, int n) {
     double off = (double)(queued - AUDIO_TARGET) / AUDIO_TARGET;
     if (off > 1) off = 1;
     if (off < -1) off = -1;
-    apu_set_sample_rate_trim(1.0 + 0.005 * off);
+    apu_set_sample_rate_trim(record_active() ? 1.0 : 1.0 + 0.005 * off);
 }
 
 int video_audio_queued(void) {
@@ -174,6 +179,10 @@ static void handle_events(void) {
             toggle_mute();
         if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_r && !e.key.repeat)
             cpu_request_reset();
+        if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_v && !e.key.repeat)
+            runtime_record_key();
+        if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_p && !e.key.repeat)
+            runtime_snap_key();
         if (e.type == SDL_KEYDOWN && e.key.keysym.sym >= SDLK_0 &&
             e.key.keysym.sym <= SDLK_9 && !e.key.repeat)
             runtime_disk_key(e.key.keysym.sym - SDLK_0);
@@ -250,6 +259,33 @@ static void wait_for_next_frame(void) {
     }
 }
 
+/* While recording: a red dot (blinking once a second) and "REC" in the
+   picture's top right corner, in NES pixels, drawn over the picture in
+   the window only. */
+static void draw_rec(void) {
+    static const char *const glyphs[3] = {     /* R E C, 3x5 */
+        "###" "#.#" "##." "#.#" "#.#",
+        "###" "#.." "##." "#.." "###",
+        "###" "#.." "#.." "#.." "###",
+    };
+    static int blink;
+    int x0 = NES_WIDTH - 24, y0 = 6;
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+    SDL_Rect back = { x0 - 2, y0 - 2, 22, 9 };
+    SDL_RenderFillRect(renderer, &back);
+    SDL_SetRenderDrawColor(renderer, 230, 30, 30, 255);
+    if ((blink++ / 30) % 2 == 0) {
+        SDL_Rect dot[] = { { x0 + 1, y0, 3, 5 }, { x0, y0 + 1, 5, 3 } };
+        SDL_RenderFillRects(renderer, dot, 2);
+    }
+    for (int g = 0; g < 3; g++)
+        for (int i = 0; i < 15; i++)
+            if (glyphs[g][i] == '#') {
+                SDL_Rect p = { x0 + 7 + g * 4 + i % 3, y0 + i / 3, 1, 1 };
+                SDL_RenderFillRect(renderer, &p);
+            }
+}
+
 void video_present(const uint16_t *fb) {
     void *pixels;
     int pitch;
@@ -263,6 +299,7 @@ void video_present(const uint16_t *fb) {
     }
     SDL_RenderClear(renderer);
     SDL_RenderCopy(renderer, texture, NULL, NULL);
+    if (record_active()) draw_rec();
     SDL_RenderPresent(renderer);
     handle_events();
     wait_for_next_frame();

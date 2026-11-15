@@ -37,7 +37,9 @@ def sh(args, **kw):
 def sdl_flags():
     prefix = sh(["sdl2-config", "--prefix"]).stdout.strip()
     cflags = sh(["sdl2-config", "--cflags"]).stdout.split()
-    return cflags, [os.path.join(prefix, "lib", "libSDL2.dylib"), "-lz", "-lm"]
+    return cflags, [os.path.join(prefix, "lib", "libSDL2.dylib"), "-lz", "-lm",
+                    "-framework", "AVFoundation", "-framework", "CoreMedia",
+                    "-framework", "CoreVideo", "-framework", "Foundation"]
 
 
 def load_suite():
@@ -93,7 +95,7 @@ def build_runtime(cflags):
     os.makedirs(objdir, exist_ok=True)
     objs = []
     for src in sorted(os.listdir(os.path.join(ROOT, "runtime"))):
-        if src.endswith(".c"):
+        if src.endswith((".c", ".m")):          # record_mac.m: Objective-C
             obj = os.path.join(objdir, src[:-2] + ".o")
             r = sh(["cc", "-O1", "-Wall", "-Iruntime"] + cflags +
                    ["-c", os.path.join("runtime", src), "-o", obj], cwd=ROOT)

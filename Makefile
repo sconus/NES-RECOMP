@@ -16,6 +16,8 @@
 #   make app-bundle         build/nesrecomp.app, to double-click
 #   make test-app-bundle    check it, opening it as Finder would (it shows
 #                           a window briefly)
+#   make test-record        check recording movies (tests/check_record.py; a
+#                           window shows for 2 seconds)
 #   make test-standalone    check the app needs nothing from Homebrew
 #                           (tests/check_standalone.py, PLAN-standalone.md)
 #   make clean
@@ -24,8 +26,12 @@ CC      ?= cc
 CFLAGS  ?= -O1 -Wall
 SDL_CFLAGS := $(shell sdl2-config --cflags)
 SDL_LIBS   := $(shell sdl2-config --prefix)/lib/libSDL2.dylib
-LDLIBS   = $(SDL_LIBS) -lz -lm
-RT_SRC   = $(wildcard runtime/*.c)
+# The runtime records movies with Apple's AVFoundation (runtime/
+# record_mac.m, Objective-C; PLAN-standalone.md step 6).
+RT_FRAMEWORKS = -framework AVFoundation -framework CoreMedia -framework CoreVideo \
+                -framework Foundation
+LDLIBS   = $(SDL_LIBS) -lz -lm $(RT_FRAMEWORKS)
+RT_SRC   = $(wildcard runtime/*.c) $(wildcard runtime/*.m)
 RT_HDR   = $(wildcard runtime/*.h)
 # The recompiler: the C version (recomp/, PLAN-standalone.md step 2).
 # recomp.py stays as the reference it is checked against (make test-recomp).
@@ -53,7 +59,11 @@ test: build/nestest
 test-ppu: $(RECOMP)
 	python3 tests/run_tests.py
 
-test-all: test test-ppu test-app
+test-all: test test-ppu test-app test-record
+
+# --- recording (runtime/record_mac.m, PLAN-standalone.md step 6) ---------
+test-record: $(RECOMP)
+	python3 tests/check_record.py
 
 # --- any ROM ----------------------------------------------------------
 NAME = $(basename $(notdir $(ROM)))
@@ -135,4 +145,4 @@ clean:
 	find build -mindepth 1 -maxdepth 1 ! -name sdl2 -exec rm -rf {} + 2>/dev/null; \
 	rm -f $(NESTEST).missed
 
-.PHONY: test test-ppu test-all game run recomp test-recomp sdl2 app run-app test-app app-bundle test-app-bundle test-standalone clean
+.PHONY: test test-ppu test-all test-record game run recomp test-recomp sdl2 app run-app test-app app-bundle test-app-bundle test-standalone clean

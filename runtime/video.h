@@ -14,6 +14,11 @@ void video_present(const uint16_t *framebuffer);
    keys change an FDS disk's side (0 ejects it, 1-9 put in that side),
    through runtime_disk_key in main.c. */
 void runtime_disk_key(int n);
+/* V starts and stops a recording, P saves a picture of the screen
+   (main.c, PLAN-standalone.md step 6). While recording, a small red REC
+   shows in the window's corner; it isn't in the movie. */
+void runtime_record_key(void);
+void runtime_snap_key(void);
 void video_init_audio(void);
 void video_queue_audio(const int16_t *samples, int n);
 int video_audio_queued(void);           /* samples waiting, or -1 */
