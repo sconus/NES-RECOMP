@@ -296,46 +296,43 @@ def dragon(c, hx, hy, s=1.45):
 
 
 def console(c, x, y):
-    """A console shaped like the NES (front view, the top seen a little):
-    the two-tone grey box, the flap on top, the ridges and the black band
-    on the right, the dark lower front with the light and the power and
-    reset buttons, the two controller ports in the black band."""
-    w = 124
-    c.rect(x + 2, y + 46, w, 4, "shadow")
-    c.outline_rect(x, y, w, 46, "grey", r=1)
-    # The top, seen a little: light grey.
-    c.rect(x, y, w, 15, "grey_top")
-    c.rect(x + 1, y, w - 2, 1, "grey_hi")
-    # The flap: a raised panel on the left two thirds of the top.
-    c.rect(x + 6, y + 3, 64, 10, "grey_hi")
-    c.rect(x + 6, y + 12, 64, 1, "grey")
-    c.rect(x + 5, y + 3, 1, 10, "grey")
-    c.rect(x + 70, y + 3, 1, 10, "grey")
-    # The ridges, between the flap and the black band.
-    for yy in range(y + 3, y + 13, 2):
-        c.rect(x + 75, yy, 22, 1, "grey")
-    # The black band across the top and down the front.
-    bx = x + 99
-    c.rect(bx, y, 16, 46, "black")
-    c.rect(bx, y + 7, 16, 1, "black2")
-    c.rect(bx, y + 15, 16, 1, "black2")
-    # The front: light above, the darker band below.
-    c.rect(x, y + 15, 99, 1, "grey_dark")
-    c.rect(x, y + 26, 99, 20, "grey_dark")
-    c.rect(x, y + 26, 99, 1, "grey_deep")
-    c.rect(x + 115, y + 15, w - 115, 31, "grey")
-    c.rect(x + 115, y + 26, w - 115, 20, "grey_dark")
+    """A console shaped like the NES, front on, as the user drew it: the
+    light upper half with a large flap on the left, the darker lower half
+    with the light and the power and reset buttons, the black band on the
+    right running the full height with two seams, and the two controller
+    ports side by side in it, then a narrow light and dark strip."""
+    w, h = 124, 46
+    split = 26                                  # where light meets dark
+    c.rect(x + 2, y + h, w, 4, "shadow")
+    c.rect(x - 1, y - 1, w + 2, h + 2, "outline")
+    c.rect(x, y, w, split, "grey_top")
+    c.rect(x, y + split, w, h - split, "grey_dark")
+    c.rect(x, y, w, 1, "grey_hi")
+    c.rect(x, y + split, w, 1, "grey_deep")
+    # The flap: a lighter panel, a darker edge at its left and bottom.
+    c.rect(x + 5, y + 1, 66, 20, "grey")
+    c.rect(x + 6, y + 1, 65, 19, "grey_hi")
     # The light, then the power and reset buttons.
     c.rect(x + 10, y + 33, 2, 2, "led")
-    for bx2 in (x + 15, x + 33):
-        c.outline_rect(bx2, y + 31, 15, 6, "grey_deep", r=0)
-        c.rect(bx2, y + 31, 15, 1, "grey")
-    # The two controller ports, in the black band.
-    for py in (y + 18, y + 32):
-        c.outline_rect(bx + 4, py, 8, 9, "grey_deep", r=1)
-        c.rect(bx + 5, py + 2, 6, 5, "black")
+    for bx in (x + 14, x + 33):
+        c.rect(bx, y + 30, 16, 9, "outline")
+        c.rect(bx + 1, y + 31, 14, 7, "grey_deep")
+        c.rect(bx + 1, y + 31, 14, 1, "grey")
+    # The black band, the full height, with two seams in its upper part.
+    bx = x + 85
+    c.rect(bx, y, 30, h, "black")
+    c.rect(bx, y + 20, 30, 1, "black2")
+    c.rect(bx, y + 25, 30, 1, "black2")
+    # The two controller ports, side by side.
+    for px in (bx + 4, bx + 18):
+        c.round_rect(px, y + 31, 9, 11, "grey_deep", r=1)
+        c.rect(px + 1, y + 33, 7, 6, "black")
         for k in range(3):
-            c.put(bx + 6 + 2 * k, py + 4, "grey_dark")
+            c.put(px + 2 + 2 * k, y + 35, "grey_dark")
+    # The narrow strip right of the band: light above, dark below.
+    c.rect(x + 115, y, w - 115, split, "grey_top")
+    c.rect(x + 115, y + split, w - 115, h - split, "grey_dark")
+    c.rect(x + 115, y, w - 115, 1, "grey_hi")
 
 
 def draw():

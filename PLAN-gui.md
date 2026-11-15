@@ -132,9 +132,14 @@ up when it's right.
   - **The wall:** the channel's gradient, dithered between five
     shades, from violet at the top left to magenta at the bottom right,
     above a dark purple table.
-  - **The console:** in the NES's shape. It has the flap, the ridges,
-    the black band with both controller ports, the darker lower front
-    with the light and the two buttons, and no logo or name.
+  - **The console:** in the NES's shape, with no logo or name. After
+    the art round was committed, the user drew the version they wanted,
+    and it now follows that drawing:
+    - a light upper half with a large flap on the left, and no ridges;
+    - the darker lower half with the light and the two buttons;
+    - the black band on the right, the full height, with two seams;
+    - the two controller ports side by side in it;
+    - a narrow strip after the band, light above and dark below.
   - **The dragon:** drawn from shapes and outlined automatically
     (`Sprite` in the generator), in two goes:
     - The first was too small: the mane looked like a crown and the
