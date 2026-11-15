@@ -11,16 +11,25 @@ the entry points, from both):
      sizes, an NES 2.0 header claiming more than the file holds, a 512
      KB MMC1, MMC1 submapper 5, disk images with and without a header,
      two sides, more than 252 files, files reaching past $6000-$DFFF,
-     NSFs banked, at $6000 and too long: the same dumps;
+     NSFs banked, at $6000 and too long, and a program using every
+     opcode with the operands at the C writer's edges ($4018-$4020,
+     $5100-$5118, $8000, page crossings, branches of +127 and -128) as
+     NROM and MMC1, and its writing opcodes as MMC5: the same dumps;
   3. files recomp.py refuses: the same message and exit status;
   4. entry points from --entry and from .missed files in both formats,
      with spaces, blank lines and banks past the last: the same.
+Step 2b, the C they write:
+  5. every file under tests/, alone and with its .missed, and nestest as
+     `make test` recompiles it, and the files made in 2.: the same C, byte
+     for byte, and the same printed lines (the path written to aside);
+  6. how long each takes for all of them (printed; not a check).
 Exit status 0 when all pass.
 """
 import os
 import struct
 import subprocess
 import sys
+import time
 from concurrent.futures import ThreadPoolExecutor
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -65,6 +74,35 @@ def same_dump(args):
             return "C exit %d: %s" % (c[0], c[2].strip()[-80:])
         return first_difference(p[1] + p[2], c[1] + c[2])
     return None
+
+
+def same_c(args, tag):
+    """None if both write the same C and print the same lines, else why
+    not. Also the seconds each took."""
+    outs = [os.path.join(OUT, "c", "%s.%s.c" % (tag, w)) for w in ("py", "c")]
+    res, took = [], []
+    for cmd, o in ((["python3", PY], outs[0]), ([C], outs[1])):
+        if os.path.exists(o):
+            os.remove(o)
+        t0 = time.time()
+        r = subprocess.run(cmd + args + ["-o", o], capture_output=True, text=True, timeout=300)
+        took.append(time.time() - t0)
+        text = open(o, "rb").read() if os.path.exists(o) else None
+        res.append((r.returncode, r.stdout.replace(o, "OUT"), r.stderr, text))
+    p, c = res
+    for o in outs:
+        if os.path.exists(o):
+            os.remove(o)
+    if p[0] != 0:
+        return "recomp.py failed: %s" % p[2].strip()[-80:], took
+    if c[0] != 0:
+        return "C exit %d: %s" % (c[0], c[2].strip()[-80:]), took
+    if c[3] != p[3]:
+        a, b = p[3].decode(errors="replace"), (c[3] or b"").decode(errors="replace")
+        return "the C differs, " + first_difference(a, b), took
+    if c[1:3] != p[1:3]:
+        return "printed lines differ, " + first_difference(p[1] + p[2], c[1] + c[2]), took
+    return None, took
 
 
 # --- files made here ------------------------------------------------------
@@ -176,7 +214,85 @@ def made_good():
         "nsf_banked_off.nsf": nsf(0x8345, 0x8345, 0x9000, code(0x8345, 0x5000), banks=[0, 1, 2, 3, 4, 5, 9, 2]),
         "nsf_banked_wrap.nsf": nsf(0x8000, 0x8000, 0x8003, code(0x8000, 0x2000), banks=[7, 0, 0, 0, 0, 0, 0, 1], chips=1),
         "nsf_chips_vrc6.nsf": nsf(0x8000, 0x8000, 0x8003, code(0x8000, 0x8000), chips=1),
+        "every_opcode_nrom.nes": made_every_opcode(0x00, 0x00, 2),
+        "every_opcode_mmc1.nes": made_every_opcode(0x10, 0x00, 8),
+        "every_store_mmc5.nes": made_every_opcode(0x50, 0x00, 8, writes_only=True),
     }
+
+
+# Operands to try for each addressing mode: the edges of what the C
+# writer decides on (I/O at $2000-$401F, mapper writes from $8000 or a
+# mapper's low registers, page crossings, zero-page wrap).
+MODE_OPERANDS = {
+    "imm": [[0x80]], "zp": [[0x10], [0xFF]], "zpx": [[0xFF]], "zpy": [[0xFF]],
+    "izx": [[0xFF]], "izy": [[0x10], [0xFF]],
+    "abs": [[0x00, 0x03], [0xFF, 0x1F], [0x02, 0x20], [0x18, 0x40], [0x1F, 0x40], [0x20, 0x40],
+            [0x10, 0x51], [0x17, 0x51], [0x18, 0x51], [0x00, 0x80], [0xFF, 0x7F]],
+    "abx": [[0x00, 0x02], [0x01, 0x1F], [0x19, 0x40], [0x20, 0x40], [0x01, 0x50], [0x18, 0x51],
+            [0x01, 0x7F], [0x00, 0x80]],
+    "aby": [[0x00, 0x02], [0x01, 0x1F], [0x19, 0x40], [0x20, 0x40], [0x01, 0x50], [0x01, 0x7F]],
+    "ind": [[0xFF, 0x12], [0x00, 0x03]],
+}
+
+
+def made_every_opcode(b6, b7, prg16, writes_only=False):
+    """A program using every opcode of recomp.py's table, each with the
+    operands above, in blocks the tracer reaches: main calls each block
+    (JSR), and each ends with RTS. Branches go nowhere special (0), a page
+    away, +127 and -128. Opcodes that end a block (JMP, RTS, RTI, BRK)
+    are blocks of their own. writes_only: only the opcodes that write
+    memory (for MMC5, whose program must fit in 8 KB)."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("recomp_ref", PY)
+    ref = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ref)
+    blocks = []
+    for opc in sorted(ref.OPS):
+        mnem, mode, _, _ = ref.OPS[opc]
+        writes = mnem in ref.STORES or mnem in ref.RMW or mnem in ref.HIGH_STORES
+        if writes_only and (not writes or mode in ("acc", "imp")):
+            continue
+        if mode == "rel":
+            for off in (0x00, 0x7F, 0x80, 0x40):
+                blocks.append(bytes([opc, off, 0x60]))
+        elif mnem == "JSR":
+            blocks.append(bytes([opc, 0x00, 0x80, 0x60]))           # calls main's start
+        elif mode in ("imp", "acc"):
+            blocks.append(bytes([opc]) + (b"" if mnem in ("RTS", "RTI", "BRK") else b"\x60"))
+        else:
+            for operand in MODE_OPERANDS[mode]:
+                end = b"" if mnem == "JMP" else b"\x60"
+                blocks.append(bytes([opc] + operand) + end)
+    # The program as the CPU sees it at $8000-$FFFF at power-on...
+    image = bytearray([0xEA] * 0x8000)
+    main = 0x8000
+    at = 0x8000 + 3 * len(blocks) + 3 + 0x40
+    calls = bytearray()
+    for blk in blocks:
+        if (at & 0xFF) > 0xF0:                   # a page away for some branches
+            at += 0x20
+        calls += bytes([0x20, at & 0xFF, at >> 8])
+        image[at - 0x8000:at - 0x8000 + len(blk)] = blk
+        at += len(blk) + 3
+    calls += bytes([0x4C, main & 0xFF, main >> 8])
+    image[0:len(calls)] = calls
+    end = at - 0x8000
+    # ...placed in the banks the mapper has there at power-on (8 KB
+    # slots): NROM's 32 KB as it is; MMC1's first two banks and last two;
+    # MMC5's last bank in every slot, so the program must fit in 8 KB.
+    n8 = prg16 * 2
+    slots = {0x00: [0, 1, 2, 3], 0x10: [0, 1, n8 - 2, n8 - 1], 0x50: [n8 - 1] * 4}[b6]
+    if b6 == 0x50:
+        assert end < 0x1FFA, "the program doesn't fit in 8 KB"
+        image[0x1FFA:0x2000] = bytes([0x00, 0x80, 0x00, 0x80, 0x00, 0x80])
+        image[0x2000:] = image[0:0x2000] * 3
+    assert end < 0x7FFA, "the program doesn't fit"
+    image[0x7FFA:] = bytes([0x00, 0x80, 0x00, 0x80, 0x00, 0x80])
+    prg = bytearray([0xEA] * (n8 * 0x2000))
+    for slot, bank in enumerate(slots):
+        prg[bank * 0x2000:(bank + 1) * 0x2000] = image[slot * 0x2000:(slot + 1) * 0x2000]
+    h = bytes([0x4E, 0x45, 0x53, 0x1A, prg16, 0, b6, b7]) + bytes(8)
+    return h + bytes(prg)
 
 
 def made_bad():
@@ -294,6 +410,37 @@ def main():
         f.write("04:6100\n04:9000\n06:9010\n03:E100\n03:6000\n05:DFF6\n")
     why = same_dump([fd, "--missed", os.path.join(OUT, "fds.missed")])
     check("entry points in a disk image: in a file, in the BIOS, outside both", why is None, why or "")
+
+    # 5. the C, and 6. the time.
+    os.makedirs(os.path.join(OUT, "c"), exist_ok=True)
+    readable = [r[1] for r in alone]
+    jobs = []
+    for i, path in enumerate(readable):
+        jobs.append(("alone", path, [path], "a%d" % i))
+        if os.path.exists(path + ".missed"):
+            jobs.append(("missed", path, [path, "--missed", path + ".missed"], "m%d" % i))
+    for i, name in enumerate(good):
+        jobs.append(("made", name, [os.path.join(gdir, name)], "g%d" % i))
+    with ThreadPoolExecutor(8) as ex:
+        done = list(ex.map(lambda j: (j[0], j[1]) + same_c(j[2], j[3]), jobs))
+    for kind, label in (("alone", "all %d readable files under tests/: the same C and lines"),
+                        ("missed", "the %d with a .missed file, recompiled with it: the same"),
+                        ("made", "the %d files made in 2.: the same")):
+        rows = [d for d in done if d[0] == kind]
+        bad = [d for d in rows if d[2]]
+        check(label % len(rows), rows and not bad,
+              "%d differ, first %s: %s" % (len(bad), os.path.relpath(bad[0][1], ROOT) if kind != "made"
+                                            else bad[0][1], bad[0][2]) if bad else "none")
+    why, _ = same_c([nestest, "--entry", "C000", "--missed", nestest + ".missed"], "nestest")
+    check("nestest as `make test` recompiles it: the same", why is None, why or "")
+    py_t = sum(d[3][0] for d in done)
+    c_t = sum(d[3][1] for d in done)
+    print("      (%d recompiles: recomp.py %.1f s of work, the C version %.1f s, %.0fx faster)"
+          % (len(done), py_t, c_t, py_t / c_t if c_t else 0))
+    big = max(readable, key=os.path.getsize)
+    _, took = same_c([big], "big")
+    print("      (the largest, %s, %d KB: recomp.py %.2f s, the C version %.3f s)"
+          % (os.path.relpath(big, ROOT), os.path.getsize(big) // 1024, took[0], took[1]))
 
     print("\n%d check(s) failed" % len(fails) if fails else "\nall checks pass")
     sys.exit(1 if fails else 0)

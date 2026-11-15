@@ -306,6 +306,62 @@ Every step keeps what holds today:
     `.missed` ignored, two cases' order swapped, an FDS routine's inline
     pointers miscounted, a mapper write not marked.
 
+- Done:
+  - **`recomp/ops.c`:** the opcode table, built in recomp.py's order (so
+    a later entry replaces an earlier one exactly as there), with the
+    mnemonic sets and the C text each instruction becomes.
+    - The cycle maps, and their check against the table at start-up, as
+      recomp.py does on import.
+  - **`recomp/gen.c`:** `trace`, and the C writer (`gen_insn`,
+    `mem_body`, `goto`, the interpreter, the cycle maps, `generate`).
+    - Python builds each line as a list of strings joined with spaces,
+      and an empty one still adds a space (`NOP` leaves a double
+      space). `struct parts` does the same.
+    - The instructions found are kept in a hash table, then sorted by
+      bank and address as Python's `sorted` does.
+  - **`recomp/main.c`** writes the file and prints the same lines as
+    recomp.py.
+  - nestest came out byte for byte the same on the first try, and so
+    did all 394 files.
+  - **`tests/check_recomp.py`,** 69 checks now. New:
+    - all 394 readable files, alone and the 130 with their `.missed`:
+      the same C byte for byte, and the same printed lines;
+    - nestest as `make test` recompiles it;
+    - the files made in step 2a;
+    - **three new made programs:** every opcode in the table, each with
+      operands at the edges the C writer decides on ($4018, $401F,
+      $4020, $5110-$5118, $8000, indexing across $2000 and $8000,
+      `JMP ($12FF)`, branches of 0, a page, +127 and -128). One as
+      NROM, one as MMC1, and the writing ones as MMC5.
+    - It also prints the time: the C version is about 7 to 8 times
+      faster here. These test ROMs have little code, so most of each
+      run is starting the program; recomp.py takes 0.05 s on the
+      largest.
+  - **Breaks, 20 tried, all caught,** after one fix to the check:
+    - "I/O ends at $4018, not $4020" wasn't caught at first: nothing in
+      the collection reads $4018-$401F directly. The every-opcode
+      programs were added for it.
+    - Their first layout put the program where MMC1 and MMC5 don't
+      show it at power-on, so the tracer followed filler bytes. It
+      showed because the C had no $4018 in it. The program is now in
+      the banks each mapper shows at power-on.
+    - "an empty part not joined" first changed nothing, because the
+      break was written wrongly. Rewritten, it's caught.
+    - "one opcode's cycles wrong" is caught twice over: the C version's
+      own start-up check of the cycle maps refuses to run, as
+      recomp.py's does.
+    - The others: a page-cross penalty dropped, `.missed` ignored, the
+      cases sorted by address before bank, FDS inline pointers
+      miscounted, MMC5's low registers ignored for mapper writes, `JMP
+      ($xxFF)`'s page wrap, a page-crossing branch's cycle, the
+      accumulator form, RAM code guarded by its first byte only,
+      tracing stopping after a `JSR`, a `goto` to a label never
+      translated, the summary's bank count, the stopped-at spots
+      unsorted, a 16 KB unit not followed, `TAS`, `(zp),Y`'s pointer at
+      $FF, a branch back of exactly 128.
+  - recomp.py isn't changed in this step, so `make test-all` and the
+    395 files' C stay as in step 2a.
+
 ### 3. The app without Python
 - The app runs the C recompiler, and the bundle carries it. Nothing in
   the app starts `python3` any more.

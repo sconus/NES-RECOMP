@@ -5,14 +5,16 @@
        nesrecomp-recomp game.nes -o build/game.c [--entry C000 ...]
                         [--missed game.nes.missed ...]
 
-   Step 2a reads the file and finds the entry points; --dump-rom prints
-   what it read, as recomp.py --dump-rom does. Translating comes in
-   step 2b. */
+   rom.c reads the file, this finds the entry points, gen.c follows the
+   code from them and writes the C (ops.c has the opcodes). --dump-rom
+   prints what was read, as recomp.py --dump-rom does. */
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <zlib.h>
+#include "gen.h"
+#include "ops.h"
 #include "rom.h"
 
 #define MAX_ENTRIES 65536
@@ -179,6 +181,7 @@ int main(int argc, char **argv) {
     if (!rom_path) usage_error("the following arguments are required: rom");
     if (!out && !dump) usage_error("the following arguments are required: -o/--out");
 
+    ops_init();
     static struct rom rom;
     struct rom *r = &rom;
     rom_load(r, rom_path);
@@ -244,6 +247,35 @@ int main(int argc, char **argv) {
         dump_rom(r);
         return 0;
     }
-    fprintf(stderr, "translating comes in step 2b: only --dump-rom for now\n");
-    return 1;
+    struct traced t;
+    trace(r, ent_bank, ent_addr, n_ent, &t);
+    FILE *f = fopen(out, "w");
+    if (!f) { fprintf(stderr, "%s: can't write the file\n", out); return 1; }
+    const char *src_name = strrchr(rom_path, '/');
+    generate(f, r, &t, src_name ? src_name + 1 : rom_path);
+    if (fclose(f)) { fprintf(stderr, "%s: can't write the file\n", out); return 1; }
+
+    if (r->is_fds) {
+        int nfiles = 0;
+        for (int i = 0; i < 256; i++) nfiles += r->has_file[i];
+        printf("FDS disk image, %d file(s): the BIOS and %d PRG file(s) in RAM can be translated\n",
+               r->files_count, nfiles);
+    } else if (!r->is_nsf) {
+        printf("mapper %d (%s), %zu KB program ROM\n", r->mapper, r->mapper_name, r->prg_len / 1024);
+    }
+    if (r->is_nsf)
+        printf("NSF: load=%04X init=%04X play=%04X\n", r->nsf_load, r->nsf_init, r->nsf_play);
+    else
+        printf("vectors: NMI=%04lX RESET=%04lX IRQ=%04lX\n", vectors[0], vectors[1], vectors[2]);
+    long banks = 0;
+    for (long i = 0; i < t.n_insns; i++)        /* sorted by bank: count the changes */
+        if (i == 0 || t.insns[i].bank != t.insns[i - 1].bank) banks++;
+    printf("translated %ld instructions in %ld bank(s) -> %s\n", t.n_insns, banks, out);
+    if (t.n_unknown) {
+        printf("stopped at %ld untranslatable spot(s):", t.n_unknown);
+        for (long i = 0; i < t.n_unknown; i++)
+            printf(" %02X:%04lX", t.unknown_bank[i], t.unknown_addr[i]);
+        printf("\n");
+    }
+    return 0;
 }
