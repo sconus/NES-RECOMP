@@ -108,6 +108,55 @@ the same steps `make game` does: `recomp.py`, then the C compiler.
   - Not checked by the script: the real window. It opens, and it looked
     right when I opened it; you can resize it.
 
+### 1b. The art round
+Asked for after step 1: the look of the user's channel, Polygon
+Legends, and a console that reads as an NES. Done in previews
+(`build/app_art.png`, from the generator alone); the app picks the art
+up when it's right.
+- The room in the channel's colours: a blue-violet to magenta gradient,
+  dithered in pixels, and a dark purple table.
+- A console shaped like the NES: the two-tone grey box, the flap on
+  top, the ridges and the black band on the right, the dark lower front
+  with the power and reset buttons and a light, and the two controller
+  ports. No Nintendo logo or name: those say it's Nintendo's product,
+  and this is an unofficial tool.
+- A pixel dragon in the style of the channel's logo: red, with a
+  purple-blue mane and gold horns. Its head is drawn pixel by pixel (a
+  grid in the generator) and its body as a coiling curve.
+- The TV text in the logo's style: white with a dark outline.
+- A sign on the wall: "NES RECOMP TOOL BY POLYGON LEGENDS".
+- The TV stays as it is.
+- Check: `make test-app` still passes; the checks learn the outline.
+
+- Done (the user approved it, with the sign's wording changed):
+  - **The wall:** the channel's gradient, dithered between five
+    shades, from violet at the top left to magenta at the bottom right,
+    above a dark purple table.
+  - **The console:** in the NES's shape. It has the flap, the ridges,
+    the black band with both controller ports, the darker lower front
+    with the light and the two buttons, and no logo or name.
+  - **The dragon:** drawn from shapes and outlined automatically
+    (`Sprite` in the generator), in two goes:
+    - The first was too small: the mane looked like a crown and the
+      thin, many-spiked body like a centipede.
+    - The second has a head 1.45 times bigger (angry yellow eyes,
+      fangs, gold horns, a flaring blue and purple mane), a thicker
+      shaded body with a gold belly, a few big spikes, and a spade tip
+      on the tail.
+  - **The sign:** "NES RECOMP / TOOL BY / POLYGON / LEGENDS" on the
+    wall, outlined, in a neon frame. It first said only "POLYGON
+    LEGENDS"; the user asked for the full wording.
+  - **The TV text:** outlined like the logo's letters (the app draws
+    the outline).
+  - **Checks:** 13 now, with the outline. 14 breaks, all caught, after
+    two fixes:
+    - the outline check also looks for dark pixels beyond the outline
+      (a 2-pixel outline passed at first);
+    - two old breaks referred to colour names the new art renamed. They
+      didn't compile, and the break script counted that as "caught".
+      The script now reports a build failure as one, the same lesson
+      as in the FDS stage.
+
 ### 2. The drop and the recompiling screen
 - A file dropped on the window, or given on the command line, is
   checked: an iNES, NSF or FDS header. A wrong file gets a message on

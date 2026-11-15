@@ -36,8 +36,15 @@ static uint32_t ink(int i) {
 }
 
 /* Text in the 5x7 font, `scale` canvas pixels a font pixel, a glyph
-   every 6 * scale pixels; centred on x = cx. */
-static void text(const char *s, int cx, int y, int scale, uint32_t colour) {
+   every 6 * scale pixels; centred on x = cx. With `outline`, each lit
+   pixel first darkens the 8 around it, as the channel's logo letters. */
+static void text_pass(const char *s, int cx, int y, int scale, uint32_t colour, int grow);
+static void text(const char *s, int cx, int y, int scale, uint32_t colour, int outline) {
+    if (outline) text_pass(s, cx, y, scale, ink(INK_TEXT_LINE), 1);
+    text_pass(s, cx, y, scale, colour, 0);
+}
+
+static void text_pass(const char *s, int cx, int y, int scale, uint32_t colour, int grow) {
     int len = (int)strlen(s), x0 = cx - (len * 6 * scale - scale) / 2;
     for (int i = 0; i < len; i++) {
         int ch = (unsigned char)s[i];
@@ -47,8 +54,8 @@ static void text(const char *s, int cx, int y, int scale, uint32_t colour) {
         for (int r = 0; r < 7; r++)
             for (int c = 0; c < 5; c++)
                 if (g[r] & (0x10 >> c))
-                    for (int dy = 0; dy < scale; dy++)
-                        for (int dx = 0; dx < scale; dx++) {
+                    for (int dy = -grow; dy < scale + grow; dy++)
+                        for (int dx = -grow; dx < scale + grow; dx++) {
                             int x = x0 + i * 6 * scale + c * scale + dx, yy = y + r * scale + dy;
                             if (x >= 0 && x < ART_W && yy >= 0 && yy < ART_H)
                                 canvas[yy][x] = colour;
@@ -78,9 +85,9 @@ static void draw_drop(long n) {
     int cx = ART_SCREEN_X + ART_SCREEN_W / 2;
     int top = ART_SCREEN_Y + (ART_SCREEN_H - (3 * 14 + 2 * 6)) / 2;
     uint32_t white = ink(INK_TEXT);
-    text("DROP YOUR", cx, top, 2, white);
-    text("NES ROM", cx, top + 20, 2, white);
-    text("FILE HERE", cx, top + 40, 2, white);
+    text("DROP YOUR", cx, top, 2, white, 1);
+    text("NES ROM", cx, top + 20, 2, white, 1);
+    text("FILE HERE", cx, top + 40, 2, white, 1);
 }
 
 /* The canvas into a window of w x h pixels: the largest whole-number

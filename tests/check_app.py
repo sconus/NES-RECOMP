@@ -4,8 +4,8 @@ screenshots (build/nesrecomp-app --screenshot), against app/art.h:
   1. the picture: every pixel outside the TV screen and the power light
      is the art's colour;
   2. the text: "DROP YOUR / NES ROM / FILE HERE", in the 5x7 font at
-     twice its size, centred on the screen, and nothing else in the
-     text's colour there;
+     twice its size, centred on the screen, outlined a pixel all round,
+     and nothing else in the text's colour there;
   3. the window: at several sizes, the canvas at the largest whole
      number scale that fits, centred, the rest the border colour (a
      window smaller than the canvas shows it at 1x, cropped);
@@ -109,9 +109,11 @@ def main():
     w, h, base = shot("drop0")
     check("canvas size", (w, h) == (W, H), "%dx%d" % (w, h))
     on = text_pixels(defs, font, ["DROP YOUR", "NES ROM", "FILE HERE"])
+    ring = {(x + dx, y + dy) for x, y in on for dx in (-1, 0, 1) for dy in (-1, 0, 1)} - on
     # 1. the picture
     bad = [(x, y) for y in range(H) for x in range(W)
-           if rows[y][x] not in animated and (x, y) not in on and base[y][x] != pal[rows[y][x]]]
+           if rows[y][x] not in animated and (x, y) not in on and (x, y) not in ring
+           and base[y][x] != pal[rows[y][x]]]
     check("the picture", not bad, "%d pixel(s) differ, first at %s" % (len(bad), bad[:1]))
     # 2. the text
     white = pal[defs["INK_TEXT"]]
@@ -120,6 +122,12 @@ def main():
              if base[y][x] == white and (x, y) not in on]
     check("the text", not missing and not extra,
           "%d text pixel(s) missing, %d extra" % (len(missing), len(extra)))
+    dark = pal[defs["INK_TEXT_LINE"]]
+    unlined = [p for p in ring if base[p[1]][p[0]] != dark]
+    stray = [(x, y) for y in range(sy, sy + sh) for x in range(sx, sx + sw)
+             if base[y][x] == dark and (x, y) not in ring]
+    check("the text's outline", not unlined and not stray,
+          "%d outline pixel(s) not dark, %d dark beyond it" % (len(unlined), len(stray)))
     check("the text is on the screen",
           all(sx <= x < sx + sw and sy <= y < sy + sh for x, y in on), "it runs off")
     # 3. the window
@@ -141,12 +149,12 @@ def main():
     frames = {n: shot("drop_f%d" % n, frame=n)[2] for n in (6, 60, 120, 170)}
     led = [(x, y) for y in range(H) for x in range(W) if rows[y][x] == defs["INK_LED"]]
     screen = [(x, y) for y in range(H) for x in range(W)
-              if rows[y][x] == defs["INK_SCREEN"] and (x, y) not in on]
+              if rows[y][x] == defs["INK_SCREEN"] and (x, y) not in on and (x, y) not in ring]
     still = [(x, y) for y in range(H) for x in range(W) if rows[y][x] not in animated]
     check("the glow changes", len({frames[n][screen[0][1]][screen[0][0]] for n in (60, 120)}
                                   | {base[screen[0][1]][screen[0][0]]}) > 1, "the screen stays the same")
     scan = next((x, y) for y in range(H) for x in range(W)
-                if rows[y][x] == defs["INK_SCAN"] and (x, y) not in on)
+                if rows[y][x] == defs["INK_SCAN"] and (x, y) not in on and (x, y) not in ring)
     s0 = base[scan[1]][scan[0]]
     s6 = frames[6][scan[1]][scan[0]]
     g0, g6 = base[screen[0][1]][screen[0][0]], frames[6][screen[0][1]][screen[0][0]]
