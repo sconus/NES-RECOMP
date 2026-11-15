@@ -58,6 +58,13 @@ screenshots (build/nesrecomp-app --screenshot), against app/art.h:
        translated) counts nothing as interpreted, and, with --trace, as
        many instructions as it traced; run from $C000 (never traced from
        there), nearly all interpreted.
+  11. the 6502 next to its C (PLAN-standalone.md step 8), from
+     nestest's listing and C: the view pixel for pixel at its start (the
+     reset routine), after scrolling (down, down, a page, up), after Tab
+     three times (each to the next JSR target or entry), and with a long
+     C line cut; and the app's build writes NAME.listing beside NAME.c,
+     every instruction's C where the listing says, and a build without
+     its listing is built again.
 Run by `make test-app`. Exit status 0 when all pass.
 """
 import os
@@ -622,6 +629,27 @@ def main():
         "s": ".....|.....|.####|#....|.###.|....#|####.",
         "t": ".#...|.#...|###..|.#...|.#...|.#..#|..##.",
         "x": ".....|.....|#...#|.#.#.|..#..|.#.#.|#...#",
+        # and the rest, for the code view (step 8)
+        "`": ".#...|..#..|.....|.....|.....|.....|.....",
+        "b": "#....|#....|#.##.|##..#|#...#|#...#|####.",
+        "f": "..##.|.#..#|.#...|###..|.#...|.#...|.#...",
+        "g": ".....|.....|.####|#...#|.####|....#|.###.",
+        "h": "#....|#....|#.##.|##..#|#...#|#...#|#...#",
+        "j": "...#.|.....|..##.|...#.|...#.|#..#.|.##..",
+        "k": "#....|#....|#..#.|#.#..|##...|#.#..|#..#.",
+        "m": ".....|.....|##.#.|#.#.#|#.#.#|#...#|#...#",
+        "p": ".....|.....|####.|#...#|####.|#....|#....",
+        "q": ".....|.....|.##.#|#..##|.####|....#|....#",
+        "r": ".....|.....|#.##.|##..#|#....|#....|#....",
+        "u": ".....|.....|#...#|#...#|#...#|#..##|.##.#",
+        "v": ".....|.....|#...#|#...#|#...#|.#.#.|..#..",
+        "w": ".....|.....|#...#|#...#|#.#.#|#.#.#|.#.#.",
+        "y": ".....|.....|#...#|#...#|.####|....#|.###.",
+        "z": ".....|.....|#####|...#.|..#..|.#...|#####",
+        "{": "...#.|..#..|..#..|.#...|..#..|..#..|...#.",
+        "|": "..#..|..#..|..#..|..#..|..#..|..#..|..#..",
+        "}": ".#...|..#..|..#..|...#.|..#..|..#..|.#...",
+        "~": ".....|.....|.#...|#.#.#|...#.|.....|.....",
     }
 
     def lower_pixels(text_, cx_, y):
@@ -747,16 +775,17 @@ def main():
         for text_, y in (("TRANSLATED: %d" % last[1], 19), ("RAN AS C: " + share, 28),
                          ("RUN %d, SPOTS: %d" % (last[0], last[2]), 37)):
             w_set |= glyph_pixels(font, text_, cx, sy + y)
-        d_set = glyph_pixels(font, "A SPOT: WHERE THE", cx, sy + 68) | \
-            glyph_pixels(font, "INTERPRETER STARTED", cx, sy + 77)
+        d_set = glyph_pixels(font, "A SPOT: WHERE THE", cx, sy + 60) | \
+            glyph_pixels(font, "INTERPRETER STARTED", cx, sy + 69)
+        w_set |= glyph_pixels(font, "C: SEE THE CODE", cx, sy + 78)
         shown = runs[-10:]
         most = max([1] + [r_[2] for r_ in shown])
         width = len(shown) * 11 - 3
         x0 = cx - width // 2
         for i, r_ in enumerate(shown):
-            h = max(1, (r_[2] * 18 + most - 1) // most)
+            h = max(1, (r_[2] * 12 + most - 1) // most)
             colour = "white" if i == len(shown) - 1 else "neon"
-            for yy in range(sy + 64 - h, sy + 64):
+            for yy in range(sy + 58 - h, sy + 58):
                 for xx in range(x0 + i * 11, x0 + i * 11 + 8):
                     bars[(xx, yy)] = colour
         return w_set, d_set, bars
@@ -882,6 +911,151 @@ def main():
     lastg = os.path.join(hb, "last-game.txt")
     check("the last game's name kept for H", os.path.exists(lastg) and open(lastg).read() == "01-basics\n",
           repr(open(lastg).read() if os.path.exists(lastg) else None))
+
+    # 11. the 6502 next to its C.
+    CW, CH, TOP, ROW = 640, 360, 33, 9
+    ROWS = (CH - 20 - TOP) // ROW
+    AX, BX, TX, CX_ = 8, 8 + 36, 8 + 36 + 60, 212
+    CCH = (CW - 8 - CX_) // 6
+    english = dict(re.findall(r'\{ "([A-Z]{3})", "([^"]+)" \}', open(os.path.join(ROOT, "app", "code.c")).read()))
+
+    def model(lst_path, c_path, keys):
+        """The view as the app should draw it: {(x, y): colour}."""
+        insns, ents, reset = [], [], None
+        for l in open(lst_path).read().splitlines():
+            m = re.match(r"# (reset|entry|init) ([0-9A-F]{2}):([0-9A-F]{4})", l)
+            if m:
+                key = (int(m.group(2), 16), int(m.group(3), 16))
+                if m.group(1) in ("entry", "init"):
+                    ents.append(key)
+                if m.group(1) == "reset" or (m.group(1) == "init" and reset is None):
+                    reset = key
+                continue
+            if l.startswith("#"):
+                continue
+            loc, first, last, by, text_ = l.split("\t")
+            insns.append(dict(bank=int(loc[:2], 16), addr=int(loc[3:], 16), first=int(first),
+                              last=int(last), bytes=by, text=text_, routine=False))
+        clines = open(c_path).read().split("\n")
+        where = {(i_["bank"], i_["addr"]): k for k, i_ in enumerate(insns)}
+        for e in ents:
+            if e in where:
+                insns[where[e]]["routine"] = True
+        for i_ in insns:
+            m = re.match(r"JSR \$([0-9A-F]{4})$", i_["text"])
+            if m:
+                t = int(m.group(1), 16)
+                k = where.get((i_["bank"], t))
+                if k is None:
+                    k = next((j for j, x in enumerate(insns) if x["addr"] == t), None)
+                if k is not None:
+                    insns[k]["routine"] = True
+        nrows = [max(1, i_["last"] - i_["first"] + 1) for i_ in insns]
+        cur = top = where.get(reset, 0)
+        for k in keys:
+            if k == "tab":
+                j = next((j for j in range(cur + 1, len(insns)) if insns[j]["routine"]), None)
+                if j is None:
+                    j = next((j for j in range(0, cur) if insns[j]["routine"]), cur)
+                if insns[j]["routine"]:
+                    cur = top = j
+                continue
+            cur = {"up": max(cur - 1, 0), "down": min(cur + 1, len(insns) - 1),
+                   "pgup": max(cur - 10, 0), "pgdn": min(cur + 10, len(insns) - 1)}[k]
+            if cur < top:
+                top = cur
+            while top < cur and sum(nrows[top:cur + 1]) > ROWS:
+                top += 1
+        pic = {}
+
+        def fill_(x0, y0, x1, y1, col):
+            for y in range(y0, y1):
+                for x in range(x0, x1):
+                    pic[(x, y)] = col
+
+        def write(text_, x, y, col):
+            for i, ch in enumerate(text_):
+                if ch in lower:
+                    for rr, row_ in enumerate(lower[ch].split("|")):
+                        for c in range(5):
+                            if row_[c] == "#":
+                                pic[(x + i * 6 + c, y + rr)] = col
+                else:
+                    for p_ in glyph_pixels(font, ch if 0x20 <= ord(ch) <= 0x5F else "?", x + i * 6 + 2, y):
+                        pic[p_] = col
+        wh, dm, ne = white, dim, neon
+        fill_(0, 0, CW, CH, pal[defs["INK_SCREEN"]])
+        fill_(0, 0, CW, 18, pal[defs["INK_BLACK"]])
+        fill_(0, CH - 18, CW, CH, pal[defs["INK_BLACK"]])
+        write("UNDER THE HOOD: THE 6502 AND THE C IT BECAME", 8, 6, wh)
+        write("nestest.nes", CW - 8 - 6 * 11 + 1, 6, dm)
+        write("6502", AX, 22, dm)
+        write("C", CX_, 22, dm)
+        row, i = 0, top
+        while i < len(insns) and row < ROWS:
+            ins, y = insns[i], TOP + row * ROW
+            if i == cur:
+                fill_(0, y - 1, CW, y - 1 + min(nrows[i], ROWS - row) * ROW, pal[defs["INK_SHADOW"]])
+            write("%04X" % ins["addr"], AX, y, ne if ins["routine"] else wh)
+            write(ins["bytes"], BX, y, dm)
+            write(ins["text"], TX, y, wh)
+            nc = ins["last"] - ins["first"] + 1
+            for k in range(nc):
+                if row + k >= ROWS:
+                    break
+                c = clines[ins["first"] - 1 + k]
+                if len(c) > CCH:
+                    c = c[:CCH - 2] + ".."
+                write(c, CX_, y + k * ROW, dm if k == 0 else wh)
+            row += nrows[i]
+            i += 1
+        write("UP, DOWN: SCROLL   TAB: NEXT ROUTINE   ESC: BACK", 8, CH - 12, dm)
+        t = insns[cur]["text"]
+        e = "AN UNOFFICIAL OPCODE" if t.startswith("*") else english.get(t[:3], "")
+        if e:
+            say = "%s: %s" % (t[:4] if t.startswith("*") else t[:3], e)
+            write(say, CW - 8 - 6 * len(say) + 1, CH - 12, wh)
+        return pic, insns[cur], top
+
+    nl, nc_ = os.path.join(OUT, "nestest.listing"), os.path.join(OUT, "nestest_listed.c")
+    subprocess.run([os.path.join(ROOT, "build", "nesrecomp-recomp"), os.path.join(ROOT, "tests", "nestest.nes"),
+                    "--entry", "C000", "-o", nc_, "--listing", nl], capture_output=True)
+    for label, keys in (("at its start (the reset routine)", []),
+                        ("after down, down, a page, up", ["down", "down", "pgdn", "up"]),
+                        ("after Tab three times", ["tab", "tab", "tab"]),
+                        ("after Tab and paging to a cut C line", ["tab", "tab", "down", "down", "down"])):
+        path = os.path.join(OUT, "code_%d.png" % len(keys))
+        r_ = subprocess.run([APP, "--screenshot", path, "--show", "code", "--listing", nl, "--cfile", nc_,
+                             "--rom", "nestest.nes", "--size", "%dx%d" % (CW, CH), "--keys", " ".join(keys)],
+                            capture_output=True, text=True)
+        img = read_png(path)[2] if r_.returncode == 0 and os.path.exists(path) else None
+        pic, at, _ = model(nl, nc_, keys)
+        bad = sum(1 for y in range(CH) for x in range(CW) if img is None or img[y][x] != pic[(x, y)])
+        check("the code view %s: pixel for pixel (at %04X %s)" % (label, at["addr"], at["text"]),
+              not bad, "%d pixel(s) differ" % bad if img else r_.stderr.strip())
+    _, at, _ = model(nl, nc_, [])
+    check("the code view starts at the reset routine", at["addr"] == 0xC004 and at["routine"], "%s" % at)
+    tabs, seen = [], []
+    for k in range(1, 6):
+        _, at, top_ = model(nl, nc_, ["tab"] * k)
+        tabs.append(at["addr"])
+    jsr = sorted({int(m_, 16) for m_ in re.findall(r"\tJSR \$([0-9A-F]{4})", open(nl).read())})
+    later = [a_ for a_ in jsr if a_ > 0xC004][:5]
+    check("Tab goes to each next routine in turn (the JSR targets after the reset routine)",
+          tabs == later, "%s, the JSR targets: %s" % (["%04X" % a_ for a_ in tabs], ["%04X" % a_ for a_ in later]))
+    lb = os.path.join(hb, "01-basics.listing")
+    lc = os.path.join(hb, "01-basics.c")
+    rows_ = [l.split("\t") for l in open(lb).read().splitlines() if not l.startswith("#")] \
+        if os.path.exists(lb) else []
+    cl = open(lc).read().split("\n") if os.path.exists(lc) else []
+    okl = rows_ and all(cl[int(r2[1]) - 1].startswith("L_%s_%s:" % tuple(r2[0].split(":"))) for r2 in rows_)
+    check("the app's build writes NAME.listing beside NAME.c, each instruction where it says",
+          okl, "%d listed" % len(rows_))
+    if os.path.exists(lb):
+        os.remove(lb)
+    r_ = subprocess.run([APP, "--build", hrom, "--build-dir", hb], capture_output=True, text=True)
+    check("a build without its listing is built again (not up to date)",
+          r_.returncode == 0 and "up to date" not in r_.stdout and os.path.exists(lb), last_line(r_.stdout))
 
     print("\n%d check(s) failed" % len(fails) if fails else "\nall checks pass")
     sys.exit(1 if fails else 0)

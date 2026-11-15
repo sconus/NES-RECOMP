@@ -835,6 +835,66 @@ Every step keeps what holds today:
   - Breaks: the C lines off by one, an operand written wrongly (`$20`
     for `$2002`), the listing changing the `.c`, Tab skipping a routine.
 
+- Done:
+  - **`--listing FILE`** in the C recompiler: a header with the vectors
+    and entries ("# reset 00:C004"), then for each instruction, tab
+    separated, `00:C5F5  1234  1236  AD 02 20  LDA $2002`. That's its
+    bank and address, the lines of the `.c` it became (the first holds
+    its label), its bytes and its 6502 text. Unofficial opcodes are
+    starred, as in nestest.log ("*NOP $A9"). The `.c` is the same with
+    or without it.
+  - **The app's build asks for it** (`NAME.listing` beside `NAME.c`). A
+    build without its listing, from before, isn't counted up to date.
+  - **The view:** C on "UNDER THE HOOD" opens it (the screen now says
+    "C: SEE THE CODE", its bars a little shorter to fit).
+    - It's a full-window canvas twice the room's size, the font at one
+      pixel, in the app's colours: a title bar with the game's name,
+      "6502" and "C" columns, and each instruction's address (pink for
+      a routine's start), bytes and 6502 beside the lines of C it became.
+      The cursor's rows are lit. C lines too long are cut with "..".
+    - Up and Down move an instruction, Page Up and Page Down (and Space)
+      10, and the mouse wheel 3. Tab goes to the next routine: each
+      JSR's target and the entries, wrapping round. It starts at the
+      reset routine. Esc or Backspace go back.
+    - The plain-English line (the optional part) is in: "LDA: LOAD A
+      FROM MEMORY" for the cursor's instruction, "AN UNOFFICIAL OPCODE"
+      for the starred ones.
+  - **The font** has the rest of ASCII now (`` ` ``, a-z, `{ | } ~`),
+    drawn where the code view or the Terminal command need it. A 5x7
+    "g" has no room for its tail, so it looks a little like a 9, as in
+    most fonts that small.
+  - **Checks:**
+    - `tests/check_recomp.py`: for all 564 recompiles of the 395 files
+      (and nestest as `make test` makes it), the C is byte for byte the
+      same with `--listing`. Every instruction is listed (as many as the
+      "translated" line says). Each one's lines start with its label and
+      its EVENT_CHECK and end where the next label begins.
+    - nestest's listing agrees with `tests/nestest.log`, bytes and 6502
+      text, on all 6,451 instructions both have.
+    - `tests/check_app.py`, 89 now (8 new): the view pixel for pixel at
+      its start, after scrolling, after Tab three times, and on a cut C
+      line, against a model of its layout and moves written in the check
+      (the glyphs drawn out there as pictures). It starts at the reset
+      routine, and Tab visits the JSR targets in order. The app's build
+      writes the listing, and a build without it is built again. The
+      "under the hood" screen's check follows its new layout.
+  - **Breaks, 13 tried, all caught,** each in a fresh copy with
+    `make app`, check_recomp and check_app. First, the copy with no
+    break passed. No check crashed. The breaks: the C lines off by one,
+    an operand written wrongly (`$20` for `$2002`), the listing changing
+    the `.c`, Tab skipping a routine, a branch's target one off,
+    unofficial opcodes not starred, JSR targets not routines, the view
+    starting at the first instruction, scrolling leaving the cursor off
+    the screen, the cursor's rows lit one row off, the English for the
+    wrong instruction, the build not asking for the listing, and a
+    letter drawn wrong.
+  - Not checked: the keys in a real window (the moves they call are
+    checked through `--keys`), and how the view reads for you.
+  - Unchanged: `make test-all` (nestest exact, the suite 219 of 220 with
+    test28 as always, recording), `make test-standalone`'s 50 and
+    `make test-app-bundle`'s 14, and recomp.py and the C version still
+    agreeing on all 395 files.
+
 ### 9. A release
 - `make release` builds `build/NES-RECOMP-1.0.zip`, with:
   - the app;

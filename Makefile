@@ -118,10 +118,11 @@ $(SDL2_LIB): tools/build_sdl2.sh
 sdl2: $(SDL2_LIB)
 
 build/nesrecomp-app: app/app.c app/build.c app/build.h app/play.c app/play.h app/hood.c app/hood.h \
+                     app/code.c app/code.h \
                      app/art.h $(SDL2_LIB) \
                      $(RECOMP)
 	@mkdir -p build
-	$(CC) $(CFLAGS) $(APP_ARCH) $(APP_SDL) -Iapp -o $@ app/app.c app/build.c app/play.c app/hood.c $(APP_LIBS)
+	$(CC) $(CFLAGS) $(APP_ARCH) $(APP_SDL) -Iapp -o $@ app/app.c app/build.c app/play.c app/hood.c app/code.c $(APP_LIBS)
 
 app: build/nesrecomp-app
 

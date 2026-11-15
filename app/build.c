@@ -377,7 +377,9 @@ int build_run(struct build *b, const char *rom) {
     char counted[PATH_MAX + 16];
     snprintf(counted, sizeof counted, "%s/%s.translated", build_dir, b->name);
     b->translated = -1;
-    if (!strcmp(have, want) && access(b->out, X_OK) == 0) {
+    char listing[PATH_MAX + 16];
+    snprintf(listing, sizeof listing, "%s/%s.listing", build_dir, b->name);
+    if (!strcmp(have, want) && access(b->out, X_OK) == 0 && access(listing, R_OK) == 0) {
         FILE *cf = fopen(counted, "r");
         if (cf) { if (fscanf(cf, "%ld", &b->translated) != 1) b->translated = -1; fclose(cf); }
         atomic_store(&b->stage, ST_LINK);
@@ -397,8 +399,11 @@ int build_run(struct build *b, const char *rom) {
     set_stage(b, ST_RECOMP, 0.5 + file_size(rom) / 200000.0);
     snprintf(cfile, sizeof cfile, "%s/%s.c", build_dir, b->name);
     snprintf(recomp, sizeof recomp, "%s", recompiler);
-    char *ra[] = { recomp, (char *)rom, "-o", cfile, NULL, NULL, NULL };
-    if (access(missed, R_OK) == 0) { ra[4] = "--missed"; ra[5] = missed; }
+    /* With --listing, for "the 6502 next to its C" (code.h). */
+    char lst[PATH_MAX + 16];
+    snprintf(lst, sizeof lst, "%s/%s.listing", build_dir, b->name);
+    char *ra[] = { recomp, (char *)rom, "-o", cfile, "--listing", lst, NULL, NULL, NULL };
+    if (access(missed, R_OK) == 0) { ra[6] = "--missed"; ra[7] = missed; }
     int r = run(b, ra, &from);
     if (r) {
         message(b, from, NULL, msg, sizeof msg);

@@ -99,10 +99,19 @@
 #include <unistd.h>
 #include "art.h"
 #include "build.h"
+#include "code.h"
 #include "hood.h"
 #include "play.h"
 
 static uint32_t canvas[ART_H][ART_W];
+/* "The 6502 next to its C" (step 8) uses the whole window at a finer
+   grid: a canvas twice the room's size, the font at one pixel. */
+#define CODE_W (ART_W * 2)
+#define CODE_H (ART_H * 2)
+static uint32_t code_canvas[CODE_H][CODE_W];
+/* Where text goes: the room's canvas, or the code view's. */
+static uint32_t *tgt = &canvas[0][0];
+static int tgt_w = ART_W, tgt_h = ART_H;
 
 static uint32_t rgb(int r, int g, int b) {
     return 0xFF000000u | (uint32_t)r << 16 | (uint32_t)g << 8 | (uint32_t)b;
@@ -124,22 +133,43 @@ static void text(const char *s, int cx, int y, int scale, uint32_t colour, int o
     text_xy(s, cx, y, scale, scale, colour, outline);
 }
 
-/* The font has capitals only. A command for Terminal must be typed as
-   it is, so these lowercase letters (the ones `xcode-select --install`
-   needs) are drawn where text_lower is set; any other letter is drawn
-   as its capital. Each row: 5 bits, the leftmost 0x10. */
+/* The font has capitals only. A command for Terminal (step 5) and the
+   C of the code view (step 8) must show as they are, so these lowercase
+   letters and the rest of ASCII ($60-$7E) are drawn where text_lower is
+   set; otherwise a letter is drawn as its capital. Each row: 5 bits, the
+   leftmost 0x10. */
 static const struct { char ch; unsigned char rows[7]; } lower_font[] = {
+    { '`', { 0x08, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00 } },
     { 'a', { 0x00, 0x00, 0x0E, 0x01, 0x0F, 0x11, 0x0F } },
+    { 'b', { 0x10, 0x10, 0x16, 0x19, 0x11, 0x11, 0x1E } },
     { 'c', { 0x00, 0x00, 0x0E, 0x10, 0x10, 0x11, 0x0E } },
     { 'd', { 0x01, 0x01, 0x0D, 0x13, 0x11, 0x13, 0x0D } },
     { 'e', { 0x00, 0x00, 0x0E, 0x11, 0x1F, 0x10, 0x0E } },
+    { 'f', { 0x06, 0x09, 0x08, 0x1C, 0x08, 0x08, 0x08 } },
+    { 'g', { 0x00, 0x00, 0x0F, 0x11, 0x0F, 0x01, 0x0E } },
+    { 'h', { 0x10, 0x10, 0x16, 0x19, 0x11, 0x11, 0x11 } },
     { 'i', { 0x04, 0x00, 0x0C, 0x04, 0x04, 0x04, 0x0E } },
+    { 'j', { 0x02, 0x00, 0x06, 0x02, 0x02, 0x12, 0x0C } },
+    { 'k', { 0x10, 0x10, 0x12, 0x14, 0x18, 0x14, 0x12 } },
     { 'l', { 0x0C, 0x04, 0x04, 0x04, 0x04, 0x04, 0x0E } },
+    { 'm', { 0x00, 0x00, 0x1A, 0x15, 0x15, 0x11, 0x11 } },
     { 'n', { 0x00, 0x00, 0x16, 0x19, 0x11, 0x11, 0x11 } },
     { 'o', { 0x00, 0x00, 0x0E, 0x11, 0x11, 0x11, 0x0E } },
+    { 'p', { 0x00, 0x00, 0x1E, 0x11, 0x1E, 0x10, 0x10 } },
+    { 'q', { 0x00, 0x00, 0x0D, 0x13, 0x0F, 0x01, 0x01 } },
+    { 'r', { 0x00, 0x00, 0x16, 0x19, 0x10, 0x10, 0x10 } },
     { 's', { 0x00, 0x00, 0x0F, 0x10, 0x0E, 0x01, 0x1E } },
     { 't', { 0x08, 0x08, 0x1C, 0x08, 0x08, 0x09, 0x06 } },
+    { 'u', { 0x00, 0x00, 0x11, 0x11, 0x11, 0x13, 0x0D } },
+    { 'v', { 0x00, 0x00, 0x11, 0x11, 0x11, 0x0A, 0x04 } },
+    { 'w', { 0x00, 0x00, 0x11, 0x11, 0x15, 0x15, 0x0A } },
     { 'x', { 0x00, 0x00, 0x11, 0x0A, 0x04, 0x0A, 0x11 } },
+    { 'y', { 0x00, 0x00, 0x11, 0x11, 0x0F, 0x01, 0x0E } },
+    { 'z', { 0x00, 0x00, 0x1F, 0x02, 0x04, 0x08, 0x1F } },
+    { '{', { 0x02, 0x04, 0x04, 0x08, 0x04, 0x04, 0x02 } },
+    { '|', { 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04 } },
+    { '}', { 0x08, 0x04, 0x04, 0x02, 0x04, 0x04, 0x08 } },
+    { '~', { 0x00, 0x00, 0x08, 0x15, 0x02, 0x00, 0x00 } },
 };
 static int text_lower;
 
@@ -161,8 +191,8 @@ static void text_pass(const char *s, int cx, int y, int sx, int sy, uint32_t col
                     for (int dy = -grow; dy < sy + grow; dy++)
                         for (int dx = -grow; dx < sx + grow; dx++) {
                             int x = x0 + i * 6 * sx + c * sx + dx, yy = y + r * sy + dy;
-                            if (x >= 0 && x < ART_W && yy >= 0 && yy < ART_H)
-                                canvas[yy][x] = colour;
+                            if (x >= 0 && x < tgt_w && yy >= 0 && yy < tgt_h)
+                                tgt[(size_t)yy * tgt_w + x] = colour;
                         }
     }
 }
@@ -298,8 +328,8 @@ static void draw_needcc(long n, int clicked) {
 #define HOOD_BARS 10
 #define HOOD_BAR_W 8
 #define HOOD_BAR_GAP 3
-#define HOOD_BAR_H 18
-#define HOOD_BAR_BOTTOM 64                  /* below the screen's top */
+#define HOOD_BAR_H 12
+#define HOOD_BAR_BOTTOM 58                  /* below the screen's top */
 static void draw_hood(long n, const struct hood_run *runs, int count) {
     draw_room(n, 0);
     uint32_t white = ink(INK_TEXT), dim = ink(INK_MANE_HI);
@@ -335,8 +365,79 @@ static void draw_hood(long n, const struct hood_run *runs, int count) {
         for (int yy = y + HOOD_BAR_BOTTOM - h; yy < y + HOOD_BAR_BOTTOM; yy++)
             for (int xx = bx; xx < bx + HOOD_BAR_W; xx++) canvas[yy][xx] = c;
     }
-    text("A SPOT: WHERE THE", SCREEN_CX, y + 68, 1, dim, 1);
-    text("INTERPRETER STARTED", SCREEN_CX, y + 77, 1, dim, 1);
+    text("A SPOT: WHERE THE", SCREEN_CX, y + 60, 1, dim, 1);
+    text("INTERPRETER STARTED", SCREEN_CX, y + 69, 1, dim, 1);
+    text("C: SEE THE CODE", SCREEN_CX, y + 78, 1, white, 1);
+}
+
+/* ---- the 6502 next to its C (code.h; PLAN-standalone.md step 8), on
+   the finer canvas: a title bar, then a row for each line of C, each
+   instruction's 6502 on the first row of its C (the cursor's rows
+   lit), and a bar of keys and the cursor's instruction in plain
+   English. ---- */
+#define CODE_TOP 33                         /* the first row's y */
+#define CODE_ROW 9
+#define CODE_ROWS ((CODE_H - 20 - CODE_TOP) / CODE_ROW)
+#define CODE_ADDR_X 8
+#define CODE_BYTES_X (CODE_ADDR_X + 6 * 6)
+#define CODE_TEXT_X (CODE_BYTES_X + 10 * 6)
+#define CODE_C_X 212
+#define CODE_C_CHARS ((CODE_W - 8 - CODE_C_X) / 6)
+
+static void text_left(const char *s, int x, int y, uint32_t colour) {
+    text(s, x + ((int)strlen(s) * 6 - 1) / 2, y, 1, colour, 0);
+}
+
+static void fill(int x0, int y0, int x1, int y1, uint32_t colour) {
+    for (int y = y0; y < y1; y++)
+        for (int x = x0; x < x1; x++) code_canvas[y][x] = colour;
+}
+
+static void draw_code(const struct code_view *v, const char *name) {
+    tgt = &code_canvas[0][0]; tgt_w = CODE_W; tgt_h = CODE_H;
+    text_lower = 1;
+    uint32_t white = ink(INK_TEXT), dim = ink(INK_MANE_HI), neon = ink(INK_NEON);
+    fill(0, 0, CODE_W, CODE_H, ink(INK_SCREEN));
+    fill(0, 0, CODE_W, 18, ink(INK_BLACK));
+    fill(0, CODE_H - 18, CODE_W, CODE_H, ink(INK_BLACK));
+    text_left("UNDER THE HOOD: THE 6502 AND THE C IT BECAME", 8, 6, white);
+    text_left(name, CODE_W - 8 - 6 * (int)strlen(name) + 1, 6, dim);
+    text_left("6502", CODE_ADDR_X, 22, dim);
+    text_left("C", CODE_C_X, 22, dim);
+    int row = 0;
+    for (long i = v->top; i < v->n && row < CODE_ROWS; i++) {
+        const struct code_insn *in = &v->insns[i];
+        long rows = code_rows(v, i);
+        int y = CODE_TOP + row * CODE_ROW;
+        if (i == v->cursor) {
+            long shown = rows < CODE_ROWS - row ? rows : CODE_ROWS - row;
+            fill(0, y - 1, CODE_W, y - 1 + (int)shown * CODE_ROW, ink(INK_SHADOW));
+        }
+        char addr[8];
+        snprintf(addr, sizeof addr, "%04lX", in->addr);
+        text_left(addr, CODE_ADDR_X, y, in->routine ? neon : white);
+        text_left(in->bytes, CODE_BYTES_X, y, dim);
+        text_left(in->text, CODE_TEXT_X, y, white);
+        long nc = code_c_count(v, i);
+        for (long k = 0; k < nc && row + k < CODE_ROWS; k++) {
+            char line[CODE_C_CHARS + 1];
+            const char *c = code_c_line(v, i, k);
+            if ((int)strlen(c) > CODE_C_CHARS) snprintf(line, sizeof line, "%.*s..", CODE_C_CHARS - 2, c);
+            else snprintf(line, sizeof line, "%s", c);
+            text_left(line, CODE_C_X, y + (int)k * CODE_ROW, k == 0 ? dim : white);
+        }
+        row += (int)rows;
+    }
+    text_left("UP, DOWN: SCROLL   TAB: NEXT ROUTINE   ESC: BACK", 8, CODE_H - 12, dim);
+    if (v->n) {
+        const struct code_insn *in = &v->insns[v->cursor];
+        char say[80];
+        const char *e = code_english(in->text);
+        snprintf(say, sizeof say, "%.*s: %s", in->text[0] == '*' ? 4 : 3, in->text, e);
+        if (e[0]) text_left(say, CODE_W - 8 - 6 * (int)strlen(say) + 1, CODE_H - 12, white);
+    }
+    text_lower = 0;
+    tgt = &canvas[0][0]; tgt_w = ART_W; tgt_h = ART_H;
 }
 
 static void draw_done(long n, const char *name) {
@@ -413,12 +514,15 @@ static void draw_play(long n, const char *name) {
 /* The canvas into a window of w x h pixels: the largest whole-number
    scale that fits (at least 1, cropped if the window is smaller), centred
    on a dark border. */
-static void layout(int w, int h, int *scale, int *ox, int *oy) {
-    int sx = w / ART_W, sy = h / ART_H;
+static void layout_for(int cw, int ch, int w, int h, int *scale, int *ox, int *oy) {
+    int sx = w / cw, sy = h / ch;
     *scale = sx < sy ? sx : sy;
     if (*scale < 1) *scale = 1;
-    *ox = (w - ART_W * *scale) / 2;
-    *oy = (h - ART_H * *scale) / 2;
+    *ox = (w - cw * *scale) / 2;
+    *oy = (h - ch * *scale) / 2;
+}
+static void layout(int w, int h, int *scale, int *ox, int *oy) {
+    layout_for(ART_W, ART_H, w, h, scale, ox, oy);
 }
 
 /* Is the window pixel (x, y), in a window of w x h pixels, on the TV's
@@ -431,21 +535,25 @@ static int on_tv(int x, int y, int w, int h) {
            cy >= ART_SCREEN_Y && cy < ART_SCREEN_Y + ART_SCREEN_H;
 }
 
+static int show_code;                   /* present the code view's canvas */
+
 static void present(uint32_t *out, int w, int h) {
+    int cw = show_code ? CODE_W : ART_W, ch = show_code ? CODE_H : ART_H;
+    const uint32_t *pix = show_code ? &code_canvas[0][0] : &canvas[0][0];
     int scale, ox, oy;
-    layout(w, h, &scale, &ox, &oy);
+    layout_for(cw, ch, w, h, &scale, &ox, &oy);
     uint32_t border = ink(INK_LETTERBOX);
     for (int y = 0; y < h; y++) {
         int cy = y - oy;
         uint32_t *row = out + (size_t)y * w;
-        if (cy < 0 || cy >= ART_H * scale) {
+        if (cy < 0 || cy >= ch * scale) {
             for (int x = 0; x < w; x++) row[x] = border;
             continue;
         }
-        const uint32_t *src = canvas[cy / scale];
+        const uint32_t *src = pix + (size_t)(cy / scale) * cw;
         for (int x = 0; x < w; x++) {
             int cx = x - ox;
-            row[x] = (cx < 0 || cx >= ART_W * scale) ? border : src[cx / scale];
+            row[x] = (cx < 0 || cx >= cw * scale) ? border : src[cx / scale];
         }
     }
 }
@@ -502,10 +610,25 @@ static int save_png(const char *path, const uint32_t *px, int w, int h) {
 
 /* What a screenshot shows. */
 static struct {
-    const char *show, *rom, *message, *history;
+    const char *show, *rom, *message, *history, *listing, *cfile, *keys;
     int stage;
     double progress;
-} shot_opts = { "drop", "GAME.NES", "NOT AN NES ROM", NULL, ST_RECOMP, 0.5 };
+} shot_opts = { "drop", "GAME.NES", "NOT AN NES ROM", NULL, NULL, NULL, NULL, ST_RECOMP, 0.5 };
+static struct code_view code;
+static char code_name[64];
+
+/* Keys for the code view, as words: up, down, pgup, pgdn, tab. */
+static void code_keys(const char *keys) {
+    char buf[1024];
+    snprintf(buf, sizeof buf, "%s", keys ? keys : "");
+    for (char *k = strtok(buf, " ,"); k; k = strtok(NULL, " ,")) {
+        if (!strcmp(k, "up")) code_move(&code, CODE_UP);
+        else if (!strcmp(k, "down")) code_move(&code, CODE_DOWN);
+        else if (!strcmp(k, "pgup")) code_move(&code, CODE_PAGE_UP);
+        else if (!strcmp(k, "pgdn")) code_move(&code, CODE_PAGE_DOWN);
+        else if (!strcmp(k, "tab")) code_move(&code, CODE_TAB);
+    }
+}
 static struct hood_run hood_runs[HOOD_MAX];
 static int hood_count;
 
@@ -518,6 +641,17 @@ static int screenshot(const char *path, long frame, int w, int h) {
     else if (!strcmp(shot_opts.show, "stopped")) draw_error(frame, "THE GAME STOPPED", shot_opts.message);
     else if (!strcmp(shot_opts.show, "done")) draw_done(frame, name);
     else if (!strcmp(shot_opts.show, "needcc")) draw_needcc(frame, 0);
+    else if (!strcmp(shot_opts.show, "code")) {
+        if (!shot_opts.listing || !shot_opts.cfile ||
+            code_load(&code, shot_opts.listing, shot_opts.cfile, CODE_ROWS)) {
+            fprintf(stderr, "--show code needs a --listing and --cfile that can be read\n");
+            free(out);
+            return 1;
+        }
+        code_keys(shot_opts.keys);
+        draw_code(&code, name);
+        show_code = 1;
+    }
     else if (!strcmp(shot_opts.show, "hood")) {
         hood_count = shot_opts.history ? hood_load(shot_opts.history, hood_runs, HOOD_MAX) : 0;
         draw_hood(frame, hood_runs, hood_count);
@@ -542,9 +676,10 @@ static void usage(const char *prog) {
 }
 
 /* The window's state. */
-enum { S_DROP, S_BUILD, S_ERROR, S_DONE, S_PLAY, S_STOPPED, S_ABOUT, S_CARD, S_NEEDCC, S_HOOD };
+enum { S_DROP, S_BUILD, S_ERROR, S_DONE, S_PLAY, S_STOPPED, S_ABOUT, S_CARD, S_NEEDCC, S_HOOD,
+       S_CODE };
 static const char *const screen_names[] = {
-    "drop", "build", "error", "done", "play", "stopped", "about", "card", "needcc", "hood",
+    "drop", "build", "error", "done", "play", "stopped", "about", "card", "needcc", "hood", "code",
 };
 #define CARD_FRAMES 150                 /* the controls card: 2.5 seconds */
 static struct build job;
@@ -572,6 +707,16 @@ static void load_last_history(void) {
     name[strcspn(name, "\r\n")] = 0;
     snprintf(path, sizeof path, "%s/%s.history", builds, name);
     hood_count = name[0] ? hood_load(path, hood_runs, HOOD_MAX) : 0;
+    snprintf(code_name, sizeof code_name, "%s", name);
+}
+
+/* C on "under the hood": the last game's listing and C. */
+static int open_code(void) {
+    char lst[PATH_MAX + 300], cf[PATH_MAX + 300];
+    snprintf(lst, sizeof lst, "%s/%s.listing", builds, code_name);
+    snprintf(cf, sizeof cf, "%s/%s.c", builds, code_name);
+    code_free(&code);
+    return code_name[0] && code_load(&code, lst, cf, CODE_ROWS) == 0;
 }
 static long card_until;
 static int card_is_music;
@@ -738,6 +883,9 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--progress") && more) shot_opts.progress = atof(argv[++i]);
         else if (!strcmp(argv[i], "--message") && more) shot_opts.message = argv[++i];
         else if (!strcmp(argv[i], "--history") && more) shot_opts.history = argv[++i];
+        else if (!strcmp(argv[i], "--listing") && more) shot_opts.listing = argv[++i];
+        else if (!strcmp(argv[i], "--cfile") && more) shot_opts.cfile = argv[++i];
+        else if (!strcmp(argv[i], "--keys") && more) shot_opts.keys = argv[++i];
         else if (!strcmp(argv[i], "--build") && more) build_rom = argv[++i];
         else if (!strcmp(argv[i], "--build-dir") && more) bdir = argv[++i];
         else if (!strcmp(argv[i], "--trace-progress")) trace = 1;
@@ -901,9 +1049,31 @@ int main(int argc, char **argv) {
         SDL_Event e;
         while (SDL_PollEvent(&e)) {
             if (e.type == SDL_QUIT) goto done;
+            if (screen == S_CODE && e.type == SDL_KEYDOWN) {
+                /* The code view: its own keys; Esc goes back. */
+                SDL_Keycode k = e.key.keysym.sym;
+                if (k == SDLK_ESCAPE || k == SDLK_BACKSPACE) { screen = S_HOOD; show_code = 0; }
+                else if (k == SDLK_UP) code_move(&code, CODE_UP);
+                else if (k == SDLK_DOWN) code_move(&code, CODE_DOWN);
+                else if (k == SDLK_PAGEUP) code_move(&code, CODE_PAGE_UP);
+                else if (k == SDLK_PAGEDOWN || k == SDLK_SPACE) code_move(&code, CODE_PAGE_DOWN);
+                else if (k == SDLK_TAB) code_move(&code, CODE_TAB);
+                continue;
+            }
+            if (screen == S_CODE && e.type == SDL_MOUSEWHEEL) {
+                for (int k = 0; k < 3; k++) code_move(&code, e.wheel.y > 0 ? CODE_UP : CODE_DOWN);
+                continue;
+            }
+            if (screen == S_CODE && (e.type == SDL_MOUSEBUTTONDOWN || e.type == SDL_DROPFILE)) {
+                if (e.type == SDL_DROPFILE) SDL_free(e.drop.file);
+                continue;
+            }
             if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_ESCAPE) goto done;
             if (e.type == SDL_KEYDOWN && !e.key.repeat) {
-                if (screen == S_ABOUT || screen == S_HOOD) screen = S_DROP;  /* any key leaves it */
+                if (screen == S_HOOD && e.key.keysym.sym == SDLK_c) {
+                    if (open_code()) { screen = S_CODE; show_code = 1; }
+                }
+                else if (screen == S_ABOUT || screen == S_HOOD) screen = S_DROP;  /* any key leaves it */
                 else if (screen == S_CARD) card_until = 0;  /* any key skips it */
                 else if (e.key.keysym.sym == SDLK_i &&
                          (screen == S_DROP || screen == S_ERROR || screen == S_DONE ||
@@ -1011,6 +1181,7 @@ int main(int argc, char **argv) {
         case S_STOPPED: draw_error(n, "THE GAME STOPPED", error_msg); break;
         case S_NEEDCC: draw_needcc(n, install_clicked); break;
         case S_HOOD: draw_hood(n, hood_runs, hood_count); break;
+        case S_CODE: draw_code(&code, code_name); break;
         case S_DONE: draw_done(n, shown_name); break;
         case S_PLAY: draw_play(n, shown_name); break;
         case S_ABOUT: draw_about(n); break;

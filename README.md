@@ -298,7 +298,17 @@ builds in `build/` here.)
   (the latest in white). The history is kept per game in the app's
   folder (`NAME.history`). Every built game says the same at the end of
   its output: "ran N instruction(s) as translated C, M in the
-  interpreter". Battery saves go to `<rom>.sav` there too. If
+  interpreter".
+- **The 6502 next to its C:** C on the "under the hood" screen opens a
+  full-window view of the last game's code: each original 6502
+  instruction on the left (`C5F5  AD 02 20  LDA $2002`) and the C it
+  became on the right, line for line, starting at the reset routine.
+  Up and Down move through it (Page Up, Page Down and the mouse wheel
+  faster), Tab jumps to the next routine (each `JSR`'s target), and the
+  bottom line says what the instruction does in plain English. Esc goes
+  back. It comes from the recompiler's `--listing FILE`, which the app
+  asks for with every build; the C itself is the same with or without
+  it. Battery saves go to `<rom>.sav` there too. If
   the ROM's folder can't be written (a locked disk, say), both are kept
   in the app's own folder instead.
 - **If something goes wrong,** the TV says what: "NOT AN NES ROM", the

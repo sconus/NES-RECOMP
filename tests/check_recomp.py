@@ -27,6 +27,17 @@ Step 3, who uses it:
   7. `make game`, `make test` (nestest) and the test suite recompile with
      build/nesrecomp-recomp, not recomp.py: what make would run, and one
      suite test run with a python3 first on PATH that only fails.
+Step 8, the listing (--listing FILE, the C version only):
+  8. every file of 5. (alone, with its .missed, and those made here):
+     the C is byte for byte the same with --listing as without; the
+     listing has a line for each instruction translated (as many as the
+     "translated N instructions" line says); each instruction's lines in
+     the .c start with its label and its EVENT_CHECK, and end where the
+     next instruction's label (or the end of recomp_run) begins;
+  9. nestest's listing (as `make test` recompiles it) against
+     tests/nestest.log, an independent listing of the same program: for
+     every address both have, the same bytes and the same 6502 text (up
+     to the log's " = " or " @ ", where it shows memory).
 Exit status 0 when all pass.
 """
 import os
@@ -107,6 +118,47 @@ def same_c(args, tag):
     if c[1:3] != p[1:3]:
         return "printed lines differ, " + first_difference(p[1] + p[2], c[1] + c[2]), took
     return None, took
+
+
+def listing_ok(args, tag):
+    """None if --listing leaves the C alone and lists every instruction
+    where it is in the .c, else why not."""
+    d = os.path.join(OUT, "lst")
+    plain, with_l, lst = (os.path.join(d, "%s.%s" % (tag, x)) for x in ("plain.c", "l.c", "lst"))
+    r1 = subprocess.run([C] + args + ["-o", plain], capture_output=True, text=True, timeout=120)
+    r2 = subprocess.run([C] + args + ["-o", with_l, "--listing", lst], capture_output=True, text=True,
+                        timeout=120)
+    try:
+        if r1.returncode or r2.returncode:
+            return "exit %d / %d: %s" % (r1.returncode, r2.returncode, (r2.stderr or r1.stderr).strip()[-80:])
+        a, b = open(plain, "rb").read(), open(with_l, "rb").read()
+        if a != b:
+            return "the C differs with --listing, " + first_difference(a.decode(errors="replace"),
+                                                                      b.decode(errors="replace"))
+        lines = b.decode(errors="replace").split("\n")
+        rows = [l.split("\t") for l in open(lst).read().splitlines() if not l.startswith("#")]
+        import re as _re
+        m = _re.search(r"translated (\d+) instructions", r2.stdout)
+        if not m or int(m.group(1)) != len(rows):
+            return "%d listed, the recompiler said %s" % (len(rows), m and m.group(1))
+        for row in rows:
+            loc, first, last = row[0], int(row[1]), int(row[2])
+            bank, addr = loc.split(":")
+            label = "L_%s_%s:" % (bank, addr)
+            if not (1 <= first <= last < len(lines)):
+                return "%s: lines %d-%d" % (loc, first, last)
+            if not lines[first - 1].startswith(label) or "EVENT_CHECK(0x%s)" % addr not in lines[first - 1]:
+                return "%s: line %d is %r" % (loc, first, lines[first - 1][:50])
+            if any(l.startswith("L_") for l in lines[first:last]):
+                return "%s: lines %d-%d hold another label" % (loc, first, last)
+            after = lines[last]
+            if not (after.startswith("L_") or after == "}"):
+                return "%s: line %d after it is %r" % (loc, last + 1, after[:50])
+        return None
+    finally:
+        for f in (plain, with_l, lst):
+            if os.path.exists(f):
+                os.remove(f)
 
 
 # --- files made here ------------------------------------------------------
@@ -445,6 +497,42 @@ def main():
     _, took = same_c([big], "big")
     print("      (the largest, %s, %d KB: recomp.py %.2f s, the C version %.3f s)"
           % (os.path.relpath(big, ROOT), os.path.getsize(big) // 1024, took[0], took[1]))
+
+    # 8. the listing.
+    os.makedirs(os.path.join(OUT, "lst"), exist_ok=True)
+    with ThreadPoolExecutor(8) as ex:
+        ldone = list(ex.map(lambda j: (j[0], j[1], listing_ok(j[2], "L" + j[3])), jobs))
+    bad = [d for d in ldone if d[2]]
+    check("--listing, all %d recompiles of 5.: the C unchanged, every instruction listed where it is"
+          % len(ldone), ldone and not bad,
+          "%d wrong, first %s: %s" % (len(bad), bad[0][1] if bad[0][0] == "made"
+                                       else os.path.relpath(bad[0][1], ROOT), bad[0][2]) if bad else "none")
+    why = listing_ok([nestest, "--entry", "C000", "--missed", nestest + ".missed"], "Lnestest")
+    check("--listing, nestest as `make test` recompiles it: the same", why is None, why or "")
+
+    # 9. nestest's listing against nestest.log.
+    nl = os.path.join(OUT, "nestest.lst")
+    subprocess.run([C, nestest, "--entry", "C000", "--missed", nestest + ".missed", "-o",
+                    os.path.join(OUT, "nestest.c"), "--listing", nl], capture_output=True)
+    listed = {}
+    for l in open(nl).read().splitlines() if os.path.exists(nl) else []:
+        if not l.startswith("#"):
+            row = l.split("\t")
+            listed[row[0][3:]] = (row[3], row[4])
+    compared, wrong = set(), []
+    for l in open(os.path.join(HERE, "nestest.log")):
+        pc, by, text = l[:4], l[6:14].strip(), l[15:48].rstrip()
+        for cut in (" = ", " @ "):
+            if cut in text:
+                text = text[:text.index(cut)]
+        text = text.strip()
+        if pc in listed and pc not in compared:
+            compared.add(pc)
+            if listed[pc] != (by, text):
+                wrong.append((pc, listed[pc], (by, text)))
+    check("nestest's listing against nestest.log: %d instructions, the same bytes and 6502 text"
+          % len(compared), len(compared) > 6000 and not wrong, "%d differ, first %s" % (
+              len(wrong), wrong[0]) if wrong else "only %d compared" % len(compared))
 
     # 7. the project's own tools use the C version.
     def make_n(*args):

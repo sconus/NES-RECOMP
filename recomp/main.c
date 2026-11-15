@@ -34,7 +34,9 @@ static void help(void) {
            "  -o, --out OUT      the C file to write\n"
            "  --entry ENTRY      extra entry point in hex (e.g. C000)\n"
            "  --missed MISSED    file of addresses a previous run had to interpret;\n"
-           "                     they become entry points for native translation\n", prog);
+           "                     they become entry points for native translation\n"
+           "  --listing FILE     also write each instruction's 6502 text and the lines\n"
+           "                     of the C it became (the C itself is the same)\n", prog);
     exit(0);
 }
 
@@ -136,7 +138,7 @@ static const char *value(int argc, char **argv, int *i, const char *inline_val,
 }
 
 int main(int argc, char **argv) {
-    const char *rom_path = NULL, *out = NULL;
+    const char *rom_path = NULL, *out = NULL, *listing = NULL;
     const char *entries[256], *missed[256];
     int n_entries = 0, n_missed = 0, dump = 0;
     for (int i = 1; i < argc; i++) {
@@ -148,11 +150,12 @@ int main(int argc, char **argv) {
                (--ent for --entry), with its value after '=' or next. */
             size_t n = strcspn(a, "=");
             const char *eq = a[n] == '=' ? a + n + 1 : NULL;
-            static const char *names[] = { "--out", "--entry", "--missed", "--dump-rom", "--help" };
+            static const char *names[] = { "--out", "--entry", "--missed", "--dump-rom", "--help",
+                                           "--listing" };
             int which = -1;
-            for (int k = 0; k < 5; k++)
+            for (int k = 0; k < 6; k++)
                 if (n <= strlen(names[k]) && !strncmp(a, names[k], n)) which = k;
-            if (which < 0 || (which >= 3 && eq)) {
+            if (which < 0 || ((which == 3 || which == 4) && eq)) {
                 snprintf(msg, sizeof msg, "unrecognized arguments: %s", a);
                 usage_error(msg);
             }
@@ -164,6 +167,7 @@ int main(int argc, char **argv) {
                 const char *v = value(argc, argv, &i, eq, "--missed");
                 if (n_missed < 256) missed[n_missed++] = v;
             } else if (which == 3) dump = 1;
+            else if (which == 5) listing = value(argc, argv, &i, eq, "--listing");
             else help();
             continue;
         }
@@ -252,8 +256,26 @@ int main(int argc, char **argv) {
     FILE *f = fopen(out, "w");
     if (!f) { fprintf(stderr, "%s: can't write the file\n", out); return 1; }
     const char *src_name = strrchr(rom_path, '/');
-    generate(f, r, &t, src_name ? src_name + 1 : rom_path);
+    FILE *lf = NULL;
+    if (listing) {
+        lf = fopen(listing, "w");
+        if (!lf) { fprintf(stderr, "%s: can't write the file\n", listing); return 1; }
+        /* Its header: what it lists, and where the program starts. */
+        fprintf(lf, "# nesrecomp listing of %s: each instruction's 6502 and the lines of %s\n"
+                    "# it became: BB:AAAA, first line, last line, bytes, 6502\n",
+                src_name ? src_name + 1 : rom_path, out);
+        static const char *const vname[3] = { "nmi", "reset", "irq" };
+        if (!r->is_nsf && !r->is_fds)
+            for (int i = 0; i < 3; i++)
+                fprintf(lf, "# %s %02X:%04lX\n", vname[i], rom_power_on_bank(r, vectors[i]), vectors[i]);
+        if (r->is_nsf)
+            fprintf(lf, "# init %02X:%04X\n# play %02X:%04X\n", rom_power_on_bank(r, r->nsf_init),
+                    r->nsf_init, rom_power_on_bank(r, r->nsf_play), r->nsf_play);
+        for (int i = 0; i < n_ent; i++) fprintf(lf, "# entry %02X:%04lX\n", ent_bank[i], ent_addr[i]);
+    }
+    generate(f, r, &t, src_name ? src_name + 1 : rom_path, lf);
     if (fclose(f)) { fprintf(stderr, "%s: can't write the file\n", out); return 1; }
+    if (lf && fclose(lf)) { fprintf(stderr, "%s: can't write the file\n", listing); return 1; }
 
     if (r->is_fds) {
         int nfiles = 0;
