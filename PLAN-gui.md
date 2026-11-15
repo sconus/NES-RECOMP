@@ -472,8 +472,8 @@ script can see it, and tried in the window where it can't.
   - **README:** "The app" section (how to build it, the screens, what
     it needs), the status list, the plan list.
   - Not checked by a script: dragging a ROM onto the Dock icon (`open
-    -a` sends the same "open this file" request, which works), and the
-    About box itself on screen.
+    -a` sends the same "open this file" request), which the user tried
+    and which works; and the About box itself on screen.
 
 ## Not in this version
 - A self-contained app that runs without the project folder, Python and
