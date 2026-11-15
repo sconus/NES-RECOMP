@@ -237,6 +237,47 @@ device instead (below).
 
     make run ROM=game.nes ARGS="--port2 vaus"
 
+## The app
+
+NES RECOMP also comes as a Mac app: a pixel-art room with a TV and a
+console, in the colours of the Polygon Legends channel. You drop a ROM
+on it and it recompiles and plays it.
+
+    make app-bundle          # builds build/nesrecomp.app
+    open build/nesrecomp.app # or double-click it in Finder
+
+(`make run-app` opens the same window without the bundle.)
+
+- **Drop a file** (`.nes`, `.nsf` or `.fds`) on the window, or on the
+  app's icon in the Dock, or click the TV for a file picker. The TV
+  shows "RECOMPILING IN PROGRESS" and a loading bar that follows the
+  real stages: checking the file, recompiling, compiling the game,
+  building the runtime (once; reused after), linking.
+- **Then the keys** show for a couple of seconds (any key skips them),
+  and the game opens in its own window while the app steps aside. Quit
+  the game and the app comes back.
+- **A ROM already built,** with nothing changed since, starts at once.
+- **It gets faster as you play:** like `make run`, each game writes the
+  spots it had to interpret to `<rom>.missed` beside the ROM, and the
+  next build uses them. Battery saves go to `<rom>.sav` there too.
+- **If something goes wrong,** the TV says what: "NOT AN NES ROM", the
+  recompiler's message (an unsupported mapper, say), the compiler's, or
+  "THE GAME STOPPED" and why. The whole output is in
+  `build/NAME.log` and `build/NAME.game.log`.
+- **The game's window** can be resized by dragging; Cmd+= and Cmd+-
+  change it by a whole step and Cmd+F makes it full screen. The picture
+  stays sharp, and the next game opens at the size you left.
+- **I** shows the About screen; the Mac menu's About box says the same:
+  for educational purposes only, by Serge and Claude, free software
+  under the MIT License.
+
+What it needs: this project folder (the app uses the recompiler and the
+runtime in the folder it was built in), Python 3, a C compiler and
+SDL2, as `make run` does. It isn't yet an app you could give to
+someone without those. `make test-app` checks its screens and builds,
+and `make test-app-bundle` checks the bundle and opens it with a file
+as Finder does (a window shows for a few seconds).
+
 ## The Arkanoid paddle
 
 The "Vaus" controller that came with Arkanoid is a knob and one button.
@@ -706,6 +747,8 @@ or display-only `read_joy3` tests are left out of the suite, and so is
 - [x] Four players: the Four Score, the Famicom's expansion port, Hori's
       adapter
 - [x] MMC5's vertical split screen
+- [x] The app: drop a ROM on a pixel-art TV, watch it recompile, play
+      it (`build/nesrecomp.app`)
 - [x] The Famicom Disk System: disk images on the project's own BIOS,
       code in RAM translated with a per-byte check, the BIOS's file and
       other routines, the drive byte by byte, the timer IRQ, the sound
@@ -716,11 +759,11 @@ or display-only `read_joy3` tests are left out of the suite, and so is
 `PLAN.md`, `PLAN-mappers.md`, `PLAN-sound.md`, `PLAN-cycles.md`,
 `PLAN-render.md`, `PLAN-mappers2.md`, `PLAN-expansion.md`,
 `PLAN-input.md`, `PLAN-nsf.md`, `PLAN-paddle.md`, `PLAN-zapper.md`,
-`PLAN-nes2.md`, `PLAN-split.md` and `PLAN-fds.md` have the
+`PLAN-nes2.md`, `PLAN-split.md`, `PLAN-fds.md` and `PLAN-gui.md` have the
 step-by-step notes for each stage (graphics, mappers, sound, per-cycle
 timing, rendering, more mappers, expansion sound, controllers, NSF
 music, the paddle, the Zapper and four players, NES 2.0 headers, MMC5's
-split, the Famicom Disk System), including how each timing value was tuned, what
+split, the Famicom Disk System, the app), including how each timing value was tuned, what
 was tried for what still fails, and where the documentation left a
 choice to make.
 

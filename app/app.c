@@ -556,6 +556,16 @@ int main(int argc, char **argv) {
         return 0;
     }
 
+    /* Opened from Finder or the Dock, a Mac app gets a bare PATH and
+       starts in /: add the usual places of python3 (Homebrew), so the
+       build finds the same tools as Terminal. (Every file it uses is
+       given by its full path.) */
+    const char *path = getenv("PATH");
+    char newpath[4096];
+    snprintf(newpath, sizeof newpath, "/opt/homebrew/bin:/usr/local/bin:%s",
+             path && *path ? path : "/usr/bin:/bin:/usr/sbin:/sbin");
+    if (!path || !strstr(path, "/opt/homebrew/bin")) setenv("PATH", newpath, 1);
+
     const char *root = getenv("NESRECOMP_ROOT");
     if (!root || !*root) root = PROJECT_ROOT;
     char defdir[PATH_MAX];

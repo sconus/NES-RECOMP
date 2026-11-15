@@ -8,6 +8,9 @@
 #   make app                build the app (build/nesrecomp-app), PLAN-gui.md
 #   make run-app            ...and open it
 #   make test-app           check its screens (tests/check_app.py)
+#   make app-bundle         build/nesrecomp.app, to double-click
+#   make test-app-bundle    check it, opening it as Finder would (it shows
+#                           a window briefly)
 #   make clean
 # ROM paths with spaces are not supported.
 CC      ?= cc
@@ -72,7 +75,13 @@ run-app: build/nesrecomp-app
 test-app: build/nesrecomp-app
 	python3 tests/check_app.py
 
+app-bundle: build/nesrecomp-app tools/make_app_bundle.py tools/make_app_art.py
+	python3 tools/make_app_bundle.py
+
+test-app-bundle: app-bundle
+	python3 tests/check_app_bundle.py
+
 clean:
 	rm -rf build $(NESTEST).missed
 
-.PHONY: test test-ppu test-all game run app run-app test-app clean
+.PHONY: test test-ppu test-all game run app run-app test-app app-bundle test-app-bundle clean

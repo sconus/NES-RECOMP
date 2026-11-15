@@ -422,6 +422,59 @@ script can see it, and tried in the window where it can't.
 - Check: it opens from Finder; dropping a ROM onto the app's icon in
   the Dock works too, if macOS passes it on.
 
+- Done:
+  - **`tools/make_app_bundle.py`** (`make app-bundle`) builds
+    `build/nesrecomp.app`:
+    - **`Info.plist`:** the name "NES RECOMP", identifier
+      `local.nesrecomp` (no web domain claimed), version 1.0, and the
+      About line "For educational purposes only. By Serge and Claude.
+      Free software under the MIT License." It also declares that the
+      app opens `.nes`, `.nsf` and `.fds` files, at "Alternate" rank so
+      it doesn't take them over from other apps.
+    - **`Credits.rtf`:** the About box's three lines.
+    - **The icon:** the TV and the console from the art, five icon
+      pixels to an art pixel, on the wall's gradient in a rounded
+      square, at every size `iconutil` wants. The first try showed the
+      tip of the dragon's tail in the crop, so the icon takes only the
+      TV's and console's rectangles.
+    - **The program and its signature:** the program is copied in, and
+      the whole bundle gets an ad-hoc signature.
+  - **Opened from Finder or the Dock,** an app starts in `/` with a bare
+    PATH. Every file is already given by its full path, and the app now
+    adds `/opt/homebrew/bin` and `/usr/local/bin` to PATH, so the build
+    finds the same `python3` as Terminal. On this Mac `/usr/bin/python3`
+    exists too, so the PATH line can't be shown to matter here; it's
+    for Macs where Python comes only from Homebrew.
+  - **The SDL menu's "About NES RECOMP"** shows the Mac's standard About
+    box from the plist and `Credits.rtf`.
+  - **`tests/check_app_bundle.py`** (`make test-app-bundle`, not in
+    `test-all`, since it shows a window), 11 checks:
+    - the plist's values, that it opens the three file types, and that
+      it's valid;
+    - the credits;
+    - a 1024-pixel image in the icon;
+    - the program, the same code as `build/nesrecomp-app`;
+    - the signature;
+    - opening a ROM with it as Finder does (`open -a`): it starts, the
+      file reaches it, it builds it and plays it (a ROM made by the
+      check that stops at once), and it quits when asked.
+
+    Comparing the program needed care: signing rewrites its signature
+    and one byte of its header, so the check compares the code
+    (`otool -tX`).
+  - **Breaks, 9 tried, all caught.** Two lessons from the break script:
+    - "quit ignored" left its app running. SDL turns a terminate signal
+      into a quit request, which that break ignored. The next break's
+      `open` then went to the leftover app and passed. The script now
+      force-quits, and that break was run again on its own.
+    - "a different program" first copied a system program, which broke
+      the bundle generator instead. It now compiles a small program.
+  - **README:** "The app" section (how to build it, the screens, what
+    it needs), the status list, the plan list.
+  - Not checked by a script: dragging a ROM onto the Dock icon (`open
+    -a` sends the same "open this file" request, which works), and the
+    About box itself on screen.
+
 ## Not in this version
 - A self-contained app that runs without the project folder, Python and
   a compiler.

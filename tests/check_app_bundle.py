@@ -1,0 +1,127 @@
+#!/usr/bin/env python3
+"""Check build/nesrecomp.app (PLAN-gui.md step 4). Run by
+`make test-app-bundle`; it opens the app as Finder would, so a window
+shows for a few seconds.
+  1. what it is: its Info.plist (name, identifier, version, the About
+     box's copyright line, the icon, the program, the files it opens),
+     its Credits.rtf (the About box's lines), its icon (a 1024-pixel
+     image inside), its program (the same as build/nesrecomp-app), its
+     signature;
+  2. opening a file with it, as Finder does (`open -a`): the app starts
+     with Finder's bare environment, the file reaches it as a drop, it
+     builds it (recomp.py and cc found), and plays it. The file is a ROM
+     made here that stops at once ("THE GAME STOPPED"), so no game
+     window stays open; then the app is asked to quit.
+Exit status 0 when all pass.
+"""
+import os
+import plistlib
+import shutil
+import subprocess
+import sys
+import time
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(HERE)
+APP = os.path.join(ROOT, "build", "nesrecomp.app")
+OUT = os.path.join(ROOT, "build", "app_check", "bundle")
+IDENT = "local.nesrecomp"
+
+
+def main():
+    fails = []
+
+    def check(name, ok, why=""):
+        print("%s  %s%s" % ("ok  " if ok else "FAIL", name, "" if ok else ": " + why))
+        if not ok:
+            fails.append(name)
+
+    contents = os.path.join(APP, "Contents")
+    try:
+        info = plistlib.load(open(os.path.join(contents, "Info.plist"), "rb"))
+    except (OSError, plistlib.InvalidFileException) as e:
+        info = {}
+        check("Info.plist", False, str(e))
+    want = {
+        "CFBundleName": "NES RECOMP", "CFBundleIdentifier": IDENT,
+        "CFBundleShortVersionString": "1.0", "CFBundleExecutable": "nesrecomp",
+        "CFBundleIconFile": "nesrecomp", "CFBundlePackageType": "APPL",
+        "NSHumanReadableCopyright": "For educational purposes only. By Serge and Claude. "
+                                    "Free software under the MIT License.",
+    }
+    wrong = ["%s=%r" % (k, info.get(k)) for k, v in want.items() if info.get(k) != v]
+    check("Info.plist: name, version, the About line", not wrong, ", ".join(wrong))
+    docs = info.get("CFBundleDocumentTypes", [])
+    exts = {e.lower() for d in docs for e in d.get("CFBundleTypeExtensions", [])}
+    check("Info.plist: it opens .nes, .nsf and .fds files", {"nes", "nsf", "fds"} <= exts,
+          "extensions %s" % sorted(exts))
+    lint = subprocess.run(["plutil", "-lint", os.path.join(contents, "Info.plist")],
+                          capture_output=True, text=True)
+    check("Info.plist is valid", lint.returncode == 0, lint.stdout.strip())
+    credits = os.path.join(contents, "Resources", "Credits.rtf")
+    text = open(credits).read() if os.path.exists(credits) else ""
+    missing = [l for l in ("For educational purposes only", "By Serge and Claude",
+                           "Free software under the MIT License") if l not in text]
+    check("Credits.rtf: the About box's three lines", text.startswith("{\\rtf1") and not missing,
+          "missing %s" % missing if text else "no file")
+    icns = os.path.join(contents, "Resources", "nesrecomp.icns")
+    iconset = os.path.join(OUT, "icon.iconset")
+    shutil.rmtree(iconset, ignore_errors=True)
+    os.makedirs(OUT, exist_ok=True)
+    r = subprocess.run(["iconutil", "-c", "iconset", icns, "-o", iconset], capture_output=True, text=True)
+    big = os.path.join(iconset, "icon_512x512@2x.png")
+    size = subprocess.run(["sips", "-g", "pixelWidth", big], capture_output=True, text=True).stdout \
+        if os.path.exists(big) else ""
+    check("the icon: a 1024-pixel image inside", r.returncode == 0 and "pixelWidth: 1024" in size,
+          (r.stderr or size).strip()[-80:])
+    prog = os.path.join(contents, "MacOS", "nesrecomp")
+    # Signing the bundle rewrites the program's signature (and a byte of
+    # its header saying how it was signed): compare their code.
+    same = False
+    if os.path.exists(prog):
+        code = [subprocess.run(["otool", "-tX", p], capture_output=True).stdout
+                for p in (prog, os.path.join(ROOT, "build", "nesrecomp-app"))]
+        same = len(code[0]) > 1000 and code[0] == code[1]
+    check("the program: build/nesrecomp-app (but for its signature), and runnable",
+          same and os.access(prog, os.X_OK), "missing or different")
+    sig = subprocess.run(["codesign", "--verify", "--deep", APP], capture_output=True, text=True)
+    check("the signature holds", sig.returncode == 0, sig.stderr.strip()[-80:])
+
+    # 2. opened with a file, as Finder does.
+    rom = os.path.join(OUT, "open_test.nes")
+    prg = bytearray([0x02] * 0x4000)            # made here: stops at once
+    prg[0x3FFA:0x4000] = bytes([0x00, 0xC0, 0x00, 0xC0, 0x00, 0xC0])
+    with open(rom, "wb") as f:
+        f.write(b"NES\x1a\x01\x01\x00\x00" + bytes(8) + bytes(prg) + bytes(0x2000))
+    bdir = os.path.join(ROOT, "build")
+    logs = [os.path.join(bdir, "open_test" + s) for s in (".log", ".game.log", ".stamp")]
+    for p in logs:
+        if os.path.exists(p):
+            os.remove(p)
+    started = subprocess.run(["open", "-a", APP, rom], capture_output=True, text=True)
+    game_log = logs[1]
+    deadline = time.time() + 90
+    while time.time() < deadline and not (os.path.exists(game_log) and os.path.getsize(game_log)):
+        time.sleep(0.5)
+    time.sleep(1)
+    subprocess.run(["osascript", "-e", 'tell application id "%s" to quit' % IDENT],
+                   capture_output=True, text=True)
+    blog = open(logs[0]).read() if os.path.exists(logs[0]) else ""
+    glog = open(game_log).read() if os.path.exists(game_log) else ""
+    check("opened with a file: the app started", started.returncode == 0, started.stderr.strip())
+    check("the file reached it and it built it (recomp.py and cc found)",
+          "recomp.py" in blog and os.path.exists(logs[2]),
+          "build log %s" % ("empty" if not blog else blog.strip().splitlines()[-1][:80]))
+    check("it played what it built (the game stopped, as made)", "stopped: unknown opcode $02" in glog,
+          "game log: %r" % glog[-80:])
+    time.sleep(1)
+    still = subprocess.run(["pgrep", "-f", "nesrecomp.app/Contents/MacOS/nesrecomp"],
+                           capture_output=True, text=True).stdout.strip()
+    check("asked to quit, it quit", not still, "still running: %s" % still)
+
+    print("\n%d check(s) failed" % len(fails) if fails else "\nall checks pass")
+    sys.exit(1 if fails else 0)
+
+
+if __name__ == "__main__":
+    main()
