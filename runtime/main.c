@@ -174,10 +174,14 @@ void note_missed(uint16_t a) {
 }
 
 static const char *rom_path;
+/* Where <rom>.missed and <rom>.sav are kept: beside the ROM, or, with
+   --files-at P, P.missed and P.sav (the nesrecomp app's own folder, when
+   the ROM's folder can't be written). */
+static const char *files_at;
 
 static void save_missed(void) {
     char path[1024], line[64];
-    snprintf(path, sizeof path, "%s.missed", rom_path);
+    snprintf(path, sizeof path, "%s.missed", files_at);
     int banks = code_banks();
     /* Merge with earlier runs so discoveries accumulate across passes.
        Plain "AAAA" lines (the old format) mean the power-on bank. */
@@ -246,7 +250,7 @@ static void at_exit(void) {
                 (unsigned long long)ram_native, (unsigned long long)ram_interp);
     print_test_result();
     if (use_save_file)
-        cart.mapper == MAPPER_FDS ? fds_write_save(rom_path) : cart_write_save(rom_path);
+        cart.mapper == MAPPER_FDS ? fds_write_save(files_at) : cart_write_save(files_at);
 }
 
 /* Scripted input: from frame N on, the controllers hold these buttons.
@@ -521,6 +525,7 @@ static void usage(const char *prog) {
         "  --screenshot FILE  with --frames: save the last frame as a PNG\n"
         "  --dump-text        with --frames: print the screen's tiles as text\n"
         "  --no-save          don't load or write <rom>.sav (battery RAM)\n"
+        "  --files-at P       keep <rom>.missed and <rom>.sav as P.missed, P.sav\n"
         "  --wav FILE         write the sound to a WAV file\n"
         "  --mute             no sound from the speakers (M toggles it)\n"
         "  --audio-stats      print the sound queue depth once a second\n"
@@ -573,7 +578,7 @@ int main(int argc, char **argv) {
     /* A self-test of the game controller mapping, with no ROM (make test). */
     if (argc == 2 && !strcmp(argv[1], "--test-gamepads")) return gamepad_self_test();
     if (argc < 2 || argv[1][0] == '-') usage(argv[0]);
-    rom_path = argv[1];
+    rom_path = files_at = argv[1];
     cart_load(rom_path);
     mapper_init();
     uint16_t start = rd(0xFFFC) | (rd(0xFFFD) << 8);
@@ -594,6 +599,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "--input") && more) load_input_script(argv[++i]);
         else if (!strcmp(a, "--dump-text")) dump_text = 1;
         else if (!strcmp(a, "--no-save")) no_save = 1;
+        else if (!strcmp(a, "--files-at") && more) files_at = argv[++i];
         else if (!strcmp(a, "--wav") && more) wav_path = argv[++i];
         else if (!strcmp(a, "--mute")) mute = 1;
         else if (!strcmp(a, "--audio-stats")) audio_stats = 1;
@@ -655,11 +661,11 @@ int main(int argc, char **argv) {
     }
 
     if (cart.battery && cart.prg_nvram_size && !no_save) {
-        cart_load_save(rom_path);
+        cart_load_save(files_at);
         use_save_file = 1;
     }
     if (cart.mapper == MAPPER_FDS && !no_save) {
-        fds_load_save(rom_path);
+        fds_load_save(files_at);
         use_save_file = 1;
     }
 

@@ -14,6 +14,9 @@
 #   build/sdl2/include/SDL2/       the headers
 #   build/sdl2/LICENSE.txt         SDL's license (zlib)
 # Each architecture is built on its own and the two are joined with lipo.
+# The folders it was built in are written as "sdl2/..." in the library
+# (SDL names its source files in messages), so the app carries no path of
+# this Mac (PLAN-standalone.md step 4).
 set -e
 VERSION=2.32.10
 MINOS=11.0
@@ -31,7 +34,7 @@ for arch in arm64 x86_64; do
      # own frameworks, so nothing from this Mac's extras gets in.
      PKG_CONFIG=/usr/bin/false \
      CC="cc -arch $arch -mmacosx-version-min=$MINOS" \
-     CFLAGS="-O2" LDFLAGS="-mmacosx-version-min=$MINOS" \
+     CFLAGS="-O2 -ffile-prefix-map=$OUT=sdl2" LDFLAGS="-mmacosx-version-min=$MINOS" \
      "$SRC/configure" --host=$arch-apple-darwin --prefix="$OUT/install-$arch" \
          --disable-static --without-x --disable-video-x11 --disable-video-wayland \
          --disable-video-opengles --disable-hidapi-libusb > configure.log 2>&1 &&

@@ -469,6 +469,68 @@ Every step keeps what holds today:
     inside the bundle, the old project path still used, `.missed`
     lost when the ROM's folder is locked.
 
+- Done:
+  - **The bundle carries the runtime** (`Contents/Resources/runtime/`,
+    its 30 `.c` and `.h` files). Beside a program that isn't in a
+    bundle (`make app`'s `build/nesrecomp-app`), the app looks in
+    `../runtime`. Either way it's found from the program's own place,
+    and a missing runtime gives "the app's runtime is missing" before
+    anything is built.
+  - **No `PROJECT_ROOT`:** the program holds no path of this project or
+    this Mac. Neither does SDL2 any more: it named its own source files
+    by their full paths, so `tools/build_sdl2.sh` now writes them as
+    `sdl2/...`. `make run-app` sets `NESRECOMP_ROOT` to the project, so
+    working on it is as before.
+  - **Builds go to `~/Library/Application Support/NES RECOMP/`**: the
+    games, their logs, the compiled runtime, the window size. The
+    folder is only made when something is built.
+  - **`.missed` and `.sav`** stay beside the ROM. If its folder can't be
+    written, they go to the app's folder as `NAME.missed` and
+    `NAME.sav`. The game is told with a new runtime option,
+    `--files-at P`.
+  - **The app's version** (`APP_VERSION` in `app/build.h`, and
+    `--version`) is in each build's record, so a new version builds old
+    games again. The bundle's Info.plist takes it from the program.
+  - Trimmed: the prebuilt runtime library. A first build already takes
+    about 2 seconds on this Mac, so it isn't worth it yet.
+  - **Checks:**
+    - `tests/check_standalone.py`, 50 now (17 new):
+      - the bundle has the runtime's files, the same as `runtime/`;
+      - nothing in the bundle names this project's folder or the home
+        folder;
+      - the bundle's version is the program's.
+      - Then a copy of the bundle in "Some Apps/NES RECOMP.app", a ROM in
+        "my roms", a scratch home, and reading this project forbidden as
+        well as Homebrew and Python (first checked to be). It builds and
+        plays the ROM, which passes its test, using the copy's own
+        runtime. The build goes to the home's Application Support. The
+        bundle is left untouched, and `.missed` lands beside the ROM.
+      - Moved elsewhere, the app finds the game up to date, and the game
+        still runs. With another version in the record, it builds again.
+      - With the ROM in a locked folder, it builds and plays, keeps
+        `.missed` in the app's folder, and the next build uses it.
+      - With the runtime missing, the build says so.
+    - `tests/check_app_bundle.py`, 14 now: opened as Finder does, it
+      builds in `~/Library/Application Support/NES RECOMP` with the
+      bundle's runtime, and leaves the bundle as it was. It then removes
+      what it made there (the whole folder, if it made it).
+    - `tests/check_app.py` still has 58.
+  - **One thing found on the way:** a missing runtime was first noticed
+    only by the compiler ("'rt.h' file not found"). The app now checks
+    for it before building, as it does for SDL2 and the recompiler.
+  - **Breaks, 10 tried, all caught,** each in a fresh copy with
+    `make app-bundle`, check_standalone and check_app. First, the copy
+    with no break passed both checks. No check crashed. The breaks: a
+    runtime file left out of the bundle, a build written inside the
+    bundle, the old project path used for the runtime, `.missed` beside
+    a locked ROM folder, the app not telling the game `--files-at`, the
+    runtime ignoring it, the version not in the build's record, the
+    bundle's version not the program's, a missing runtime not noticed,
+    and the app built with debug info (which names the project).
+  - Unchanged: `make test-all` (nestest exact, the suite 219 of 220 with
+    test28 as always, the 58 app checks), and recomp.py and the C
+    version still agreeing on all 395 files.
+
 ### 5. When Apple's compiler is missing
 - Before building, the app checks for the Command Line Tools: it asks
   `xcode-select -p` and looks for `clang` there.

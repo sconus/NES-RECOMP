@@ -85,8 +85,11 @@ test-recomp: build/nesrecomp-recomp
 
 # --- the app (app/, PLAN-gui.md, PLAN-standalone.md) ------------------
 # app/art.h is written by tools/make_app_art.py; run that after editing it.
-# The app finds the project (runtime/) where it was built, and the
-# recompiler (build/nesrecomp-recomp) beside its own program.
+# The app holds no path of the project (PLAN-standalone.md step 4): it
+# finds the recompiler (build/nesrecomp-recomp) beside its own program,
+# and runtime/ at ../runtime from there (in the bundle, both inside it).
+# Its builds go to ~/Library/Application Support/NES RECOMP, but run-app
+# sets NESRECOMP_ROOT so they go to build/ here, as before.
 # It uses its own SDL2, not Homebrew's: built from SDL's source release
 # by tools/build_sdl2.sh into build/sdl2/ (for Intel and Apple Silicon,
 # macOS 11 on), and the app is built for both too. It finds the library
@@ -98,7 +101,6 @@ APP_ARCH  = -arch arm64 -arch x86_64 -mmacosx-version-min=11.0
 APP_SDL   = -I$(SDL2_DIR)/include/SDL2 -D_THREAD_SAFE
 APP_LIBS  = $(SDL2_LIB) -Wl,-rpath,@executable_path/sdl2/lib \
             -Wl,-rpath,@executable_path/../Frameworks -lz -lm
-APP_DEFS = -DPROJECT_ROOT='"$(CURDIR)"'
 
 $(SDL2_LIB): tools/build_sdl2.sh
 	sh tools/build_sdl2.sh
@@ -108,17 +110,17 @@ sdl2: $(SDL2_LIB)
 build/nesrecomp-app: app/app.c app/build.c app/build.h app/play.c app/play.h app/art.h $(SDL2_LIB) \
                      $(RECOMP)
 	@mkdir -p build
-	$(CC) $(CFLAGS) $(APP_ARCH) $(APP_SDL) $(APP_DEFS) -Iapp -o $@ app/app.c app/build.c app/play.c $(APP_LIBS)
+	$(CC) $(CFLAGS) $(APP_ARCH) $(APP_SDL) -Iapp -o $@ app/app.c app/build.c app/play.c $(APP_LIBS)
 
 app: build/nesrecomp-app
 
 run-app: build/nesrecomp-app
-	./build/nesrecomp-app
+	NESRECOMP_ROOT="$(CURDIR)" ./build/nesrecomp-app
 
 test-app: build/nesrecomp-app
 	python3 tests/check_app.py
 
-app-bundle: build/nesrecomp-app $(RECOMP) tools/make_app_bundle.py tools/make_app_art.py
+app-bundle: build/nesrecomp-app $(RECOMP) $(RT_SRC) $(RT_HDR) tools/make_app_bundle.py tools/make_app_art.py
 	python3 tools/make_app_bundle.py
 
 test-app-bundle: app-bundle

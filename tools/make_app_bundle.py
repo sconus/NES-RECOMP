@@ -17,13 +17,16 @@ from build/nesrecomp-app (`make app`). Run by `make app-bundle`.
         Resources/
             sdl2/include/SDL2/  SDL's headers, for compiling games
             sdl2/LICENSE.txt    SDL's license (zlib)
+            runtime/        the runtime's .c and .h files, which each game
+                            is compiled with (PLAN-standalone.md step 4)
             nesrecomp.icns  the icon: the TV and the console from the
                             app's picture, "NES / RECOMP" on the TV,
                             on the wall's gradient in a rounded square
             Credits.rtf     what the Mac's About box shows under the name
 
-The program still uses the project folder it was built in for runtime/,
-as `make app` does (PLAN-standalone.md step 4 changes that).
+The app needs nothing outside the bundle but Apple's C compiler: no
+project folder, no Python, no Homebrew (PLAN-standalone.md). Its version
+is the program's own (`nesrecomp --version`, APP_VERSION in app/build.h).
 """
 import os
 import plistlib
@@ -40,7 +43,6 @@ import make_app_art as art  # noqa: E402
 
 NAME = "NES RECOMP"
 IDENT = "local.nesrecomp"
-VERSION = "1.0"
 COPYRIGHT = ("For educational purposes only. By Serge and Claude. "
              "Free software under the MIT License.")
 CREDITS = ["For educational purposes only", "By Serge and Claude",
@@ -178,6 +180,13 @@ def main():
     res_sdl = os.path.join(contents, "Resources", "sdl2")
     shutil.copytree(os.path.join(sdl, "include"), os.path.join(res_sdl, "include"))
     shutil.copy2(os.path.join(sdl, "LICENSE.txt"), os.path.join(res_sdl, "LICENSE.txt"))
+    rt = os.path.join(contents, "Resources", "runtime")
+    os.makedirs(rt)
+    for f in sorted(os.listdir(os.path.join(ROOT, "runtime"))):
+        if f.endswith((".c", ".h")):
+            shutil.copy2(os.path.join(ROOT, "runtime", f), os.path.join(rt, f))
+    version = subprocess.run([exe, "--version"], capture_output=True, text=True,
+                             check=True).stdout.strip()
     make_icns(os.path.join(contents, "Resources", "nesrecomp.icns"))
     with open(os.path.join(contents, "Resources", "Credits.rtf"), "w") as f:
         f.write(credits_rtf())
@@ -185,8 +194,8 @@ def main():
         "CFBundleName": NAME,
         "CFBundleDisplayName": NAME,
         "CFBundleIdentifier": IDENT,
-        "CFBundleVersion": VERSION,
-        "CFBundleShortVersionString": VERSION,
+        "CFBundleVersion": version,
+        "CFBundleShortVersionString": version,
         "CFBundleExecutable": "nesrecomp",
         "CFBundleIconFile": "nesrecomp",
         "CFBundlePackageType": "APPL",

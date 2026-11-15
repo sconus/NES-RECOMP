@@ -14,11 +14,20 @@
    a copy of the app's library made before linking, which they find
    beside them (their rpath is @executable_path/lib). So a game still
    runs after the app is moved or replaced.
+   Everything a build needs comes with the app (PLAN-standalone.md step
+   4): the runtime's sources (Contents/Resources/runtime in the bundle,
+   ../runtime beside the program otherwise, or $NESRECOMP_ROOT/runtime),
+   SDL2 and the recompiler. "build/" above is the build folder app.c
+   chooses: ~/Library/Application Support/NES RECOMP unless told.
+   ROM.missed (and the game's ROM.sav) are kept beside the ROM. If the
+   ROM's folder can't be written, they are kept in the build folder as
+   NAME.missed and NAME.sav instead (the game is told with --files-at).
    A build that would make the same program again is skipped: build/
-   NAME.stamp records what the program was built from (the ROM's path,
-   size and time, its .missed file's, the recompiler's time, the newest
-   runtime file's), and when all match and the program is there, the
-   build is "up to date" and done at once.
+   NAME.stamp records what the program was built from (the app's
+   version, the ROM's path, size and time, its .missed file's, the
+   recompiler's time, the newest runtime file's, SDL's header's), and
+   when all match and the program is there, the build is "up to date"
+   and done at once.
    The tools run with posix_spawn (no shell, so paths with spaces work),
    their output appended to build/NAME.log. A tool that fails stops the
    build; its message (the recompiler's last line, the compiler's first
@@ -41,7 +50,7 @@
 
 extern char **environ;
 
-static char root[PATH_MAX], build_dir[PATH_MAX];
+static char rt_dir[PATH_MAX], build_dir[PATH_MAX];
 static char sdl_lib[PATH_MAX], sdl_inc[PATH_MAX + 8], sdl_version_h[PATH_MAX];
 static char recompiler[PATH_MAX];
 
@@ -62,8 +71,7 @@ double build_now(void) {
     return t.tv_sec + t.tv_nsec / 1e9;
 }
 
-void build_setup(const char *r, const char *b) {
-    snprintf(root, sizeof root, "%s", r);
+void build_setup(const char *b) {
     snprintf(build_dir, sizeof build_dir, "%s", b);
 }
 
@@ -72,8 +80,8 @@ static int exists(const char *path) {
     return stat(path, &st) == 0;
 }
 
-int build_find_sdl(const char *exe) {
-    char dir[PATH_MAX], lib[PATH_MAX], inc[PATH_MAX];
+int build_find_parts(const char *exe, const char *root) {
+    char dir[PATH_MAX], lib[PATH_MAX], inc[PATH_MAX], rt[PATH_MAX];
     snprintf(dir, sizeof dir, "%s", exe);
     char *slash = strrchr(dir, '/');
     if (slash) *slash = 0; else snprintf(dir, sizeof dir, ".");
@@ -81,10 +89,14 @@ int build_find_sdl(const char *exe) {
     if (len >= 15 && !strcmp(dir + len - 15, "/Contents/MacOS")) {
         snprintf(lib, sizeof lib, "%s/../Frameworks/libSDL2.dylib", dir);
         snprintf(inc, sizeof inc, "%s/../Resources/sdl2/include", dir);
+        snprintf(rt, sizeof rt, "%s/../Resources/runtime", dir);
     } else {
         snprintf(lib, sizeof lib, "%s/sdl2/lib/libSDL2.dylib", dir);
         snprintf(inc, sizeof inc, "%s/sdl2/include", dir);
+        snprintf(rt, sizeof rt, "%s/../runtime", dir);
     }
+    if (root && *root) snprintf(rt, sizeof rt, "%s/runtime", root);
+    if (!realpath(rt, rt_dir)) snprintf(rt_dir, sizeof rt_dir, "%s", rt);
     if (!realpath(lib, sdl_lib)) sdl_lib[0] = 0;
     /* The recompiler is beside the program, in the bundle and in build/. */
     snprintf(recompiler, sizeof recompiler, "%s/nesrecomp-recomp", dir);
@@ -95,6 +107,8 @@ int build_find_sdl(const char *exe) {
     } else sdl_inc[0] = sdl_version_h[0] = 0;
     return sdl_lib[0] && sdl_version_h[0] && exists(sdl_version_h);
 }
+
+const char *build_runtime(void) { return rt_dir; }
 
 const char *build_sdl_lib(void) { return sdl_lib; }
 
@@ -229,11 +243,10 @@ static double mtime_ns(const char *path) {
 }
 
 /* What a program would be built from, as one line. */
-static void stamp_text(const char *rom, char *out, size_t n) {
-    char missed[PATH_MAX], recomp[PATH_MAX], rdir[PATH_MAX];
-    snprintf(missed, sizeof missed, "%s.missed", rom);
+static void stamp_text(const char *rom, const char *missed, char *out, size_t n) {
+    char recomp[PATH_MAX], rdir[PATH_MAX];
     snprintf(recomp, sizeof recomp, "%s", recompiler);
-    snprintf(rdir, sizeof rdir, "%s/runtime", root);
+    snprintf(rdir, sizeof rdir, "%s", rt_dir);
     double newest = 0;
     DIR *d = opendir(rdir);
     struct dirent *e;
@@ -247,8 +260,8 @@ static void stamp_text(const char *rom, char *out, size_t n) {
         }
     }
     if (d) closedir(d);
-    snprintf(out, n, "rom %s %ld %.9f missed %ld %.9f recomp %.9f runtime %.9f sdl %.9f\n",
-             rom, file_size(rom), mtime_ns(rom), file_size(missed), mtime_ns(missed),
+    snprintf(out, n, "app %s rom %s %ld %.9f missed %ld %.9f recomp %.9f runtime %.9f sdl %.9f\n",
+             APP_VERSION, rom, file_size(rom), mtime_ns(rom), file_size(missed), mtime_ns(missed),
              mtime_ns(recomp), newest, mtime_ns(sdl_version_h));
 }
 
@@ -265,6 +278,16 @@ int build_run(struct build *b, const char *rom) {
     build_name(rom, b->name, sizeof b->name);
     snprintf(b->out, sizeof b->out, "%s/%s", build_dir, b->name);
     snprintf(b->log, sizeof b->log, "%s/%s.log", build_dir, b->name);
+    /* Where ROM.missed and ROM.sav are kept: beside the ROM if its folder
+       can be written, otherwise here, as NAME.missed and NAME.sav. */
+    char rom_dir[PATH_MAX];
+    snprintf(rom_dir, sizeof rom_dir, "%s", rom);
+    char *cut = strrchr(rom_dir, '/');
+    if (cut == rom_dir) cut[1] = 0;
+    else if (cut) *cut = 0;
+    else snprintf(rom_dir, sizeof rom_dir, ".");
+    if (access(rom_dir, W_OK) == 0) snprintf(b->files_at, sizeof b->files_at, "%s", rom);
+    else snprintf(b->files_at, sizeof b->files_at, "%s/%s", build_dir, b->name);
     b->error[0] = 0;
     atomic_store(&b->rt_done, 0);
     atomic_store(&b->rt_total, 0);
@@ -278,11 +301,16 @@ int build_run(struct build *b, const char *rom) {
         return fail(b, "%s", "the app's SDL2 is missing");
     if (access(recompiler, X_OK))
         return fail(b, "%s", "the app's recompiler is missing");
+    char rt_h[PATH_MAX + 8];
+    snprintf(rt_h, sizeof rt_h, "%s/rt.h", rt_dir);
+    if (!exists(rt_h))
+        return fail(b, "%s", "the app's runtime is missing");
 
     /* Up to date? Then nothing to build. */
     char stamp[PATH_MAX], want[PATH_MAX * 2 + 256], have[sizeof want];
     snprintf(stamp, sizeof stamp, "%s/%s.stamp", build_dir, b->name);
-    stamp_text(rom, want, sizeof want);
+    snprintf(missed, sizeof missed, "%s.missed", b->files_at);
+    stamp_text(rom, missed, want, sizeof want);
     FILE *sf = fopen(stamp, "r");
     have[0] = 0;
     if (sf) { if (!fgets(have, sizeof have, sf)) have[0] = 0; fclose(sf); }
@@ -298,7 +326,6 @@ int build_run(struct build *b, const char *rom) {
     set_stage(b, ST_RECOMP, 0.5 + file_size(rom) / 200000.0);
     snprintf(cfile, sizeof cfile, "%s/%s.c", build_dir, b->name);
     snprintf(recomp, sizeof recomp, "%s", recompiler);
-    snprintf(missed, sizeof missed, "%s.missed", rom);
     char *ra[] = { recomp, (char *)rom, "-o", cfile, NULL, NULL, NULL };
     if (access(missed, R_OK) == 0) { ra[4] = "--missed"; ra[5] = missed; }
     int r = run(b, ra, &from);
@@ -310,7 +337,7 @@ int build_run(struct build *b, const char *rom) {
     /* 3: the game's C. */
     set_stage(b, ST_GAME, file_size(cfile) / 100000.0);
     snprintf(gobj, sizeof gobj, "%s/%s.o", build_dir, b->name);
-    snprintf(rdir, sizeof rdir, "%s/runtime", root);
+    snprintf(rdir, sizeof rdir, "%s", rt_dir);
     snprintf(inc, sizeof inc, "-I%s", rdir);
     char *ga[32] = { "cc", "-O1", "-w", inc, sdl_inc, "-D_THREAD_SAFE" };
     int gn = 6;
@@ -326,7 +353,7 @@ int build_run(struct build *b, const char *rom) {
     snprintf(rtdir, sizeof rtdir, "%s/app-rt", build_dir);
     mkdir(rtdir, 0755);
     DIR *d = opendir(rdir);
-    if (!d) return fail(b, "no runtime folder at %s", rdir);
+    if (!d) return fail(b, "%s", "the app's runtime is missing");
     char *srcs[256];
     int ns = 0;
     double newest_h = 0;

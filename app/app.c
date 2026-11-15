@@ -17,7 +17,8 @@
              and the stage (build.c does the work, on its own thread, so
              the window stays responsive)
      error   "CAN'T RECOMPILE" and why (a wrong file, or the tool's
-             message); the whole output is in build/NAME.log
+             message); the whole output is in NAME.log in the build
+             folder
      done    "DONE!": the program is built
      about   I on the drop, error or done screens: who made it and its
              license; any key or a drop leaves it
@@ -52,13 +53,17 @@
            print the loading bar's value for each stage over a long range
            of times (and runtime file counts), for tests/check_app.py
        nesrecomp-app --sdl-info
-           say where the app's own SDL2 is (PLAN-standalone.md step 1):
-           Contents/Frameworks in the bundle, sdl2/ beside the program
-           otherwise; games are built against it
-       --build-dir D   where builds go (default: build/ in the project)
-   The project (runtime/) is where `make app` was run, or
-   $NESRECOMP_ROOT; the recompiler (nesrecomp-recomp) and SDL2 are found
-   beside the app's program. */
+           say where the app's own SDL2, recompiler and runtime are, and
+           where builds go (PLAN-standalone.md steps 1, 3 and 4)
+       nesrecomp-app --version
+           print the app's version
+       --build-dir D   where builds go (default: ~/Library/Application
+                       Support/NES RECOMP, or $NESRECOMP_ROOT/build)
+   The app needs no project folder (PLAN-standalone.md step 4): SDL2, the
+   recompiler (nesrecomp-recomp) and the runtime's sources are found from
+   the program's own place (in the bundle, or build/ and ../runtime for
+   `make app`). $NESRECOMP_ROOT, set by `make run-app`, takes the runtime
+   and builds from a project folder instead. */
 #include <SDL.h>
 #include <math.h>
 #include <stdint.h>
@@ -69,13 +74,12 @@
 #include <stdatomic.h>
 #include <zlib.h>
 #include <mach-o/dyld.h>
+#include <pwd.h>
+#include <sys/stat.h>
+#include <unistd.h>
 #include "art.h"
 #include "build.h"
 #include "play.h"
-
-#ifndef PROJECT_ROOT
-#define PROJECT_ROOT "."
-#endif
 
 static uint32_t canvas[ART_H][ART_W];
 
@@ -419,7 +423,7 @@ static char error_msg[512], shown_name[64], game_log[PATH_MAX + 16];
 static pid_t game = -1;
 static long card_until;
 static int card_is_music;
-static char prefs[PATH_MAX];            /* build/app-prefs.txt */
+static char prefs[PATH_MAX];            /* app-prefs.txt in the build folder */
 
 /* The game window's size: whole steps of 256x240, kept between runs. */
 static int game_scale(void) {
@@ -465,21 +469,28 @@ static void open_picker(void) {
     else atomic_store(&picker, 0);
 }
 
-/* Split ARGS at spaces into a NULL-ended list (for the game). */
-static char **split_args(const char *s) {
+/* Split ARGS at spaces into a NULL-ended list (for the game), then
+   --files-at FILES when the game's .missed and .sav aren't beside the
+   ROM (build.c). */
+static char **split_args(const char *s, const char *rom, const char *files) {
     static char buf[1024];
-    static char *list[32];
+    static char *list[34];
     int n = 0;
     snprintf(buf, sizeof buf, "%s", s ? s : "");
     for (char *p = strtok(buf, " "); p && n < 31; p = strtok(NULL, " ")) list[n++] = p;
+    if (files && files[0] && strcmp(files, rom)) {
+        list[n++] = "--files-at";
+        list[n++] = (char *)files;
+    }
     list[n] = NULL;
     return list;
 }
 
 /* Play exe on rom, wait for it, and say how it ended: 0 when well. */
-static int play_and_wait(const char *exe, const char *rom, const char *args, const char *log) {
+static int play_and_wait(const char *exe, const char *rom, const char *args, const char *files,
+                         const char *log) {
     char why[512];
-    pid_t pid = play_start(exe, rom, split_args(args), log);
+    pid_t pid = play_start(exe, rom, split_args(args, rom, files), log);
     if (pid < 0) {
         printf("error: couldn't start the game (%s)\n", exe);
         return 1;
@@ -528,6 +539,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--trace-progress")) trace = 1;
         else if (!strcmp(argv[i], "--progress-model")) model = 1;
         else if (!strcmp(argv[i], "--sdl-info")) sdl_info = 1;
+        else if (!strcmp(argv[i], "--version")) { puts(APP_VERSION); return 0; }
         else if (!strcmp(argv[i], "--then-play")) then_play = 1;
         else if (!strcmp(argv[i], "--hit-test") && i + 3 < argc) {
             hit = sscanf(argv[i + 1], "%dx%d", &hw, &hh) == 2;
@@ -570,33 +582,51 @@ int main(int argc, char **argv) {
     const char *path = getenv("PATH");
     if (!path || !*path) setenv("PATH", "/usr/bin:/bin:/usr/sbin:/sbin", 1);
 
+    /* Where builds go: the app's folder in Application Support, or
+       $NESRECOMP_ROOT/build when working on the project (make run-app),
+       or --build-dir. */
     const char *root = getenv("NESRECOMP_ROOT");
-    if (!root || !*root) root = PROJECT_ROOT;
     char defdir[PATH_MAX];
-    snprintf(defdir, sizeof defdir, "%s/build", root);
-    build_setup(root, bdir ? bdir : defdir);
-    /* The app's own SDL2, found from where the program is. */
+    if (root && *root) snprintf(defdir, sizeof defdir, "%s/build", root);
+    else {
+        const char *home = getenv("HOME");
+        struct passwd *pw = (!home || !*home) ? getpwuid(getuid()) : NULL;
+        if (pw) home = pw->pw_dir;
+        snprintf(defdir, sizeof defdir, "%s/Library/Application Support/NES RECOMP",
+                 home ? home : "/tmp");
+    }
+    const char *dir = bdir ? bdir : defdir;
+    build_setup(dir);
+    /* The app's own SDL2, recompiler and runtime, found from where the
+       program is. */
     char exe[PATH_MAX], exe_real[PATH_MAX];
     uint32_t exe_n = sizeof exe;
     if (_NSGetExecutablePath(exe, &exe_n) || !realpath(exe, exe_real))
         snprintf(exe_real, sizeof exe_real, "%s", argv[0]);
-    int have_sdl = build_find_sdl(exe_real);
+    int have_sdl = build_find_parts(exe_real, root);
     if (sdl_info) {
         printf("sdl2 %s %s\n", have_sdl ? "found" : "missing", build_sdl_lib());
         printf("recompiler %s\n", build_recompiler());
+        printf("runtime %s\n", build_runtime());
+        printf("builds %s\n", dir);
         return have_sdl ? 0 : 1;
     }
-    snprintf(prefs, sizeof prefs, "%s/app-prefs.txt", bdir ? bdir : defdir);
+    char part[PATH_MAX];                        /* make it, and the folders above it */
+    snprintf(part, sizeof part, "%s", dir);
+    for (char *p = part + 1; *p; p++)
+        if (*p == '/') { *p = 0; mkdir(part, 0755); *p = '/'; }
+    mkdir(part, 0755);
+    snprintf(prefs, sizeof prefs, "%s/app-prefs.txt", dir);
     if (play_exe) {
         snprintf(game_log, sizeof game_log, "%s.game.log", play_exe);
-        return play_and_wait(play_exe, play_rom, play_args, game_log);
+        return play_and_wait(play_exe, play_rom, play_args, NULL, game_log);
     }
     if (build_rom) {
         job.verbose = 1;
         if (then_play) {
             if (build_run(&job, build_rom)) return 1;
             snprintf(game_log, sizeof game_log, "%s.game.log", job.out);
-            return play_and_wait(job.out, job.rom, play_args, game_log);
+            return play_and_wait(job.out, job.rom, play_args, job.files_at, game_log);
         }
         if (!trace) return build_run(&job, build_rom) ? 1 : 0;
         build_start(&job, build_rom);
@@ -696,7 +726,8 @@ int main(int argc, char **argv) {
                last game's window had. */
             char scale[16];
             snprintf(scale, sizeof scale, "%d", game_scale());
-            char *args[] = { "--scale", scale, "--remember-size", prefs, NULL };
+            char *args[] = { "--scale", scale, "--remember-size", prefs, NULL, NULL, NULL };
+            if (strcmp(job.files_at, job.rom)) { args[4] = "--files-at"; args[5] = job.files_at; }
             snprintf(game_log, sizeof game_log, "%s.game.log", job.out);
             game = play_start(job.out, job.rom, args, game_log);
             if (game < 0) {

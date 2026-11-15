@@ -24,13 +24,31 @@ app:
   8. an app whose SDL headers, or whose recompiler, are missing says so,
      rather than building.
 In 4. to 6., Python can't run either: the recompiling is the bundle's own.
+Step 4, the app works from anywhere:
+  9. the bundle carries the runtime's sources (the same as runtime/);
+     nothing in the bundle names this project's folder or this Mac's
+     home folder; the bundle's version is the program's;
+ 10. a copy of the bundle in a folder whose name has spaces, a ROM
+     elsewhere, and reading this project's folder forbidden as well (first
+     checked to be): it builds and plays the ROM, passing its test, with
+     the copy's own runtime; the build goes to ~/Library/Application
+     Support/NES RECOMP (a scratch home here) and the bundle is left as it
+     was; ROM.missed is kept beside the ROM;
+ 11. the app moved: the game still runs, and building again is "up to
+     date"; another app version (in the build's record): built again;
+ 12. a ROM in a folder that can't be written: it still builds and plays,
+     its .missed kept in the app's folder (NAME.missed) and used by the
+     next build;
+ 13. the runtime missing: the build says so.
 Exit status 0 when all pass.
 """
 import os
 import re
 import shutil
 import subprocess
+import stat
 import sys
+import tempfile
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -117,6 +135,173 @@ def build_play(prog, rom, bdir, sandbox=True, rosetta=False):
 def last(s):
     lines = [l for l in s.strip().splitlines() if l.strip()]
     return lines[-1][:100] if lines else "(nothing)"
+
+
+def scan(top, needles):
+    """Files under top whose bytes hold any of needles, with the text."""
+    hits = []
+    for d, _, files in os.walk(top):
+        for f in files:
+            p = os.path.join(d, f)
+            if os.path.islink(p):
+                continue
+            data = open(p, "rb").read()
+            for n in needles:
+                at = data.find(n)
+                if at >= 0:
+                    lo, hi = data.rfind(b"\0", 0, at) + 1, data.find(b"\0", at)
+                    hits.append((os.path.relpath(p, top), data[lo:hi if hi >= 0 else len(data)][:100]))
+                    break
+    return hits
+
+
+def listing(top):
+    """Every file in a folder, with its size and time."""
+    out = []
+    for d, _, files in os.walk(top):
+        for f in files:
+            st = os.lstat(os.path.join(d, f))
+            out.append((os.path.relpath(os.path.join(d, f), top), st.st_size, st.st_mtime_ns))
+    return sorted(out)
+
+
+def anywhere(blib):
+    """Step 4: the app works from anywhere (9. to 13.)."""
+    contents = os.path.join(APP, "Contents")
+    # 9. what the bundle carries.
+    brt = os.path.join(contents, "Resources", "runtime")
+    src = sorted(f for f in os.listdir(os.path.join(ROOT, "runtime")) if f.endswith((".c", ".h")))
+    have = sorted(os.listdir(brt)) if os.path.isdir(brt) else []
+    same = have == src and all(open(os.path.join(brt, f), "rb").read() ==
+                               open(os.path.join(ROOT, "runtime", f), "rb").read() for f in have)
+    check("the bundle: the runtime's %d .c and .h files" % len(src), same and "rt.h" in have,
+          "%d of %d, missing %s" % (len(have), len(src), sorted(set(src) - set(have))[:3]))
+    home = os.path.expanduser("~")
+    needles = [ROOT.encode(), os.path.realpath(ROOT).encode(), home.encode()]
+    hits = scan(APP, needles)
+    check("the bundle: nothing in it names this project's folder or %s" % home, not hits, "%s" % hits[:3])
+    bprog = os.path.join(contents, "MacOS", "nesrecomp")
+    ver = run(bprog, "--version").stdout.strip()
+    import plistlib
+    pl = plistlib.load(open(os.path.join(contents, "Info.plist"), "rb"))
+    check("the bundle's version is the program's", ver and pl.get("CFBundleShortVersionString") == ver
+          and pl.get("CFBundleVersion") == ver, "program %r, Info.plist %r" % (ver, pl.get("CFBundleVersion")))
+
+    # 10. a copy of the bundle, far from the project.
+    tmp = os.path.realpath(tempfile.mkdtemp(prefix="nesrecomp check "))
+    try:
+        anywhere_in(tmp, blib, ver)
+    finally:
+        for d, dirs, _ in os.walk(tmp):
+            for x in dirs:
+                os.chmod(os.path.join(d, x), 0o755)
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def anywhere_in(tmp, blib, ver):
+    deny = DENY.replace('(deny file-read* ', '(deny file-read* (subpath "%s") ' % ROOT)
+    probe = run("sandbox-exec", "-p", deny, "/bin/cat", os.path.join(ROOT, "Makefile"))
+    check("the sandbox really forbids reading this project's folder too",
+          probe.returncode != 0 and "not permitted" in probe.stderr, "it could read it")
+    place = os.path.join(tmp, "Some Apps", "NES RECOMP.app")
+    shutil.copytree(APP, place, symlinks=True)
+    before = listing(place)
+    prog = os.path.join(place, "Contents", "MacOS", "nesrecomp")
+    home = os.path.join(tmp, "a home")
+    os.makedirs(home)
+    roms = os.path.join(tmp, "my roms")
+    os.makedirs(roms)
+    rom = os.path.join(roms, "basics test.nes")
+    shutil.copy(FREE, rom)
+    env = dict(os.environ, HOME=home)
+    env.pop("NESRECOMP_ROOT", None)
+
+    def go(*extra, prog=prog, sandbox=True):
+        cmd = [prog, "--build", rom] + list(extra)
+        if sandbox:
+            cmd = ["sandbox-exec", "-p", deny] + cmd
+        return run(*cmd, env=env, cwd=tmp)
+
+    r = go("--then-play", "--play-args", HEADLESS)
+    bdir = os.path.join(home, "Library", "Application Support", "NES RECOMP")
+    name = "basics_test"
+    glog = os.path.join(bdir, name + ".game.log")
+    glog = open(glog).read() if os.path.exists(glog) else ""
+    check("far from the project, without it, Homebrew or Python: builds and plays, the test passes",
+          r.returncode == 0 and "played: the game ended well" in r.stdout and
+          "test status at $6000: $00" in glog, last(r.stdout + r.stderr + glog))
+    blog = os.path.join(bdir, name + ".log")
+    blog = open(blog).read() if os.path.exists(blog) else ""
+    check("the build used the copy's own runtime",
+          "-I" + os.path.join(place, "Contents", "Resources", "runtime") + " " in blog
+          and ROOT not in blog, last(blog))
+    check("the build went to ~/Library/Application Support/NES RECOMP",
+          os.path.exists(os.path.join(bdir, name)) and os.path.exists(os.path.join(bdir, name + ".stamp")),
+          "%s" % (sorted(os.listdir(bdir)) if os.path.isdir(bdir) else "no such folder"))
+    check("the bundle is left as it was (nothing written inside it)", listing(place) == before,
+          "%s" % sorted(set(listing(place)) ^ set(before))[:3])
+    check("ROM.missed is kept beside the ROM (its folder can be written)",
+          os.path.exists(rom + ".missed") and not os.path.exists(os.path.join(bdir, name + ".missed")),
+          "%s" % sorted(os.listdir(roms)))
+    stamp = os.path.join(bdir, name + ".stamp")
+    st = open(stamp).read() if os.path.exists(stamp) else ""
+    check("the build's record holds the app's version", st.startswith("app %s rom " % ver), st[:40])
+
+    # 11. the app moved. (Playing wrote ROM.missed, so build once first.)
+    first = go()
+    moved = os.path.join(tmp, "Elsewhere", "NES RECOMP moved.app")
+    os.makedirs(os.path.dirname(moved))
+    os.rename(place, moved)
+    mprog = os.path.join(moved, "Contents", "MacOS", "nesrecomp")
+    again = go(prog=mprog)
+    check("the app moved: building again is up to date",
+          first.returncode == 0 and "built: " in first.stdout and again.returncode == 0
+          and "up to date" in again.stdout, last(again.stdout))
+    game = os.path.join(bdir, name)
+    r3 = run("sandbox-exec", "-p", deny, game, rom, *HEADLESS.split(), cwd=tmp) \
+        if os.path.exists(game) else None
+    check("the app moved: the game still runs and passes",
+          r3 is not None and r3.returncode == 0 and "test status at $6000: $00" in r3.stdout + r3.stderr,
+          last((r3.stdout + r3.stderr) if r3 else "no game"))
+    go(prog=mprog)                               # the game wrote ROM.missed again
+    st = open(stamp).read() if os.path.exists(stamp) else ""
+    if st:
+        with open(stamp, "w") as f:
+            f.write(st.replace("app %s " % ver, "app 0.0-older ", 1))
+    newer = go(prog=mprog)
+    check("another app version: built again", newer.returncode == 0 and "up to date" not in newer.stdout
+          and "stage 2/5" in newer.stdout and "built: " in newer.stdout, last(newer.stdout))
+
+    # 12. a ROM in a folder that can't be written.
+    locked = os.path.join(tmp, "locked roms")
+    os.makedirs(locked)
+    lrom = os.path.join(locked, "basics locked.nes")
+    shutil.copy(FREE, lrom)
+    os.chmod(locked, stat.S_IRUSR | stat.S_IXUSR | stat.S_IRGRP | stat.S_IXGRP)
+    lname = "basics_locked"
+    r4 = run("sandbox-exec", "-p", deny, mprog, "--build", lrom, "--then-play", "--play-args", HEADLESS,
+             env=env, cwd=tmp)
+    lg = os.path.join(bdir, lname + ".game.log")
+    lg = open(lg).read() if os.path.exists(lg) else ""
+    check("a ROM in a folder that can't be written: it builds and plays, the test passes",
+          r4.returncode == 0 and "test status at $6000: $00" in lg, last(r4.stdout + r4.stderr + lg))
+    kept = os.path.join(bdir, lname + ".missed")
+    check("...its .missed kept in the app's folder", os.path.exists(kept) and os.path.getsize(kept) > 0
+          and sorted(os.listdir(locked)) == ["basics locked.nes"],
+          "app's folder: %s, ROM's: %s" % (os.path.exists(kept), sorted(os.listdir(locked))))
+    r5 = run("sandbox-exec", "-p", deny, mprog, "--build", lrom, env=env, cwd=tmp)
+    l2 = os.path.join(bdir, lname + ".log")
+    l2 = open(l2).read() if os.path.exists(l2) else ""
+    check("...and the next build uses it", r5.returncode == 0 and "up to date" not in r5.stdout and
+          " --missed " + kept in l2, last(r5.stdout + l2))
+
+    # 13. the runtime missing.
+    shutil.rmtree(os.path.join(moved, "Contents", "Resources", "runtime"))
+    other = os.path.join(roms, "other.nes")
+    shutil.copy(FREE, other)
+    gone = run("sandbox-exec", "-p", deny, mprog, "--build", other, env=env, cwd=tmp)
+    check("the runtime missing: the build says so",
+          gone.returncode != 0 and "error: the app's runtime is missing" in gone.stdout, last(gone.stdout))
 
 
 def main():
@@ -314,6 +499,8 @@ def main():
           gone.returncode != 0 and "error: the app's recompiler is missing" in gone.stdout,
           last(gone.stdout))
     shutil.rmtree(moved)
+
+    anywhere(blib)
 
     print("\n%d check(s) failed" % len(fails) if fails else "\nall checks pass")
     sys.exit(1 if fails else 0)

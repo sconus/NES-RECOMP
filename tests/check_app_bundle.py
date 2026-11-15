@@ -11,7 +11,11 @@ shows for a few seconds.
      with Finder's bare environment, the file reaches it as a drop, it
      builds it (its recompiler and cc found), and plays it. The file is a ROM
      made here that stops at once ("THE GAME STOPPED"), so no game
-     window stays open; then the app is asked to quit.
+     window stays open; then the app is asked to quit. The build goes to
+     ~/Library/Application Support/NES RECOMP (PLAN-standalone.md step
+     4), with the bundle's own runtime, and the bundle is left as it was;
+     the check removes the files it made there (the whole folder, if it
+     made it).
 Exit status 0 when all pass.
 """
 import os
@@ -64,6 +68,15 @@ def read_png(path):
         rows.append([tuple(line[x * bpp:x * bpp + 3]) for x in range(w)])
         prev = line
     return w, h, rows
+
+
+def listing(top):
+    out = []
+    for d, _, files in os.walk(top):
+        for f in files:
+            st = os.lstat(os.path.join(d, f))
+            out.append((os.path.relpath(os.path.join(d, f), top), st.st_size, st.st_mtime_ns))
+    return sorted(out)
 
 
 def main():
@@ -142,8 +155,11 @@ def main():
     prg[0x3FFA:0x4000] = bytes([0x00, 0xC0, 0x00, 0xC0, 0x00, 0xC0])
     with open(rom, "wb") as f:
         f.write(b"NES\x1a\x01\x01\x00\x00" + bytes(8) + bytes(prg) + bytes(0x2000))
-    bdir = os.path.join(ROOT, "build")
+    bdir = os.path.join(os.path.expanduser("~"), "Library", "Application Support", "NES RECOMP")
     logs = [os.path.join(bdir, "open_test" + s) for s in (".log", ".game.log", ".stamp")]
+    made = logs + [os.path.join(bdir, "open_test" + s) for s in ("", ".c", ".o")]
+    before = listing(APP)
+    existed = os.path.isdir(bdir)
     for p in logs:
         if os.path.exists(p):
             os.remove(p)
@@ -165,6 +181,17 @@ def main():
                             else blog.strip().splitlines()[-1][:80]))
     check("it played what it built (the game stopped, as made)", "stopped: unknown opcode $02" in glog,
           "game log: %r" % glog[-80:])
+    rt = os.path.join(os.path.realpath(APP), "Contents", "Resources", "runtime")
+    check("it built in ~/Library/Application Support/NES RECOMP, with the bundle's runtime",
+          os.path.exists(os.path.join(bdir, "open_test")) and "-I" + rt + " " in blog,
+          "no program there" if not os.path.exists(os.path.join(bdir, "open_test")) else "runtime not %s" % rt)
+    check("the bundle is left as it was", listing(APP) == before,
+          "%s" % sorted(set(listing(APP)) ^ set(before))[:3])
+    for p in made:
+        if os.path.exists(p):
+            os.remove(p)
+    if not existed:                       # the app's folder was made for this check
+        shutil.rmtree(bdir, ignore_errors=True)
     time.sleep(1)
     still = subprocess.run(["pgrep", "-f", "nesrecomp.app/Contents/MacOS/nesrecomp"],
                            capture_output=True, text=True).stdout.strip()

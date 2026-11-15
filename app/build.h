@@ -5,6 +5,10 @@
 #include <stdatomic.h>
 #include <stddef.h>
 
+/* The app's version: in the bundle's Info.plist, and in each build's
+   record, so a new version builds old games again. */
+#define APP_VERSION "1.0"
+
 enum { ST_CHECK, ST_RECOMP, ST_GAME, ST_RUNTIME, ST_LINK, ST_COUNT };
 enum { B_RUNNING, B_DONE, B_FAILED };
 
@@ -13,6 +17,8 @@ struct build {
     char name[256];                 /* its name, for files and the screen */
     char out[PATH_MAX];             /* the program built */
     char log[PATH_MAX];             /* everything the tools printed */
+    char files_at[PATH_MAX];        /* FILES_AT.missed, FILES_AT.sav: the ROM's
+                                       path, or the build folder's NAME */
     char error[512];                /* why it failed, for the screen */
     atomic_int stage;               /* ST_*, the stage running now */
     atomic_int state;               /* B_* */
@@ -27,19 +33,24 @@ const char *build_stage_name(int stage);
 /* Is it a file the recompiler takes (an iNES, NSF or FDS image)? If
    not, why, in a few words for the screen. */
 int build_check_file(const char *path, char *why, size_t n);
-/* Where the project is (the runtime) and where builds
-   go: set once before building. */
-void build_setup(const char *root, const char *build_dir);
-/* Where the app's own SDL2 is (PLAN-standalone.md step 1): the library
-   and the folder holding SDL2/SDL.h. Games compile against these
-   headers, and link a copy of the library kept next to them. Found from
-   the app's own place: in a bundle, Contents/Frameworks/libSDL2.dylib
-   and Contents/Resources/sdl2/include; otherwise sdl2/lib and
-   sdl2/include beside the program. Returns 0 if they aren't there. */
-int build_find_sdl(const char *exe);
+/* Where builds go: set once before building. */
+void build_setup(const char *build_dir);
+/* Find what builds need, from the app's own place (PLAN-standalone.md
+   steps 1, 3 and 4):
+   - its own SDL2, the library and the folder holding SDL2/SDL.h. Games
+     compile against these headers, and link a copy of the library kept
+     next to them. In a bundle, Contents/Frameworks/libSDL2.dylib and
+     Contents/Resources/sdl2/include; otherwise sdl2/lib and
+     sdl2/include beside the program;
+   - the runtime's sources: Contents/Resources/runtime, or ../runtime
+     beside the program; root/runtime instead when root is given
+     ($NESRECOMP_ROOT, for working on the project).
+   Returns 0 if SDL2 isn't there. */
+int build_find_parts(const char *exe, const char *root);
+const char *build_runtime(void);
 const char *build_sdl_lib(void);
 /* The recompiler, nesrecomp-recomp beside the app's program (found by
-   build_find_sdl too). */
+   build_find_parts too). */
 const char *build_recompiler(void);
 /* Build it, now (returns 0 when done), or on a thread of its own. */
 int build_run(struct build *b, const char *rom);

@@ -192,6 +192,7 @@ The built program takes options after the ROM path:
     --screenshot FILE  with --frames: save the last frame as a PNG
     --dump-text        with --frames: print the screen's tiles as text
     --no-save          don't load or write <rom>.sav (battery RAM)
+    --files-at P       keep <rom>.missed and <rom>.sav as P.missed, P.sav
     --wav FILE         write the sound to a WAV file
     --mute             no sound from the speakers (M toggles it)
     --audio-stats      print the sound queue depth once a second
@@ -252,7 +253,8 @@ on it and it recompiles and plays it.
     make app-bundle          # builds build/nesrecomp.app
     open build/nesrecomp.app # or double-click it in Finder
 
-(`make run-app` opens the same window without the bundle.)
+(`make run-app` opens the same window without the bundle, keeping its
+builds in `build/` here.)
 
 - **Drop a file** (`.nes`, `.nsf` or `.fds`) on the window, or on the
   app's icon in the Dock, or click the TV for a file picker. The TV
@@ -265,11 +267,16 @@ on it and it recompiles and plays it.
 - **A ROM already built,** with nothing changed since, starts at once.
 - **It gets faster as you play:** like `make run`, each game writes the
   spots it had to interpret to `<rom>.missed` beside the ROM, and the
-  next build uses them. Battery saves go to `<rom>.sav` there too.
+  next build uses them. Battery saves go to `<rom>.sav` there too. If
+  the ROM's folder can't be written (a locked disk, say), both are kept
+  in the app's own folder instead.
 - **If something goes wrong,** the TV says what: "NOT AN NES ROM", the
   recompiler's message (an unsupported mapper, say), the compiler's, or
-  "THE GAME STOPPED" and why. The whole output is in
-  `build/NAME.log` and `build/NAME.game.log`.
+  "THE GAME STOPPED" and why. The whole output is in `NAME.log` and
+  `NAME.game.log` in the app's folder.
+- **The app's folder** is `~/Library/Application Support/NES RECOMP`:
+  the games it built, their logs, the runtime compiled once, and the
+  game window's size. Deleting it is safe; games are built again.
 - **The game's window** can be resized by dragging; Cmd+= and Cmd+-
   change it by a whole step and Cmd+F makes it full screen. The picture
   stays sharp, and the next game opens at the size you left.
@@ -277,17 +284,20 @@ on it and it recompiles and plays it.
   for educational purposes only, by Serge and Claude, free software
   under the MIT License.
 
-What it needs: this project folder (the app uses the runtime in the
-folder it was built in) and a C compiler; not Python: the bundle carries
-the recompiler in C (`Contents/MacOS/nesrecomp-recomp`). It
-carries its own SDL2, built from SDL's source release by `make sdl2`
-(`tools/build_sdl2.sh`; the release unpacked in `build/sdl2/src` first),
-for Intel and Apple Silicon Macs from macOS 11, and the games it builds
-use a copy of it. It isn't yet an app you could give to someone:
-PLAN-standalone.md is the plan for that. `make test-app` checks its screens and builds,
-and `make test-app-bundle` checks the bundle and opens it with a file
-as Finder does (a window shows for a few seconds). `make
-test-standalone` checks it needs nothing from Homebrew.
+What it needs: only Apple's C compiler. Not this project folder, Python
+or Homebrew: the bundle carries the runtime's sources
+(`Contents/Resources/runtime`), the recompiler in C
+(`Contents/MacOS/nesrecomp-recomp`) and its own SDL2, built from SDL's
+source release by `make sdl2` (`tools/build_sdl2.sh`; the release
+unpacked in `build/sdl2/src` first), for Intel and Apple Silicon Macs
+from macOS 11. The games it builds use a copy of SDL2, so they still
+run after the app is moved. The app can be moved anywhere, and holds no
+path of this Mac. What's left before giving it to someone is in
+PLAN-standalone.md. `make test-app` checks its screens and builds, and
+`make test-app-bundle` checks the bundle and opens it with a file as
+Finder does (a window shows for a few seconds; the files it makes in
+the app's folder are removed). `make test-standalone` checks it needs
+nothing from Homebrew, Python or this folder.
 
 ## The Arkanoid paddle
 
