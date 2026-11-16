@@ -37,6 +37,12 @@ LIST = os.path.join(HERE, "same_c.txt")
 CLONE = os.path.join(HERE, "roms", "nes-test-roms")
 OUT = os.path.join(ROOT, "build", "same_c")
 EXTS = (".nes", ".nsf", ".fds")
+# A recompile takes milliseconds; one taking this long has gone wrong
+# (looping forever, say), and counts as a different result, not a crash.
+LIMIT = 60
+# After one hasn't finished, the rest aren't started (each could take the
+# whole minute): the check has failed already.
+gave_up = []
 
 fails = []
 
@@ -80,8 +86,14 @@ def recompile(recomp, name, path, extra, tag):
     for f in (c, lst):
         if os.path.exists(f):
             os.remove(f)
-    r = subprocess.run([recomp, path, "-o", c, "--listing", lst] + extra, capture_output=True,
-                       timeout=300)
+    if gave_up:
+        return "not-run - - -"
+    try:
+        r = subprocess.run([recomp, path, "-o", c, "--listing", lst] + extra, capture_output=True,
+                           timeout=LIMIT)
+    except subprocess.TimeoutExpired:
+        gave_up.append(name)
+        return "didn't-finish - - -"
     printed = norm(r.stdout.decode("utf-8", "replace") + "\0" + r.stderr.decode("utf-8", "replace"),
                    (c, "OUT"), (lst, "LST"), (path, "ROM"))
     fp = [str(r.returncode),
@@ -131,12 +143,14 @@ def main():
     extra = sorted(set(have) - set(want))
     check("the same files as on the Mac (%d)" % len(want), not missing and not extra,
           "missing %s, new %s" % (missing[:3], extra[:3]))
+    check("every recompile finished (within %d s each)" % LIMIT, not gave_up,
+          "%s didn't finish, so the rest weren't run" % (gave_up[0] if gave_up else ""))
     common = sorted(set(want) & set(have))
     differ = [n for n in common if want[n] != have[n]]
 
     def what(n):
         a, b = want[n].split(), have[n].split()
-        parts = ["exit status", "C", "listing", "printed lines"]
+        parts = ["exit status (or didn't finish)", "C", "listing", "printed lines"]
         return n + ": " + ", ".join(p for p, x, y in zip(parts, a, b) if x != y)
     refused = sum(1 for n in common if want[n].split()[0] != "0")
     check("%d recompiles: the C, the listing and the printed lines byte for byte the Mac's "
@@ -148,8 +162,14 @@ def main():
 
     def dump(job):
         name, path, extra, _ = job
+        if gave_up:
+            return name, (0, "", ""), (0, "", "")
         rp = subprocess.run(py + [path, "--dump-rom"] + extra, capture_output=True, timeout=300)
-        rc = subprocess.run([recomp, path, "--dump-rom"] + extra, capture_output=True, timeout=300)
+        try:
+            rc = subprocess.run([recomp, path, "--dump-rom"] + extra, capture_output=True, timeout=LIMIT)
+        except subprocess.TimeoutExpired:
+            gave_up.append(name)
+            return name, (rp.returncode, norm(rp.stdout.decode("utf-8", "replace")), ""), (None, "didn't finish", "")
         p = (rp.returncode, norm(rp.stdout.decode("utf-8", "replace")), norm(rp.stderr.decode("utf-8", "replace")))
         c = (rc.returncode, norm(rc.stdout.decode("utf-8", "replace")), norm(rc.stderr.decode("utf-8", "replace")))
         return name, p, c

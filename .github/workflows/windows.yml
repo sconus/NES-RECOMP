@@ -20,7 +20,7 @@ jobs:
       - name: Files as they are in git (no "\r\n" added on checkout)
         run: git config --global core.autocrlf false
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: The free test ROMs, at the same commit as on the Mac
         shell: bash
