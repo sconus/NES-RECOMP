@@ -134,7 +134,8 @@ to bring its own.
   - Breaks: a number cut to 32 bits, `\r\n` in the C, a file opened as
     text instead of bytes, the workflow not failing when a check fails.
 
-- Done so far (the Windows half runs once this step is pushed):
+- Done (committed and pushed: 5fcd20d, then the fix 47c886a; the
+  Windows run is green):
   - **Zig 0.17.1** is in `build/zig/` (from ziglang.org, its checksum
     matching the one Zig publishes; 421 MB unpacked, mostly C library
     headers for every system it can build for). `make windows` builds
@@ -179,6 +180,27 @@ to bring its own.
     - On the Mac, with its own compiler, the copy with no break passes
       and none of the four is caught: on a Mac these mistakes change
       nothing. That's why they're checked on Windows.
+  - **On GitHub's Windows machine:** all 396 recompiles give the Mac's
+    C, listing and printed lines, byte for byte, and all 395 readable
+    files read as recomp.py reads them. The copy with no break passed,
+    and 4 of 4 breaks were caught.
+  - **Found on the way:**
+    - **The token:** GitHub refuses a push that adds a workflow unless
+      the token has the "workflow" permission. You made a new token with
+      it.
+    - **A hang the check didn't count:** with a number cut to 32 bits,
+      the Windows recompiler loops forever. The first run's check waited
+      five minutes and crashed instead of failing. Each recompile now
+      has a minute (they take milliseconds); one that doesn't finish is
+      a FAIL, and the rest aren't started. With a stand-in that never
+      finishes, the check fails in a minute.
+    - **GitHub's logs need a signed-in account.** You signed in to
+      GitHub in the app's browser pane, where I read them.
+  - The workflow uses actions/checkout@v5 (the Node.js 20 warning gone).
+  - Unchanged on the Mac: `make test-all` (nestest exact, the suite 219
+    of 220 with test28 as always, the app and recording checks),
+    `make test-recomp`, `make test-standalone`, `make test-app-bundle`
+    and `make test-release`.
 
 ### 2. The runtime on Windows
 - SDL2 and zlib built for Windows with Zig, from their source releases
