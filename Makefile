@@ -20,6 +20,10 @@
 #                           window shows for 2 seconds)
 #   make test-standalone    check the app needs nothing from Homebrew
 #                           (tests/check_standalone.py, PLAN-standalone.md)
+#   make windows            the Windows build, so far the recompiler
+#                           (build/windows/, with Zig; PLAN-windows.md)
+#   make same-c             write down the C the Mac's recompiler writes
+#                           (tests/same_c.txt); make test-same-c checks it
 #   make release            build/NES-RECOMP-<version>.zip: the app, a read-me
 #                           and the licenses, to give away
 #   make test-release       check it as a downloaded copy would be treated
@@ -89,7 +93,7 @@ RECOMP_SRC = $(wildcard recomp/*.c)
 RECOMP_HDR = $(wildcard recomp/*.h)
 build/nesrecomp-recomp: $(RECOMP_SRC) $(RECOMP_HDR) runtime/fds_bios.h
 	@mkdir -p build
-	$(CC) -O2 -Wall -Wextra -arch arm64 -arch x86_64 -mmacosx-version-min=11.0 -o $@ $(RECOMP_SRC) -lz
+	$(CC) -O2 -Wall -Wextra -arch arm64 -arch x86_64 -mmacosx-version-min=11.0 -o $@ $(RECOMP_SRC)
 
 recomp: build/nesrecomp-recomp
 
@@ -145,6 +149,27 @@ test-app-bundle: app-bundle
 test-standalone: app-bundle
 	python3 tests/check_standalone.py
 
+# --- Windows (PLAN-windows.md) -------------------------------------------
+# Built here with Zig (build/zig, from ziglang.org), which builds Windows
+# programs on a Mac; checked on a GitHub Windows machine
+# (.github/workflows/windows.yml).
+ZIG ?= build/zig/zig-aarch64-macos-0.17.1/zig
+WIN_CC = $(ZIG) cc -target x86_64-windows-gnu
+
+build/windows/nesrecomp-recomp.exe: $(RECOMP_SRC) $(RECOMP_HDR) runtime/fds_bios.h
+	@mkdir -p build/windows
+	$(WIN_CC) -O2 -Wall -Wextra -o $@ $(RECOMP_SRC)
+
+windows: build/windows/nesrecomp-recomp.exe
+
+# The fingerprints of the C the Mac's recompiler writes (tests/same_c.txt),
+# which every system's must match; written again after a change to the C.
+same-c: $(RECOMP)
+	python3 tests/check_same_c.py --write
+
+test-same-c: $(RECOMP)
+	python3 tests/check_same_c.py
+
 # --- a release (PLAN-standalone.md step 9) ------------------------------
 release: app-bundle tools/make_release.py LICENSE
 	python3 tools/make_release.py
@@ -158,4 +183,4 @@ clean:
 	find build -mindepth 1 -maxdepth 1 ! -name sdl2 -exec rm -rf {} + 2>/dev/null; \
 	rm -f $(NESTEST).missed
 
-.PHONY: test test-ppu test-all test-record release test-release game run recomp test-recomp sdl2 app run-app test-app app-bundle test-app-bundle test-standalone clean
+.PHONY: test test-ppu test-all test-record release test-release windows same-c test-same-c game run recomp test-recomp sdl2 app run-app test-app app-bundle test-app-bundle test-standalone clean

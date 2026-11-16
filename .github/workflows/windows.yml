@@ -1,0 +1,54 @@
+# The Windows test bench (PLAN-windows.md): on every push, a GitHub
+# Windows machine builds NES RECOMP's Windows parts with Zig and checks
+# them. Step 1: the recompiler, which must write the same C as on the Mac
+# (tests/check_same_c.py), then the breaks (tests/windows_breaks.py),
+# each in a scratch copy on that machine.
+name: Windows
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - name: Files as they are in git (no "\r\n" added on checkout)
+        run: git config --global core.autocrlf false
+
+      - uses: actions/checkout@v4
+
+      - name: The free test ROMs, at the same commit as on the Mac
+        shell: bash
+        run: |
+          git init -q tests/roms/nes-test-roms
+          cd tests/roms/nes-test-roms
+          git remote add origin https://github.com/christopherpow/nes-test-roms.git
+          git fetch -q --depth 1 origin 95d8f621ae55cee0d09b91519a8989ae0e64753b
+          git checkout -q FETCH_HEAD
+
+      - name: Zig 0.17.1 for Windows (checked against its published SHA-256)
+        shell: pwsh
+        run: |
+          Invoke-WebRequest https://ziglang.org/download/0.17.1/zig-x86_64-windows-0.17.1.zip -OutFile zig.zip
+          $want = "B03F477A1943673E02ACA0F570E8030DFFD536CE1F45CBC4D3326EC31159562E"
+          if ((Get-FileHash zig.zip -Algorithm SHA256).Hash -ne $want) { throw "Zig's checksum is wrong" }
+          Expand-Archive zig.zip -DestinationPath $env:RUNNER_TEMP
+          "$env:RUNNER_TEMP\zig-x86_64-windows-0.17.1" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
+
+      - name: The recompiler, built for Windows
+        shell: bash
+        run: |
+          mkdir -p build/windows
+          zig version
+          zig cc -O2 -Wall -Wextra -Werror -o build/windows/nesrecomp-recomp.exe recomp/*.c
+
+      - name: The same C as on the Mac
+        run: python tests/check_same_c.py --recompiler build/windows/nesrecomp-recomp.exe
+
+      - name: Breaks, each in a scratch copy on this machine
+        run: python tests/windows_breaks.py

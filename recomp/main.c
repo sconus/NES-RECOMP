@@ -12,12 +12,40 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <zlib.h>
 #include "gen.h"
 #include "ops.h"
 #include "rom.h"
 
 #define MAX_ENTRIES 65536
+
+/* Where a path's last folder ends: its last '/', and on Windows its last
+   '\\' too (a Mac file name may hold a '\\', as recomp.py takes it).
+   NULL if neither. */
+static const char *last_sep(const char *path) {
+    const char *s = strrchr(path, '/');
+#ifdef _WIN32
+    const char *b = strrchr(path, '\\');
+    if (b && (!s || b > s)) s = b;
+#endif
+    return s;
+}
+
+/* The CRC-32 zlib's crc32 (and Python's zlib.crc32) computes, for
+   --dump-rom's checksums: the recompiler's own, so it needs no zlib (which
+   Windows doesn't have; PLAN-windows.md step 1). */
+static unsigned long crc32_of(const void *data, size_t n) {
+    static uint32_t table[256];
+    if (!table[1])
+        for (uint32_t i = 0; i < 256; i++) {
+            uint32_t c = i;
+            for (int k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320u ^ (c >> 1) : c >> 1;
+            table[i] = c;
+        }
+    uint32_t c = 0xFFFFFFFFu;
+    const unsigned char *p = data;
+    for (size_t i = 0; i < n; i++) c = table[(c ^ p[i]) & 0xFF] ^ (c >> 8);
+    return (unsigned long)(c ^ 0xFFFFFFFFu);
+}
 
 static const char *prog = "nesrecomp-recomp";
 
@@ -98,7 +126,7 @@ static void dump_rom(const struct rom *r) {
     else printf("low_regs none\n");
     slots("power_on", r, r->power_on);
     slots("fixed", r, r->fixed);
-    printf("prg %zu %08lX\n", r->prg_len, crc32(0, r->prg, (uInt)r->prg_len));
+    printf("prg %zu %08lX\n", r->prg_len, crc32_of(r->prg, r->prg_len));
     if (r->is_nsf)
         printf("nsf load=%04X init=%04X play=%04X chips=%d\n", r->nsf_load, r->nsf_init,
                r->nsf_play, r->nsf_chips);
@@ -115,9 +143,9 @@ static void dump_rom(const struct rom *r) {
         for (int t = 0; t < 256; t++)
             if (r->has_file[t])
                 printf("file %d %04X %d %08lX\n", t, r->files[t].lo, r->files[t].len,
-                       crc32(0, r->files[t].data, (uInt)r->files[t].len));
-        printf("boot_ram %08lX boot_owner %08lX\n", crc32(0, r->boot_ram, sizeof r->boot_ram),
-               crc32(0, r->boot_owner, sizeof r->boot_owner));
+                       crc32_of(r->files[t].data, (size_t)r->files[t].len));
+        printf("boot_ram %08lX boot_owner %08lX\n", crc32_of(r->boot_ram, sizeof r->boot_ram),
+               crc32_of(r->boot_owner, sizeof r->boot_owner));
     }
     printf("entries ");
     for (int i = 0; i < n_ent; i++) printf("%s%02X:%04lX", i ? " " : "", ent_bank[i], ent_addr[i]);
@@ -253,17 +281,22 @@ int main(int argc, char **argv) {
     }
     struct traced t;
     trace(r, ent_bank, ent_addr, n_ent, &t);
-    FILE *f = fopen(out, "w");
+    /* As bytes: on Windows, a text file would get \r\n line ends, and the
+       C must be the same on every system. */
+    FILE *f = fopen(out, "wb");
     if (!f) { fprintf(stderr, "%s: can't write the file\n", out); return 1; }
-    const char *src_name = strrchr(rom_path, '/');
+    const char *src_name = last_sep(rom_path);
     FILE *lf = NULL;
     if (listing) {
-        lf = fopen(listing, "w");
+        lf = fopen(listing, "wb");
         if (!lf) { fprintf(stderr, "%s: can't write the file\n", listing); return 1; }
         /* Its header: what it lists, and where the program starts. */
+        /* The file names alone, not their folders: a listing is the same
+           on every machine, and names no folder of the one it was made on. */
+        const char *out_name = last_sep(out);
         fprintf(lf, "# nesrecomp listing of %s: each instruction's 6502 and the lines of %s\n"
                     "# it became: BB:AAAA, first line, last line, bytes, 6502\n",
-                src_name ? src_name + 1 : rom_path, out);
+                src_name ? src_name + 1 : rom_path, out_name ? out_name + 1 : out);
         static const char *const vname[3] = { "nmi", "reset", "irq" };
         if (!r->is_nsf && !r->is_fds)
             for (int i = 0; i < 3; i++)
