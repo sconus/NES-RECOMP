@@ -34,12 +34,12 @@ def sh(args, **kw):
     return subprocess.run(args, capture_output=True, text=True, **kw)
 
 
+sys.path.insert(0, HERE)
+import toolchain  # noqa: E402  (the Mac's cc and SDL2, or Windows's: PLAN-windows.md)
+
+
 def sdl_flags():
-    prefix = sh(["sdl2-config", "--prefix"]).stdout.strip()
-    cflags = sh(["sdl2-config", "--cflags"]).stdout.split()
-    return cflags, [os.path.join(prefix, "lib", "libSDL2.dylib"), "-lz", "-lm",
-                    "-framework", "AVFoundation", "-framework", "CoreMedia",
-                    "-framework", "CoreVideo", "-framework", "Foundation"]
+    return toolchain.sdl_flags()
 
 
 def load_suite():
@@ -94,14 +94,13 @@ def build_runtime(cflags):
     objdir = os.path.join(BUILD, "rt")
     os.makedirs(objdir, exist_ok=True)
     objs = []
-    for src in sorted(os.listdir(os.path.join(ROOT, "runtime"))):
-        if src.endswith((".c", ".m")):          # record_mac.m: Objective-C
-            obj = os.path.join(objdir, src[:-2] + ".o")
-            r = sh(["cc", "-O1", "-Wall", "-Iruntime"] + cflags +
-                   ["-c", os.path.join("runtime", src), "-o", obj], cwd=ROOT)
-            if r.returncode:
-                sys.exit("runtime build failed:\n" + r.stderr)
-            objs.append(obj)
+    for src in toolchain.runtime_sources():     # .c, and on the Mac record_mac.m
+        obj = os.path.join(objdir, src[:-2] + ".o")
+        r = sh(toolchain.cc() + ["-O1", "-Wall", "-Iruntime"] + cflags +
+               ["-c", os.path.join("runtime", src), "-o", obj], cwd=ROOT)
+        if r.returncode:
+            sys.exit("runtime build failed:\n" + r.stderr)
+        objs.append(obj)
     return objs
 
 
@@ -316,7 +315,7 @@ def run_one(test, cflags, libs, rt_objs):
                        test["rom"])
     ident = re.sub(r"[^A-Za-z0-9_.-]", "_", test["name"])
     c_file = os.path.join(BUILD, ident + ".c")
-    exe = os.path.join(BUILD, ident)
+    exe = os.path.join(BUILD, ident + toolchain.EXE)
     png = os.path.join(BUILD, ident + ".png")
     missed = rom + ".missed"
 
@@ -324,13 +323,13 @@ def run_one(test, cflags, libs, rt_objs):
         return open(missed).read() if os.path.exists(missed) else ""
 
     for passes in range(1, MAX_PASSES + 1):
-        args = [os.path.join(ROOT, "build", "nesrecomp-recomp"), rom, "-o", c_file]
+        args = [toolchain.recompiler(), rom, "-o", c_file]
         if os.path.exists(missed):
             args += ["--missed", missed]
         r = sh(args, cwd=ROOT)
         if r.returncode:
             return test, "fail: recompile error " + r.stderr[-200:], passes
-        r = sh(["cc", "-O1", "-Iruntime"] + cflags +
+        r = sh(toolchain.cc() + ["-O1", "-Iruntime"] + cflags +
                ["-o", exe, c_file] + rt_objs + libs, cwd=ROOT)
         if r.returncode:
             return test, "fail: compile error " + r.stderr[:200], passes

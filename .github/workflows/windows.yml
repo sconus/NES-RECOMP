@@ -2,7 +2,9 @@
 # Windows machine builds NES RECOMP's Windows parts with Zig and checks
 # them. Step 1: the recompiler, which must write the same C as on the Mac
 # (tests/check_same_c.py), then the breaks (tests/windows_breaks.py),
-# each in a scratch copy on that machine.
+# each in a scratch copy on that machine. Step 2: the runtime, with SDL's
+# official Windows build and zlib: nestest as `make test` checks it
+# (tests/run_nestest.py) and the test ROM suite (tests/run_tests.py).
 name: Windows
 
 on:
@@ -15,7 +17,7 @@ permissions:
 jobs:
   windows:
     runs-on: windows-latest
-    timeout-minutes: 60
+    timeout-minutes: 120
     steps:
       - name: Files as they are in git (no "\r\n" added on checkout)
         run: git config --global core.autocrlf false
@@ -40,6 +42,20 @@ jobs:
           Expand-Archive zig.zip -DestinationPath $env:RUNNER_TEMP
           "$env:RUNNER_TEMP\zig-x86_64-windows-0.17.1" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
 
+      - name: SDL 2.32.10's official Windows build, and zlib 1.3.1's source (both checked)
+        shell: pwsh
+        run: |
+          Invoke-WebRequest https://github.com/libsdl-org/SDL/releases/download/release-2.32.10/SDL2-devel-2.32.10-mingw.zip -OutFile sdl2.zip
+          if ((Get-FileHash sdl2.zip -Algorithm SHA256).Hash -ne "F15CFF5FCA62EC9381A016EF1D42A95C638CD72D2F226BA5781C76FE43DBD1AC") { throw "SDL2's checksum is wrong" }
+          Expand-Archive sdl2.zip -DestinationPath $env:RUNNER_TEMP
+          Invoke-WebRequest https://zlib.net/fossils/zlib-1.3.1.tar.gz -OutFile zlib.tar.gz
+          if ((Get-FileHash zlib.tar.gz -Algorithm SHA256).Hash -ne "9A93B2B7DFDAC77CEBA5A558A580E74667DD6FEDE4585B91EEFB60F03B72DF23") { throw "zlib's checksum is wrong" }
+          tar -xzf zlib.tar.gz -C $env:RUNNER_TEMP
+          $sdl = "$env:RUNNER_TEMP\SDL2-2.32.10\x86_64-w64-mingw32"
+          "NESRECOMP_SDL2=$sdl" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+          "NESRECOMP_ZLIB_SRC=$env:RUNNER_TEMP\zlib-1.3.1" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+          "$sdl\bin" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
+
       - name: The recompiler, built for Windows
         shell: bash
         run: |
@@ -49,6 +65,15 @@ jobs:
 
       - name: The same C as on the Mac
         run: python tests/check_same_c.py --recompiler build/windows/nesrecomp-recomp.exe
+
+      - name: The runtime's system parts on Windows (pictures' folders, Ctrl+Break)
+        run: python tests/check_runtime_sys.py
+
+      - name: The runtime on Windows - nestest, as make test checks it
+        run: python tests/run_nestest.py
+
+      - name: The runtime on Windows - the test ROM suite (tests/suite.txt)
+        run: python tests/run_tests.py
 
       - name: Breaks, each in a scratch copy on this machine
         run: python tests/windows_breaks.py

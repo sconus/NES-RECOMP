@@ -22,6 +22,8 @@
 #                           (tests/check_standalone.py, PLAN-standalone.md)
 #   make windows            the Windows build, so far the recompiler
 #                           (build/windows/, with Zig; PLAN-windows.md)
+#   make windows-game ROM=x.nes   a game for Windows, build/windows/<name>.exe
+#                           (with SDL2.dll beside it)
 #   make same-c             write down the C the Mac's recompiler writes
 #                           (tests/same_c.txt); make test-same-c checks it
 #   make release            build/NES-RECOMP-<version>.zip: the app, a read-me
@@ -162,6 +164,27 @@ build/windows/nesrecomp-recomp.exe: $(RECOMP_SRC) $(RECOMP_HDR) runtime/fds_bios
 
 windows: build/windows/nesrecomp-recomp.exe
 
+# A game for Windows, as `make game` makes one for the Mac: SDL's official
+# Windows build (build/sdl2-windows, SDL2-devel-2.32.10-mingw.zip) and
+# zlib 1.3.1 (build/zlib/src), both from their release pages; SDL2.dll is
+# put beside the game.
+SDL2_WIN = build/sdl2-windows/src/SDL2-2.32.10/x86_64-w64-mingw32
+ZLIB_SRC = build/zlib/src/zlib-1.3.1
+ZLIB_WIN_OBJ = $(patsubst $(ZLIB_SRC)/%.c,build/windows/zlib/%.o,$(wildcard $(ZLIB_SRC)/*.c))
+RT_WIN_SRC = $(wildcard runtime/*.c)
+
+build/windows/zlib/%.o: $(ZLIB_SRC)/%.c
+	@mkdir -p build/windows/zlib
+	$(WIN_CC) -O2 -c $< -o $@
+
+windows-game: build/windows/nesrecomp-recomp.exe $(RECOMP) $(ZLIB_WIN_OBJ)
+	@test -n "$(ROM)" || { echo "usage: make windows-game ROM=path/to/file.nes"; exit 1; }
+	@mkdir -p build/windows
+	$(RECOMP) $(ROM) -o build/windows/$(NAME).c $(call missed_arg,$(ROM))
+	$(WIN_CC) -O1 -Wall -I$(SDL2_WIN)/include/SDL2 -I$(ZLIB_SRC) -Iruntime -o build/windows/$(NAME).exe \
+	    build/windows/$(NAME).c $(RT_WIN_SRC) $(ZLIB_WIN_OBJ) $(SDL2_WIN)/lib/libSDL2.dll.a
+	cp $(SDL2_WIN)/bin/SDL2.dll build/windows/
+
 # The fingerprints of the C the Mac's recompiler writes (tests/same_c.txt),
 # which every system's must match; written again after a change to the C.
 same-c: $(RECOMP)
@@ -183,4 +206,4 @@ clean:
 	find build -mindepth 1 -maxdepth 1 ! -name sdl2 -exec rm -rf {} + 2>/dev/null; \
 	rm -f $(NESTEST).missed
 
-.PHONY: test test-ppu test-all test-record release test-release windows same-c test-same-c game run recomp test-recomp sdl2 app run-app test-app app-bundle test-app-bundle test-standalone clean
+.PHONY: test test-ppu test-all test-record release test-release windows windows-game same-c test-same-c game run recomp test-recomp sdl2 app run-app test-app app-bundle test-app-bundle test-standalone clean

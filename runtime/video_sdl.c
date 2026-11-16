@@ -2,6 +2,7 @@
    headless runs (tests) never open a window. */
 #define SDL_MAIN_HANDLED
 #include <SDL.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include "apu.h"
 #include "event.h"

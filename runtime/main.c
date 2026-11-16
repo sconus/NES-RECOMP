@@ -1,9 +1,6 @@
 #include <ctype.h>
-#include <pwd.h>
 #include <signal.h>
-#include <sys/stat.h>
 #include <time.h>
-#include <unistd.h>
 /* nesrecomp runtime: the CPU memory bus and the program entry point.
    The .nes file is loaded at runtime; the generated code holds only the
    translated instruction logic. */
@@ -22,6 +19,7 @@
 #include "palette.h"
 #include "ppu.h"
 #include "record.h"
+#include "sys.h"
 #include "video.h"
 #include "wav.h"
 
@@ -250,8 +248,8 @@ static void drain_sound(void) {
    screen; both go to ~/Movies/NES RECOMP (or --record-dir), named by the
    game and the date and time. --record FILE records the whole run. A
    recording is finished when the program exits: by Esc, the window
-   closing, --frames, or Ctrl+C and the like (handled here, so the movie
-   can still be opened). */
+   closing, --frames, or Ctrl+C and the like (handled here, always: so
+   the movie can still be opened, and .missed and .sav are written). */
 static int sound_on;                /* the APU's samples are taken each frame */
 static const char *record_path, *record_dir;
 static const uint16_t *last_frame;
@@ -259,7 +257,7 @@ static volatile sig_atomic_t stop_signal;
 static const char *rom_path;
 
 static void on_stop_signal(int sig) {
-    if (stop_signal) _exit(128 + sig);  /* a second one: at once */
+    if (stop_signal) sys_quit_now(128 + sig);   /* a second one: at once */
     stop_signal = sig;
 }
 
@@ -268,18 +266,11 @@ static void on_stop_signal(int sig) {
 static int media_path(char *out, size_t n, const char *ext) {
     char dir[1024];
     if (record_dir) snprintf(dir, sizeof dir, "%s", record_dir);
-    else {
-        const char *home = getenv("HOME");
-        struct passwd *pw = (!home || !*home) ? getpwuid(getuid()) : NULL;
-        if (pw) home = pw->pw_dir;
-        snprintf(dir, sizeof dir, "%s/Movies/NES RECOMP", home ? home : "/tmp");
-    }
-    char part[1024];
-    snprintf(part, sizeof part, "%s", dir);
-    for (char *p = part + 1; *p; p++)
-        if (*p == '/') { *p = 0; mkdir(part, 0755); *p = '/'; }
-    mkdir(part, 0755);
+    else sys_media_dir(dir, sizeof dir);
+    sys_make_dirs(dir);
     const char *base = strrchr(rom_path, '/');
+    const char *bs = strrchr(rom_path, '\\');     /* Windows paths */
+    if (sys_sep() == '\\' && bs && (!base || bs > base)) base = bs;
     base = base ? base + 1 : rom_path;
     char name[256];
     snprintf(name, sizeof name, "%s", base);
@@ -289,9 +280,9 @@ static int media_path(char *out, size_t n, const char *ext) {
     time_t now = time(NULL);
     strftime(when, sizeof when, "%Y-%m-%d at %H.%M.%S", localtime(&now));
     for (int k = 1; k < 100; k++) {
-        if (k == 1) snprintf(out, n, "%s/%s %s.%s", dir, name, when, ext);
-        else snprintf(out, n, "%s/%s %s %d.%s", dir, name, when, k, ext);
-        if (access(out, F_OK) != 0) return 0;
+        if (k == 1) snprintf(out, n, "%s%c%s %s.%s", dir, sys_sep(), name, when, ext);
+        else snprintf(out, n, "%s%c%s %s %d.%s", dir, sys_sep(), name, when, k, ext);
+        if (!sys_exists(out)) return 0;
     }
     return -1;
 }
@@ -299,9 +290,7 @@ static int media_path(char *out, size_t n, const char *ext) {
 static void watch_stop_signals(void) {
     static int done;
     if (done++) return;
-    signal(SIGINT, on_stop_signal);
-    signal(SIGTERM, on_stop_signal);
-    signal(SIGHUP, on_stop_signal);
+    sys_on_stop(on_stop_signal);
 }
 
 static void start_recording(const char *path) {
@@ -309,7 +298,7 @@ static void start_recording(const char *path) {
         apu_enable_sound();
         sound_on = 1;
     }
-    if (record_start(path) == 0) watch_stop_signals();
+    record_start(path);
 }
 
 /* V: start or stop a recording. */
@@ -788,6 +777,8 @@ int main(int argc, char **argv) {
     palette_init();
     if (!headless) {
         const char *name = strrchr(rom_path, '/');
+        const char *bs = strrchr(rom_path, '\\');     /* Windows paths */
+        if (sys_sep() == '\\' && bs && (!name || bs > name)) name = bs;
         name = name ? name + 1 : rom_path;
         if (cart.mapper == MAPPER_NSF && nsf.title[0]) name = nsf.title;
         video_init(scale < 1 ? 1 : scale, name);
@@ -795,6 +786,11 @@ int main(int argc, char **argv) {
     }
     start_scale = scale < 1 ? 1 : scale;
     atexit(at_exit);
+    /* Ctrl+C and the like end the program at the frame's end, through
+       at_exit: the .missed file, a battery save and a recording are
+       all written (PLAN-windows.md step 2; before, only while
+       recording). */
+    watch_stop_signals();
     ppu_frame_done = frame_done;
     apu_reset();
     if (!headless && !mute) { video_init_audio(); speakers = 1; }
