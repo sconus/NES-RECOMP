@@ -8,7 +8,11 @@
         [--zig zig-x86_64-windows-0.17.1]
 
 makes OUT/:
-    nesrecomp-app.exe       the app (a Windows program: no console window)
+    nesrecomp-app.exe       the app (a Windows program: no console window),
+                            with its icon (the Mac app's picture), its
+                            version (APP_VERSION in app/build.h) and its
+                            manifest: Windows's UTF-8 setting, so file
+                            names with accents or other alphabets work
     SDL2.dll                SDL's, for the app and copied beside each game
     nesrecomp-recomp.exe    the recompiler (built by `make windows`)
     runtime/                the runtime's sources (its .c and .h)
@@ -24,6 +28,8 @@ makes OUT/:
                             code, MinGW's and Zig's libraries, Windows's
                             import libraries), made here by linking a
                             tiny program as a game is linked;
+        prebuilt/game.res   the manifest for each game too (a game
+                            opens its ROM by name);
         link.txt            that link's command, for app/build.c.
 Zig would make the C library on a PC's first build (a minute or so) and
 keep it in its cache, but a cache made elsewhere is never used (Zig
@@ -39,9 +45,11 @@ import glob
 import os
 import shlex
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
+import zlib
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -61,6 +69,96 @@ def run(cmd):
         sys.exit("failed: %s\n%s%s" % (" ".join(cmd), r.stdout, r.stderr))
 
 
+NAME = "NES RECOMP"
+COPYRIGHT = ("For educational purposes only. By Serge and Claude. "
+             "Free software under the MIT License.")
+# Windows's UTF-8 setting for a program (Windows 10 1903 or later): its
+# "ANSI" code page is UTF-8, so fopen and the C library take UTF-8 names.
+# The recompiler links it through app/windows/utf8.rc.
+MANIFEST = open(os.path.join(ROOT, "app", "windows", "manifest.xml")).read()
+ICON_SIZES = (256, 64, 48, 32, 16)
+
+
+def app_version():
+    h = open(os.path.join(ROOT, "app", "build.h")).read()
+    return h.split('#define APP_VERSION "', 1)[1].split('"', 1)[0]
+
+
+def png_bytes(rows):
+    h, w = len(rows), len(rows[0])
+    raw = b"".join(b"\x00" + bytes(v for px in row for v in px) for row in rows)
+
+    def chunk(t, d):
+        return struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d) & 0xFFFFFFFF)
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 6, 0, 0, 0)) +
+            chunk(b"IDAT", zlib.compress(raw, 9)) + chunk(b"IEND", b""))
+
+
+def shrink(rows, size):
+    """rows (square, RGBA) averaged down to size x size, colour weighted
+    by its alpha."""
+    n = len(rows) // size
+    out = []
+    for y in range(size):
+        line = []
+        for x in range(size):
+            r = g = b = a = 0
+            for yy in range(y * n, y * n + n):
+                for px in rows[yy][x * n:x * n + n]:
+                    r += px[0] * px[3]; g += px[1] * px[3]; b += px[2] * px[3]; a += px[3]
+            line.append((r // a, g // a, b // a, a // (n * n)) if a else (0, 0, 0, 0))
+        out.append(line)
+    return out
+
+
+def write_ico(path):
+    """The icon, the Mac app's (tools/make_app_bundle.py), as a Windows
+    .ico with PNG images of each size."""
+    sys.path.insert(0, HERE)
+    import make_app_bundle                   # (its icon_master; nothing run)
+    master = make_app_bundle.icon_master()
+    images = [png_bytes(shrink(master, s)) for s in ICON_SIZES]
+    head = struct.pack("<HHH", 0, 1, len(images))
+    at = 6 + 16 * len(images)
+    for s, im in zip(ICON_SIZES, images):
+        head += struct.pack("<BBBBHHII", s % 256, s % 256, 0, 0, 1, 32, len(im), at)
+        at += len(im)
+    with open(path, "wb") as f:
+        f.write(head + b"".join(images))
+
+
+def rc_text(version, icon):
+    """The app's resources (icon, version, manifest), or a game's
+    (manifest only), as a Windows .rc file."""
+    nums = (version.split(".") + ["0"] * 4)[:4]
+    v = ",".join(str(int(x)) for x in nums)
+    text = '1 24 "manifest.xml"\n'
+    if icon:
+        text += '1 ICON "app.ico"\n'
+        strings = [("CompanyName", "Serge and Claude"), ("FileDescription", NAME),
+                   ("FileVersion", version), ("InternalName", "nesrecomp-app"),
+                   ("LegalCopyright", COPYRIGHT), ("OriginalFilename", NAME + ".exe"),
+                   ("ProductName", NAME), ("ProductVersion", version)]
+        text += ("1 VERSIONINFO\nFILEVERSION %s\nPRODUCTVERSION %s\nFILEOS 0x40004\nFILETYPE 1\n"
+                 "BEGIN\n  BLOCK \"StringFileInfo\"\n  BEGIN\n    BLOCK \"040904B0\"\n    BEGIN\n" % (v, v))
+        text += "".join('      VALUE "%s", "%s"\n' % kv for kv in strings)
+        text += ('    END\n  END\n  BLOCK "VarFileInfo"\n  BEGIN\n    VALUE "Translation", 0x409, 1200\n'
+                 "  END\nEND\n")
+    return text
+
+
+def resources(work, icon):
+    """Write manifest.xml (and app.ico) and the .rc in work; its name."""
+    with open(os.path.join(work, "manifest.xml"), "w", newline="\r\n") as f:
+        f.write(MANIFEST)
+    if icon:
+        write_ico(os.path.join(work, "app.ico"))
+    rc = os.path.join(work, "app.rc" if icon else "game.rc")
+    with open(rc, "w", newline="\r\n") as f:
+        f.write(rc_text(app_version(), icon))
+    return rc
+
+
 def tree_size(path):
     return sum(os.path.getsize(os.path.join(d, f)) for d, _, fs in os.walk(path) for f in fs)
 
@@ -78,9 +176,17 @@ def prepare_link(zig_cc, out, zdir):
         f.write("int main(void) { return 0; }\n")
     shutil.copy2(os.path.join(out, "sdl2", "lib", sdl2), work)
     shutil.copy2(os.path.join(out, "zlib", "lib", zlib), work)
+    pre = os.path.join(zdir, "prebuilt")
+    os.makedirs(pre)
+    # Each game's manifest (Windows's UTF-8 setting), compiled by Zig's
+    # resource compiler, linked in from prebuilt\game.res.
+    run([zig_cc[0], "rc", "/:target", "x86_64", "/fo", os.path.join(pre, "game.res"),
+         resources(work, icon=False)])
     env = dict(os.environ, ZIG_GLOBAL_CACHE_DIR=cache, ZIG_LOCAL_CACHE_DIR=cache)
     for cmd in (zig_cc + TARGET + ["-O1", "-c", "-o", obj, src],
-                zig_cc + TARGET + ["-o", exe, obj, sdl2, zlib] + LINK_LIBS + ["-v"]):
+                # Optimized and stripped (-O2 -s), so the library has no
+                # debug information, which names the folders it was made in.
+                zig_cc + TARGET + ["-O2", "-s", "-o", exe, obj, sdl2, zlib] + LINK_LIBS + ["-v"]):
         r = subprocess.run(cmd, capture_output=True, text=True, env=env, cwd=work)
         if r.returncode:
             sys.exit("failed: %s\n%s%s" % (" ".join(cmd), r.stdout, r.stderr))
@@ -89,8 +195,6 @@ def prepare_link(zig_cc, out, zdir):
         sys.exit("no lld-link line in Zig's -v:\n" + r.stderr)
     same = lambda a, b: os.path.normcase(os.path.abspath(a)) == os.path.normcase(os.path.abspath(os.path.join(work, b)))
     cache = os.path.join(work, cache)
-    pre = os.path.join(zdir, "prebuilt")
-    os.makedirs(pre)
     args, objects = [], False
     for a in line[0].split(" ")[1:]:
         p = os.path.join(work, a)
@@ -99,7 +203,7 @@ def prepare_link(zig_cc, out, zdir):
         elif a.startswith("-OUT:"):
             args.append("-OUT:{out}")
         elif same(p, obj):
-            args.append("{objects}")
+            args += ["{objects}", "{zig}/prebuilt/game.res"]
             objects = True
         elif same(p, sdl2):
             args.append("{sdl2}")
@@ -136,6 +240,8 @@ def add_zig(zig, zig_cc, out):
         else:
             os.makedirs(os.path.dirname(dst), exist_ok=True)
             shutil.copy2(src, dst)
+    if os.path.exists(zig_cc[0]):               # a relative path: the link runs elsewhere
+        zig_cc = [os.path.abspath(zig_cc[0])] + zig_cc[1:]
     prepare_link(zig_cc, out, zdir)
     mb = lambda n: "%.1f MB" % (n / 1e6)
     print("zig/: %s (zig.exe %s, lib/ %s, prebuilt/ %s)" % (
@@ -167,7 +273,9 @@ def main():
     objs = []
     for src in sorted(glob.glob(os.path.join(o.zlib_src, "*.c"))):
         obj = os.path.join(zobj, os.path.basename(src)[:-2] + ".o")
-        run(cc + ["-O2", "-c", src, "-o", obj])
+        # No debug information, and the object's own name recorded in it
+        # (not Zig's folder for it): nothing naming this machine's folders.
+        run(cc + ["-O2", "-g0", "-Xclang", "-object-file-name=" + os.path.basename(obj), "-c", src, "-o", obj])
         objs.append(obj)
     os.makedirs(os.path.join(out, "zlib", "include"))
     os.makedirs(os.path.join(out, "zlib", "lib"))
@@ -188,13 +296,17 @@ def main():
             shutil.copy2(os.path.join(ROOT, "runtime", f), os.path.join(out, "runtime"))
     shutil.copy2(o.recomp, os.path.join(out, "nesrecomp-recomp.exe"))
 
-    # The app: a Windows program (no console window when opened).
+    # The app: a Windows program (no console window when opened), with
+    # its icon, version and manifest.
+    rwork = tempfile.mkdtemp(prefix="nesrecomp-rc-")
+    app_rc = resources(rwork, icon=True)
     inc = ["-I" + os.path.join(out, "sdl2", "include", "SDL2"), "-I" + os.path.join(out, "zlib", "include"),
            "-D_THREAD_SAFE", "-I" + os.path.join(ROOT, "app")]
-    run(cc + ["-O1", "-Wall", "-Werror"] + inc + ["-o", os.path.join(out, "nesrecomp-app.exe")] +
-        [os.path.join(ROOT, "app", f) for f in APP_SOURCES] +
+    run(cc + ["-O1", "-s", "-Wall", "-Werror"] + inc + ["-o", os.path.join(out, "nesrecomp-app.exe")] +
+        [os.path.join(ROOT, "app", f) for f in APP_SOURCES] + [app_rc] +
         [os.path.join(out, "sdl2", "lib", "libSDL2.dll.a"), os.path.join(out, "zlib", "lib", "libz.a"),
          "-lole32", "-lcomdlg32", "-lshell32", "-Wl,--subsystem,windows"])
+    shutil.rmtree(rwork, ignore_errors=True)
     if o.zig:
         add_zig(o.zig, cc[:2] if len(cc) >= 2 and cc[1] == "cc" else cc, out)
     print("made", out)

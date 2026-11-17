@@ -61,6 +61,15 @@ compiler (app/build.c, tools/make_windows_app.py):
   - the prebuilt C library not used (a game linked with `zig cc`, which
     would make the library first);
   - a part of Zig left out that a build needs (its C headers).
+
+Step 6's (checked with tests/check_release_windows.py, with the zip made
+from the copy by tools/make_windows_release.py) are in the release:
+  - a license left out (zlib's);
+  - the icon missing;
+  - a file the app needs left out (the recompiler);
+  - the version wrong;
+  - Windows's UTF-8 setting left out of the games (a ROM named with
+    accents then doesn't open).
 """
 import os
 import shlex
@@ -86,6 +95,7 @@ RUNTIME = [["tests/check_runtime_sys.py"],
            ["tests/run_tests.py", "240pee/240pee.nes", "tests/nsf_rate.nsf"]]
 RECORD = [["tests/check_record_win.py"]]
 APP = [["tests/check_app.py"]]
+RELEASE = [["tests/check_release_windows.py"]]
 
 
 def wrong_rate(w):
@@ -102,7 +112,7 @@ def pc_compiler(w):
 
 
 BREAKS = [
-    ("no break: the copy as it is (must pass)", lambda w: None, SAME_C + RUNTIME + RECORD + APP),
+    ("no break: the copy as it is (must pass)", lambda w: None, SAME_C + RUNTIME + RECORD + APP + RELEASE),
     ("the C written as text",
      lambda w: sub(w, "recomp/main.c", 'FILE *f = fopen(out, "wb");', 'FILE *f = fopen(out, "w");'), SAME_C),
     ("the listing written as text",
@@ -170,6 +180,20 @@ BREAKS = [
     ("app: a part of Zig left out (its C headers)",
      lambda w: sub(w, "tools/make_windows_app.py", '"include", "libc/include/any-windows-any", "std/std.zig"',
                    '"include", "std/std.zig"'), APP),
+    ("release: a license left out (zlib's)",
+     lambda w: sub(w, "tools/make_windows_release.py", '    ("zlib LICENSE.txt", "zlib"),\n', ""), RELEASE),
+    ("release: the icon missing",
+     lambda w: sub(w, "tools/make_windows_app.py", "        text += '1 ICON \"app.ico\"\\n'\n", ""), RELEASE),
+    ("release: a file the app needs left out (the recompiler)",
+     lambda w: sub(w, "tools/make_windows_release.py", '            if rel == "nesrecomp-app.exe":',
+                   '            if rel == "nesrecomp-recomp.exe":\n                continue\n'
+                   '            if rel == "nesrecomp-app.exe":'), RELEASE),
+    ("release: the version wrong",
+     lambda w: sub(w, "tools/make_windows_app.py", "f.write(rc_text(app_version(), icon))",
+                   'f.write(rc_text("0.9", icon))'), RELEASE),
+    ("release: Windows's UTF-8 setting left out of the games",
+     lambda w: sub(w, "tools/make_windows_app.py", 'args += ["{objects}", "{zig}/prebuilt/game.res"]',
+                   'args += ["{objects}"]'), RELEASE),
 ]
 
 
@@ -196,13 +220,14 @@ def main():
             os.makedirs(os.path.dirname(out))
             srcs = sorted(os.path.join(work, "recomp", f) for f in os.listdir(os.path.join(work, "recomp"))
                           if f.endswith(".c"))
-            b = subprocess.run(cc + ["-O2", "-o", out] + srcs, capture_output=True, text=True)
+            b = subprocess.run(cc + ["-target", "x86_64-windows-gnu", "-O2", "-o", out] + srcs +
+                               [os.path.join(work, "app", "windows", "utf8.rc")], capture_output=True, text=True)
             if b.returncode:
                 results.append((name, "BUILD FAILED (not counted): " + (b.stderr.strip().splitlines() or ["?"])[-1]))
                 print(name, "->", results[-1][1], flush=True)
                 continue
             # The app, from the copy, when a check needs it.
-            if any(chk in APP for chk in checks):
+            if any(chk in APP or chk in RELEASE for chk in checks):
                 a = subprocess.run([sys.executable, os.path.join(work, "tools", "make_windows_app.py"),
                                     "--cc", " ".join(cc), "--sdl2", os.environ["NESRECOMP_SDL2"],
                                     "--zlib-src", os.environ["NESRECOMP_ZLIB_SRC"], "--recomp", out,
@@ -211,6 +236,19 @@ def main():
                                    capture_output=True, text=True)
                 if a.returncode:
                     results.append((name, "BUILD FAILED (not counted): the app: " +
+                                    ((a.stdout + a.stderr).strip().splitlines() or ["?"])[-1]))
+                    print(name, "->", results[-1][1], flush=True)
+                    continue
+            # The zip, from the copy, when a check needs it.
+            if any(chk in RELEASE for chk in checks):
+                a = subprocess.run([sys.executable, os.path.join(work, "tools", "make_windows_release.py"),
+                                    "--app", os.path.join(work, "build", "windows", "app"),
+                                    "--zig", os.environ["NESRECOMP_ZIG"],
+                                    "--sdl2-license", os.path.join(os.environ["NESRECOMP_SDL2"], "..", "LICENSE.txt"),
+                                    "--zlib-src", os.environ["NESRECOMP_ZLIB_SRC"]],
+                                   capture_output=True, text=True)
+                if a.returncode:
+                    results.append((name, "BUILD FAILED (not counted): the zip: " +
                                     ((a.stdout + a.stderr).strip().splitlines() or ["?"])[-1]))
                     print(name, "->", results[-1][1], flush=True)
                     continue

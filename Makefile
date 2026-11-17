@@ -161,9 +161,11 @@ test-standalone: app-bundle
 ZIG ?= build/zig/zig-aarch64-macos-0.17.1/zig
 WIN_CC = $(ZIG) cc -target x86_64-windows-gnu
 
-build/windows/nesrecomp-recomp.exe: $(RECOMP_SRC) $(RECOMP_HDR) runtime/fds_bios.h
+# With Windows's UTF-8 setting (app/windows/utf8.rc), so ROM names with
+# accents or other alphabets open (PLAN-windows.md step 6).
+build/windows/nesrecomp-recomp.exe: $(RECOMP_SRC) $(RECOMP_HDR) runtime/fds_bios.h app/windows/utf8.rc app/windows/manifest.xml
 	@mkdir -p build/windows
-	$(WIN_CC) -O2 -Wall -Wextra -o $@ $(RECOMP_SRC)
+	$(WIN_CC) -O2 -Wall -Wextra -o $@ $(RECOMP_SRC) app/windows/utf8.rc
 
 windows: build/windows/nesrecomp-recomp.exe
 
@@ -202,6 +204,31 @@ same-c: $(RECOMP)
 test-same-c: $(RECOMP)
 	python3 tests/check_same_c.py
 
+# NES RECOMP for Windows to give away (PLAN-windows.md step 6):
+# build/NES-RECOMP-<version>-windows.zip, with the app's own Zig, Zig's
+# official Windows build (build/zig/win-unpack, from
+# zig-x86_64-windows-0.17.1.zip on ziglang.org, checked against its
+# SHA-256). Its C library is made here by this Mac's Zig.
+WIN_ZIG_DIR = build/zig/win-unpack/zig-x86_64-windows-0.17.1
+WIN_ZIG_SHA256 = b03f477a1943673e02aca0f570e8030dffd536ce1f45cbc4d3326ec31159562e
+
+$(WIN_ZIG_DIR)/zig.exe:
+	@mkdir -p build/zig/win-unpack
+	curl -sSfL -o build/zig/zig-x86_64-windows-0.17.1.zip https://ziglang.org/download/0.17.1/zig-x86_64-windows-0.17.1.zip
+	echo "$(WIN_ZIG_SHA256)  build/zig/zig-x86_64-windows-0.17.1.zip" | shasum -a 256 -c -
+	unzip -q -o build/zig/zig-x86_64-windows-0.17.1.zip -d build/zig/win-unpack
+
+release-windows: build/windows/nesrecomp-recomp.exe $(WIN_ZIG_DIR)/zig.exe tools/make_windows_app.py tools/make_windows_release.py LICENSE
+	python3 tools/make_windows_app.py --cc "$(WIN_CC)" --sdl2 $(SDL2_WIN) --zlib-src $(ZLIB_SRC) \
+	    --recomp build/windows/nesrecomp-recomp.exe --out build/windows/release-app --zig $(WIN_ZIG_DIR)
+	python3 tools/make_windows_release.py --app build/windows/release-app --zig $(WIN_ZIG_DIR) \
+	    --sdl2-license $(SDL2_WIN)/../LICENSE.txt --zlib-src $(ZLIB_SRC)
+
+# What can be checked here (its contents, no path of this Mac, the
+# read-me); the rest on GitHub's Windows machine.
+test-release-windows: release-windows
+	python3 tests/check_release_windows.py
+
 # --- a release (PLAN-standalone.md step 9) ------------------------------
 release: app-bundle tools/make_release.py LICENSE
 	python3 tools/make_release.py
@@ -215,4 +242,4 @@ clean:
 	find build -mindepth 1 -maxdepth 1 ! -name sdl2 -exec rm -rf {} + 2>/dev/null; \
 	rm -f $(NESTEST).missed
 
-.PHONY: windows-app test test-ppu test-all test-record release test-release windows windows-game same-c test-same-c game run recomp test-recomp sdl2 app run-app test-app app-bundle test-app-bundle test-standalone clean
+.PHONY: windows-app release-windows test-release-windows test test-ppu test-all test-record release test-release windows windows-game same-c test-same-c game run recomp test-recomp sdl2 app run-app test-app app-bundle test-app-bundle test-standalone clean

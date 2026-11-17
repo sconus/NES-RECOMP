@@ -475,6 +475,55 @@ to bring its own.
   - Breaks: a license left out, the icon missing, a file the app needs
     left out, the version wrong.
 
+- Done (tested on the branch `windows-step6`; the Windows run is green):
+  - **Made on the Mac** (your choice): `make release-windows` writes
+    `build/NES-RECOMP-1.0-windows.zip`, 72.7 MB. It uses Zig's official
+    Windows build (`zig-x86_64-windows-0.17.1.zip`, 100.3 MB, downloaded
+    with your OK into `build/zig`, checked against its SHA-256), for
+    `zig.exe` and its licenses; the Mac's Zig builds everything else.
+    `tools/make_windows_release.py` renames the app to `NES RECOMP.exe`
+    and adds `READ ME FIRST.txt`, `LICENSE.txt` and `licenses\` (SDL's,
+    zlib's, Zig's, LLVM's, MinGW-w64's, all from what's already here).
+  - **The icon, version and Windows's UTF-8 setting** are in the app
+    (`tools/make_windows_app.py`: the Mac app's picture as a `.ico`, a
+    version from `APP_VERSION`, a manifest, compiled by Zig's resource
+    compiler). The UTF-8 setting (from the Choices, not yet done) is in
+    every game too (`zig\prebuilt\game.res`) and in the recompiler
+    (`app/windows/utf8.rc`): all three open the ROM by its name.
+  - **No path of the machine that made it.** The first zip carried
+    this Mac's folders (your user name among them) in debug
+    information: Zig's prebuilt library, the app's debug database,
+    zlib's library. All are now made without it (`-O2 -s` for the
+    library, which also shrank it from 16.7 to 6.6 MB; `-s` for the
+    app; `-g0` and the object's own name for zlib). The release tool
+    won't write a zip that names this machine's folders.
+  - **`tests/check_release_windows.py`** (`make test-release-windows`
+    here, and on GitHub's machine): the zip's contents and nothing left
+    over, the licenses, no path of the machine, the read-me's points;
+    on Windows, unzipped into a folder with spaces and every file
+    marked as downloaded, Windows's own reading of the version, the
+    icon, the manifest in the app and the recompiler, and, with no other
+    compiler reachable, a ROM named "Café テスト (test).nes" builds
+    (8.6 s) and its game passes its test.
+  - **The Mac's prebuilt library against Windows's:** a zip made here
+    should carry what Windows checks, so the check compares the
+    library's fingerprints with the Mac's (`tests/windows_prebuilt.txt`)
+    in what goes into a game: each object's code and data, relocations
+    and symbols, not the names Zig files the parts under nor its
+    numbering of unnamed constants. They match but for 4 bytes in
+    `zigc.lib`: the lowest bits of two long-double constants (the
+    limits `hypotl` rescales at, which Zig works out while compiling,
+    in software on the Mac's ARM processor and with the x87 on a PC).
+    Nothing here uses long doubles; the check allows exactly those
+    bytes (and that section's checksum), nothing else.
+  - **29 of 29 breaks caught**, the copy with no break passing: the 24
+    before, and five for the release (a license left out, the icon
+    missing, the recompiler left out, the version wrong, the UTF-8
+    setting left out of games).
+  - Not checked by machine, for step 7: SmartScreen's real warning (it
+    shows only when opened from Explorer), the icon as Explorer shows
+    it, and the zip from this Mac itself on a PC.
+
 ### 7. Your turn: Boot Camp
 - A checklist for you, on your MacBook Pro in Windows:
   - the zip from GitHub, unzipped, SmartScreen's warning, Run anyway;

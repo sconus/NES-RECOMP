@@ -64,7 +64,7 @@ jobs:
         run: |
           mkdir -p build/windows
           zig version
-          zig cc -O2 -Wall -Wextra -Werror -o build/windows/nesrecomp-recomp.exe recomp/*.c
+          zig cc -target x86_64-windows-gnu -O2 -Wall -Wextra -Werror -o build/windows/nesrecomp-recomp.exe recomp/*.c app/windows/utf8.rc
 
       - name: The same C as on the Mac
         run: python tests/check_same_c.py --recompiler build/windows/nesrecomp-recomp.exe
@@ -86,6 +86,12 @@ jobs:
 
       - name: The app on Windows (tests/check_app.py)
         run: python tests/check_app.py
+
+      - name: The Windows release, made (tools/make_windows_release.py)
+        run: python tools/make_windows_release.py --app build/windows/app --zig "$env:NESRECOMP_ZIG" --sdl2-license "$env:NESRECOMP_SDL2\..\LICENSE.txt" --zlib-src "$env:NESRECOMP_ZLIB_SRC"
+
+      - name: The Windows release, unzipped and used (tests/check_release_windows.py)
+        run: python tests/check_release_windows.py
 
       - name: Breaks, each in a scratch copy on this machine
         run: python tests/windows_breaks.py

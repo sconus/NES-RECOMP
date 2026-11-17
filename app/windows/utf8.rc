@@ -1,0 +1,4 @@
+/* Windows's UTF-8 setting for a program (manifest.xml), linked into
+   the recompiler (PLAN-windows.md step 6); the app and its games get
+   the same manifest from tools/make_windows_app.py. */
+1 24 "manifest.xml"
