@@ -3,26 +3,12 @@
    which C can't reach. Without ARC: the one object lives as long as the
    app. */
 #import <Cocoa/Cocoa.h>
-#include <errno.h>
-#include <spawn.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
-#include <sys/wait.h>
+#include "os.h"
 #include "support.h"
 
-extern char **environ;
-
-int support_open(void) {
-    const char *open = getenv("NESRECOMP_OPEN");        /* for the checks */
-    if (!open || !*open) open = "/usr/bin/open";
-    char *argv[] = { (char *)open, SUPPORT_URL, NULL };
-    pid_t pid;
-    if (posix_spawn(&pid, argv[0], NULL, NULL, argv, environ)) return -1;
-    int status;                         /* open hands the link over and ends */
-    while (waitpid(pid, &status, 0) < 0 && errno == EINTR) {}
-    return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
-}
+int support_open(void) { return os_open_url(SUPPORT_URL); }
 
 @interface NRSupport : NSObject
 - (void)support:(id)sender;
@@ -47,7 +33,8 @@ static NSString *title(void) {
     return [NSString stringWithUTF8String:SUPPORT_MENU_TITLE];
 }
 
-int support_menu_add(void) {
+int support_menu_add(void *window) {
+    (void)window;                       /* (the Mac's menu is the app's) */
     @autoreleasepool {
         NSMenu *menu = app_menu();
         if (!menu) return -1;

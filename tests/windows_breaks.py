@@ -44,6 +44,16 @@ Windows (runtime/record_win.c):
   - a file not finished on quit;
   - frames shown out of order (H.264's High profile, with B-frames: the
     picture a frame behind the sound).
+
+Step 4's (checked with tests/check_app.py, with the app put together
+from the copy by tools/make_windows_app.py) are in the app's Windows
+half (app/os_win.c, support_win.c) and its build (app/build.c):
+  - a path with a space breaking a build (an argument with a space not
+    quoted for Windows);
+  - the app's folder in the wrong place;
+  - a build that never finishes (a program's end never seen);
+  - SDL2.dll not beside a game;
+  - the support link wrong in the window's menu.
 """
 import os
 import shlex
@@ -68,6 +78,7 @@ SAME_C = [["tests/check_same_c.py", "--recompiler", "{exe}"]]
 RUNTIME = [["tests/check_runtime_sys.py"],
            ["tests/run_tests.py", "240pee/240pee.nes", "tests/nsf_rate.nsf"]]
 RECORD = [["tests/check_record_win.py"]]
+APP = [["tests/check_app.py"]]
 
 
 def wrong_rate(w):
@@ -77,7 +88,7 @@ def wrong_rate(w):
 
 
 BREAKS = [
-    ("no break: the copy as it is (must pass)", lambda w: None, SAME_C + RUNTIME + RECORD),
+    ("no break: the copy as it is (must pass)", lambda w: None, SAME_C + RUNTIME + RECORD + APP),
     ("the C written as text",
      lambda w: sub(w, "recomp/main.c", 'FILE *f = fopen(out, "wb");', 'FILE *f = fopen(out, "w");'), SAME_C),
     ("the listing written as text",
@@ -119,6 +130,21 @@ BREAKS = [
                    "HRESULT hr = S_OK;"), RECORD),
     ("recording: frames shown out of order (B-frames)",
      lambda w: sub(w, "runtime/record_win.c", "&MF_MT_MPEG2_PROFILE, 66);", "&MF_MT_MPEG2_PROFILE, 100);"), RECORD),
+    ("app: a path with a space breaking a build",
+     lambda w: sub(w, "app/os_win.c", 'int q = !*a || wcspbrk(a, L" \\t\\"") != NULL;',
+                   'int q = !*a || wcspbrk(a, L"\\t\\"") != NULL;'), APP),
+    ("app: its folder in the wrong place",
+     lambda w: sub(w, "app/os_win.c", 'snprintf(out, n, "%s\\\\NES RECOMP", base);',
+                   'snprintf(out, n, "%s\\\\NES-RECOMP", base);'), APP),
+    ("app: a build that never finishes (a program's end never seen)",
+     lambda w: sub(w, "app/os_win.c", "    if (r == WAIT_TIMEOUT) return 0;",
+                   "    if (r == WAIT_TIMEOUT || r == WAIT_OBJECT_0) return 0;"), APP),
+    ("app: SDL2.dll not beside a game",
+     lambda w: sub(w, "app/build.c", '    snprintf(dest, n, "%s/SDL2.dll", build_dir);',
+                   '    snprintf(dest, n, "%s/SDL2.dll.copy", build_dir);'), APP),
+    ("app: the support link wrong in the window's menu",
+     lambda w: sub(w, "app/support_win.c", "        support_open();\n        return 0;",
+                   '        os_open_url("https://ko-fi.com/");\n        return 0;'), APP),
 ]
 
 
@@ -135,10 +161,11 @@ def main():
         try:
             # The parts the check uses: the recompiler's source, recomp.py,
             # tests/ (with the test ROM clone), and git's list of files.
-            for d in ("recomp", "runtime", "tests", ".git"):         # (tests/ with the ROM clone)
+            for d in ("recomp", "runtime", "app", "tools", "tests", ".git"):  # (tests/ with the ROM clone)
                 shutil.copytree(os.path.join(ROOT, d), os.path.join(work, d), symlinks=True,
                                 ignore=shutil.ignore_patterns("build"))
-            shutil.copy(os.path.join(ROOT, "recomp.py"), work)
+            for f in ("recomp.py", "LICENSE"):
+                shutil.copy(os.path.join(ROOT, f), work)
             apply(work)
             out = os.path.join(work, "build", exe)
             os.makedirs(os.path.dirname(out))
@@ -149,6 +176,18 @@ def main():
                 results.append((name, "BUILD FAILED (not counted): " + (b.stderr.strip().splitlines() or ["?"])[-1]))
                 print(name, "->", results[-1][1], flush=True)
                 continue
+            # The app, from the copy, when a check needs it.
+            if any(chk in APP for chk in checks):
+                a = subprocess.run([sys.executable, os.path.join(work, "tools", "make_windows_app.py"),
+                                    "--cc", " ".join(cc), "--sdl2", os.environ["NESRECOMP_SDL2"],
+                                    "--zlib-src", os.environ["NESRECOMP_ZLIB_SRC"], "--recomp", out,
+                                    "--out", os.path.join(work, "build", "windows", "app")],
+                                   capture_output=True, text=True)
+                if a.returncode:
+                    results.append((name, "BUILD FAILED (not counted): the app: " +
+                                    ((a.stdout + a.stderr).strip().splitlines() or ["?"])[-1]))
+                    print(name, "->", results[-1][1], flush=True)
+                    continue
             # Each check, from the copy (its runtime too), with its recompiler.
             env = dict(os.environ, NESRECOMP_RECOMP=out)
             outs, errs, status = "", "", 0

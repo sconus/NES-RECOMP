@@ -10,43 +10,27 @@
        player quit);
      - a "stopped:" line (the runtime met something it can't run, such
        as an unknown opcode): that line;
-     - killed by a signal (a crash): which signal;
+     - killed by a signal (a crash; on Windows, an exception): which;
      - any other exit status: the status and its last line of output. */
 #include "play.h"
-#include <errno.h>
-#include <fcntl.h>
-#include <signal.h>
-#include <spawn.h>
 #include <stdio.h>
 #include <string.h>
-#include <sys/wait.h>
-#include <unistd.h>
 
-extern char **environ;
-
-pid_t play_start(const char *exe, const char *rom, char *const extra[], const char *log) {
+os_proc play_start(const char *exe, const char *rom, char *const extra[], const char *log) {
     char *argv[40];
     int n = 0;
     argv[n++] = (char *)exe;
     argv[n++] = (char *)rom;
     for (int i = 0; extra && extra[i] && n < 39; i++) argv[n++] = extra[i];
     argv[n] = NULL;
-    int fd = open(log, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-    if (fd < 0) return -1;
-    posix_spawn_file_actions_t fa;
-    posix_spawn_file_actions_init(&fa);
-    posix_spawn_file_actions_adddup2(&fa, fd, 1);
-    posix_spawn_file_actions_adddup2(&fa, fd, 2);
-    pid_t pid;
-    int err = posix_spawn(&pid, exe, &fa, NULL, argv, environ);
-    posix_spawn_file_actions_destroy(&fa);
-    close(fd);
-    return err ? -1 : pid;
+    /* Only a program that is there (never one of that name on PATH). */
+    if (!os_can_run(exe)) return -1;
+    return os_start(argv, log, 0);
 }
 
 /* The line of the log starting with `want`, or the last non-empty one. */
 static int log_line(const char *log, const char *want, char *out, size_t n) {
-    FILE *f = fopen(log, "r");
+    FILE *f = fopen(log, "rb");
     char line[512];
     int found = 0;
     out[0] = 0;
@@ -69,19 +53,16 @@ static int log_line(const char *log, const char *want, char *out, size_t n) {
     return found;
 }
 
-int play_poll(pid_t pid, const char *log, int wait, char *why, size_t n) {
-    int status;
-    pid_t r;
-    while ((r = waitpid(pid, &status, wait ? 0 : WNOHANG)) < 0 && errno == EINTR) {}
-    if (r == 0) return 0;
-    if (r < 0) { snprintf(why, n, "lost track of the game"); return -1; }
+int play_poll(os_proc pid, const char *log, int wait, char *why, size_t n) {
+    int code;
+    char crash[256];
+    if (!os_poll(pid, wait, &code, crash, sizeof crash)) return 0;
     char line[512];
-    if (WIFSIGNALED(status)) {
-        int sig = WTERMSIG(status);
-        snprintf(why, n, "the game crashed (signal %d, %s)", sig, strsignal(sig));
+    if (code < 0) {
+        if (!strcmp(crash, "lost track of it")) snprintf(why, n, "lost track of the game");
+        else snprintf(why, n, "the game crashed (%s)", crash);
         return -1;
     }
-    int code = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
     if (log_line(log, "stopped: ", line, sizeof line)) {
         snprintf(why, n, "%s", line);
         return -1;

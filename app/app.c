@@ -83,29 +83,34 @@
        nesrecomp-app --version
            print the app's version
        --build-dir D   where builds go (default: ~/Library/Application
-                       Support/NES RECOMP, or $NESRECOMP_ROOT/build)
+                       Support/NES RECOMP, %LOCALAPPDATA%\NES RECOMP on
+                       Windows, or $NESRECOMP_ROOT/build)
    The app needs no project folder (PLAN-standalone.md step 4): SDL2, the
    recompiler (nesrecomp-recomp) and the runtime's sources are found from
    the program's own place (in the bundle, or build/ and ../runtime for
    `make app`). $NESRECOMP_ROOT, set by `make run-app`, takes the runtime
-   and builds from a project folder instead. */
+   and builds from a project folder instead.
+   What the Mac and Windows do differently is in os.h (PLAN-windows.md
+   step 4); on Windows there is no "needs a compiler" screen (the app
+   brings its own, step 5), and the support item is in the window's own
+   menu (support_win.c). */
+#define SDL_MAIN_HANDLED                /* main is the app's own, on Windows too */
 #include <SDL.h>
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <pthread.h>
 #include <stdatomic.h>
 #include <zlib.h>
-#include <mach-o/dyld.h>
+#ifndef _WIN32
 #include <errno.h>
 #include <fcntl.h>
-#include <pwd.h>
 #include <spawn.h>
 #include <sys/wait.h>
-#include <sys/stat.h>
-#include <unistd.h>
+#include <pthread.h>
+#endif
+#include "os.h"
 #include "art.h"
 #include "build.h"
 #include "code.h"
@@ -236,7 +241,7 @@ static void draw_room(long n, int busy) {
 
 /* A ROM's name for the screen: its file name, cut to fit. */
 static void screen_name(const char *path, char *out, size_t n) {
-    const char *base = strrchr(path, '/');
+    const char *base = os_last_sep(path);
     base = base ? base + 1 : path;
     if (strlen(base) <= LINE_CHARS) snprintf(out, n, "%s", base);
     else snprintf(out, n, "%.*s..", LINE_CHARS - 2, base);
@@ -696,7 +701,7 @@ static const char *const screen_names[] = {
 static struct build job;
 static int screen = S_DROP;
 static char error_msg[512], shown_name[64], game_log[PATH_MAX + 16];
-static pid_t game = -1;
+static os_proc game = -1;
 static char builds[PATH_MAX];           /* the build folder */
 
 /* After a game: its run into its history, and the last game's name kept
@@ -745,36 +750,26 @@ static int game_scale(void) {
 }
 
 /* ---- the file picker (a click on the TV), on a thread of its own: the
-   Mac's standard dialog, through osascript, so the window keeps
-   drawing while it is open ---- */
+   system's standard box (os_pick_file), so the window keeps drawing
+   while it is open ---- */
 static atomic_int picker;               /* 0 idle, 1 open, 2 a file chosen */
 static char picked[PATH_MAX];
 
-static void *picker_main(void *arg) {
+static void picker_main(void *arg) {
     (void)arg;
-    FILE *p = popen("osascript -e 'POSIX path of (choose file with prompt "
-                    "\"Choose an NES ROM, NSF or FDS file\")' 2>/dev/null", "r");
-    char line[PATH_MAX] = "";
-    if (p) {
-        if (!fgets(line, sizeof line, p)) line[0] = 0;
-        pclose(p);
-    }
-    line[strcspn(line, "\r\n")] = 0;
-    if (line[0]) {
+    char line[PATH_MAX];
+    if (os_pick_file(line, sizeof line)) {
         snprintf(picked, sizeof picked, "%s", line);
         atomic_store(&picker, 2);
     } else {
         atomic_store(&picker, 0);       /* cancelled */
     }
-    return NULL;
 }
 
 static void open_picker(void) {
     int idle = 0;
     if (!atomic_compare_exchange_strong(&picker, &idle, 1)) return;
-    pthread_t t;
-    if (pthread_create(&t, NULL, picker_main, NULL) == 0) pthread_detach(t);
-    else atomic_store(&picker, 0);
+    if (os_thread(picker_main, NULL)) atomic_store(&picker, 0);
 }
 
 /* Split ARGS at spaces into a NULL-ended list (for the game), then
@@ -798,7 +793,7 @@ static char **split_args(const char *s, const char *rom, const char *files) {
 static int play_and_wait(const char *exe, const char *rom, const char *args, const char *files,
                          const char *log) {
     char why[512];
-    pid_t pid = play_start(exe, rom, split_args(args, rom, files), log);
+    os_proc pid = play_start(exe, rom, split_args(args, rom, files), log);
     if (pid < 0) {
         printf("error: couldn't start the game (%s)\n", exe);
         return 1;
@@ -808,8 +803,6 @@ static int play_and_wait(const char *exe, const char *rom, const char *args, con
     else printf("error: %s\n", why);
     return r > 0 ? 0 : 1;
 }
-
-extern char **environ;
 
 static int install_clicked;             /* the needcc screen: Apple's installer started */
 
@@ -838,7 +831,13 @@ static int click_action(int s, int x, int y, int w, int h) {
 
 /* Start Apple's installer of the Command Line Tools: `xcode-select
    --install` opens its own box. With `wait`, wait for it and give its
-   exit status; otherwise a thread waits, so it leaves no zombie. */
+   exit status; otherwise a thread waits, so it leaves no zombie. (On
+   Windows there's nothing to install: the app brings its compiler.) */
+#ifdef _WIN32
+static int install_tools(int wait) { (void)wait; return -1; }
+#else
+extern char **environ;
+
 static void *reap(void *arg) {
     int status;
     pid_t pid = (pid_t)(intptr_t)arg;
@@ -864,6 +863,7 @@ static int install_tools(int wait) {
     if (pthread_create(&t, NULL, reap, (void *)(intptr_t)pid) == 0) pthread_detach(t);
     return 0;
 }
+#endif
 
 /* A file arrived (dropped, or on the command line). */
 static void take(const char *path) {
@@ -955,11 +955,17 @@ int main(int argc, char **argv) {
         /* The app menu SDL makes, with the support item added: its titles,
            and with --choose-support, what choosing it does. No window. */
         if (SDL_Init(SDL_INIT_VIDEO) != 0) { fprintf(stderr, "SDL_Init: %s\n", SDL_GetError()); return 1; }
-        int added = support_menu_add();
+        SDL_Window *mw = NULL;
+#ifdef _WIN32
+        /* Windows's menu is the window's: a window, never shown. */
+        mw = SDL_CreateWindow("nesrecomp", 0, 0, ART_W, ART_H, SDL_WINDOW_HIDDEN);
+#endif
+        int added = support_menu_add(mw);
         char titles[2048];
         support_menu_titles(titles, sizeof titles);
         printf("added %d\n%s", added, titles);
         if (choose_support) printf("chose: %d\n", support_menu_choose());
+        if (mw) SDL_DestroyWindow(mw);
         SDL_Quit();
         return 0;
     }
@@ -997,29 +1003,24 @@ int main(int argc, char **argv) {
     /* Opened from Finder or the Dock, a Mac app may get no PATH at all:
        then the system's, where Apple's cc is. (Every other file it uses
        is given by its full path.) */
+#ifndef _WIN32
     const char *path = getenv("PATH");
     if (!path || !*path) setenv("PATH", "/usr/bin:/bin:/usr/sbin:/sbin", 1);
+#endif
 
-    /* Where builds go: the app's folder in Application Support, or
-       $NESRECOMP_ROOT/build when working on the project (make run-app),
-       or --build-dir. */
+    /* Where builds go: the app's folder (in Application Support on the
+       Mac, %LOCALAPPDATA% on Windows), or $NESRECOMP_ROOT/build when
+       working on the project (make run-app), or --build-dir. */
     const char *root = getenv("NESRECOMP_ROOT");
     char defdir[PATH_MAX];
     if (root && *root) snprintf(defdir, sizeof defdir, "%s/build", root);
-    else {
-        const char *home = getenv("HOME");
-        struct passwd *pw = (!home || !*home) ? getpwuid(getuid()) : NULL;
-        if (pw) home = pw->pw_dir;
-        snprintf(defdir, sizeof defdir, "%s/Library/Application Support/NES RECOMP",
-                 home ? home : "/tmp");
-    }
+    else os_app_dir(defdir, sizeof defdir);
     const char *dir = bdir ? bdir : defdir;
     build_setup(dir);
     /* The app's own SDL2, recompiler and runtime, found from where the
        program is. */
-    char exe[PATH_MAX], exe_real[PATH_MAX];
-    uint32_t exe_n = sizeof exe;
-    if (_NSGetExecutablePath(exe, &exe_n) || !realpath(exe, exe_real))
+    char exe_real[PATH_MAX];
+    if (os_exe_path(exe_real, sizeof exe_real))
         snprintf(exe_real, sizeof exe_real, "%s", argv[0]);
     int have_sdl = build_find_parts(exe_real, root);
     if (sdl_info) {
@@ -1031,11 +1032,7 @@ int main(int argc, char **argv) {
         printf("compiler %s\n", build_have_compiler(cc_at, sizeof cc_at) ? cc_at : "missing");
         return have_sdl ? 0 : 1;
     }
-    char part[PATH_MAX];                        /* make it, and the folders above it */
-    snprintf(part, sizeof part, "%s", dir);
-    for (char *p = part + 1; *p; p++)
-        if (*p == '/') { *p = 0; mkdir(part, 0755); *p = '/'; }
-    mkdir(part, 0755);
+    os_make_dirs(dir);                          /* it, and the folders above it */
     snprintf(prefs, sizeof prefs, "%s/app-prefs.txt", dir);
     snprintf(builds, sizeof builds, "%s", dir);
     if (play_exe) {
@@ -1049,7 +1046,7 @@ int main(int argc, char **argv) {
                 printf("screen: %s\n", screen_names[failed_screen(&job)]);
                 return 1;
             }
-            snprintf(game_log, sizeof game_log, "%s.game.log", job.out);
+            snprintf(game_log, sizeof game_log, "%s/%s.game.log", builds, job.name);   /* (no .exe) */
             int pr = play_and_wait(job.out, job.rom, play_args, job.files_at, game_log);
             struct hood_run h;
             if (add_run(&job, game_log, &h) == 0)
@@ -1077,7 +1074,6 @@ int main(int argc, char **argv) {
         fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
         return 1;
     }
-    support_menu_add();                 /* "Support NES RECOMP..." in the app menu */
     SDL_Window *win = SDL_CreateWindow("nesrecomp", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
                                        ART_W * 3, ART_H * 3,
                                        SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI);
@@ -1087,6 +1083,7 @@ int main(int argc, char **argv) {
         return 1;
     }
     SDL_SetWindowMinimumSize(win, ART_W, ART_H);
+    support_menu_add(win);              /* "Support NES RECOMP..." in the menu */
     SDL_EventState(SDL_DROPFILE, SDL_ENABLE);
     SDL_Texture *tex = NULL;
     uint32_t *out = NULL;
@@ -1191,7 +1188,7 @@ int main(int argc, char **argv) {
             snprintf(scale, sizeof scale, "%d", game_scale());
             char *args[] = { "--scale", scale, "--remember-size", prefs, NULL, NULL, NULL };
             if (strcmp(job.files_at, job.rom)) { args[4] = "--files-at"; args[5] = job.files_at; }
-            snprintf(game_log, sizeof game_log, "%s.game.log", job.out);
+            snprintf(game_log, sizeof game_log, "%s/%s.game.log", builds, job.name);   /* (no .exe) */
             game = play_start(job.out, job.rom, args, game_log);
             if (game < 0) {
                 snprintf(error_msg, sizeof error_msg, "couldn't start the game");

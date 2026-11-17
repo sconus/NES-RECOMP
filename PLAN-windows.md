@@ -356,6 +356,49 @@ to bring its own.
     wrong place, a build that never finishes on Windows, `SDL2.dll` not
     beside a game, the support link wrong in the window's menu.
 
+- Done (tested on the branch `windows-step4`; the Windows run is green):
+  - **`app/os.h`**, with the Mac's ways in `app/os_mac.c` and Windows's
+    in `app/os_win.c`: starting a program and waiting for it (on
+    Windows with its arguments quoted as Windows programs read them
+    back, and no console window), a thread, the program's own path, the
+    app's folder (`%LOCALAPPDATA%\NES RECOMP`), file times and sizes,
+    copying a file, listing a folder, the file picker (Windows's own
+    "Open" box) and opening a link. Text is UTF-8 inside the app and
+    Windows's wide characters at each call. `build.c`, `play.c` and
+    `app.c` use only these; the rest is unchanged, so the screens are the
+    same pixels.
+  - **Building on Windows:** `zig cc` (the app's own `zig\zig.exe` once
+    step 5 brings it; until then one on PATH), games named `NAME.exe`
+    with `SDL2.dll` copied beside them, zlib linked from the app's
+    folder, only the runtime's `.c` files compiled. With no compiler, the
+    app says "the app's compiler is missing" (no installer screen).
+  - **The support item on Windows** is the last of the window's own menu
+    (its icon, or Alt+Space), after a line: `app/support_win.c`.
+  - **`make windows-app`** (`tools/make_windows_app.py`) puts the app
+    together in `build/windows/app`: the app (a windowed program), the
+    recompiler, the runtime's sources, `SDL2.dll` with SDL's headers and
+    import library, and zlib, 7.9 MB in all.
+  - A game's log is now `NAME.game.log` on both systems (on Windows it
+    was `NAME.exe.game.log` at first; found by the first Windows run).
+  - **`tests/check_app.py` runs on Windows too:** 87 checks there, all
+    passing, and the Mac's 95 (the Mac's own 8: Apple's compiler and its
+    app menu). New on both: builds go to the app's folder by default,
+    SDL's library is beside each game, and a build or game that never
+    ends stops the check, not hangs it. On Windows a crash is reported
+    as an exception, and the stand-ins are a small program
+    (`tests/stand_in.c`), not scripts.
+  - **21 of 21 breaks caught**, the copy with no break passing: steps 1
+    to 3's sixteen, and five for the app (a path with a space, the app's
+    folder in the wrong place, a build that never finishes, `SDL2.dll`
+    not beside a game, the wrong link in the window's menu). On GitHub's
+    machine SDL's own folder is on PATH, so a game without `SDL2.dll`
+    beside it still started there; the check that the copy is beside it
+    caught that break.
+  - The Mac's suites still pass: `make test-all` (219 of 220 as always),
+    `test-app-bundle`, `test-standalone`, `test-release`.
+  - Not checked by machine, for step 7: the real window, dragging a ROM
+    onto it, the "Open" box, and clicking the menu item by hand.
+
 ### 5. The compiler inside the app
 - The app's build runs the Zig that comes with it, not a compiler on
   the PC: `zig cc` with the same options as on the Mac.

@@ -71,6 +71,16 @@ screenshots (build/nesrecomp-app --screenshot), against app/art.h:
      the page (a stand-in for `open` writes down what it was given, so
      no browser opens).
 Run by `make test-app`. Exit status 0 when all pass.
+
+On Windows (PLAN-windows.md step 4; the GitHub workflow runs it there)
+the same, with the app in build/windows/app (tools/make_windows_app.py),
+but for what is the Mac's alone: 9.'s Apple compiler (its screens are
+still checked), and the app menu, which on Windows is the window's own
+("Support NES RECOMP..." last, after a line). Its own checks there: the
+crash an exception, not a signal; the stand-ins programs
+(tests/stand_in.c), not scripts. On both: builds go to the app's folder
+(~/Library/Application Support/NES RECOMP, %LOCALAPPDATA%\\NES RECOMP),
+and SDL2's library is copied beside each game.
 """
 import os
 import re
@@ -82,8 +92,37 @@ import zlib
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-APP = os.path.join(ROOT, "build", "nesrecomp-app")
+sys.path.insert(0, HERE)
+import toolchain  # noqa: E402
+
+WIN = toolchain.WIN
+EXE = toolchain.EXE
+WIN_APP_DIR = os.path.join(ROOT, "build", "windows", "app")
+APP = os.environ.get("NESRECOMP_APP") or (os.path.join(WIN_APP_DIR, "nesrecomp-app.exe") if WIN
+                                          else os.path.join(ROOT, "build", "nesrecomp-app"))
 OUT = os.path.join(ROOT, "build", "app_check")
+# The runtime's files a build compiles: its .c, and on the Mac record_mac.m.
+RT_N = len(toolchain.runtime_sources())
+hung = []                       # a build or game that never finished: the rest skipped
+
+
+def run_app(cmd, env=None, timeout=300 if WIN else 120):
+    """(status, stdout) of the app; after one never finished, nothing more
+    is run (status -9)."""
+    if hung:
+        return -9, "(not run: %s never finished)" % hung[0]
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        hung.append(" ".join(os.path.basename(c) for c in cmd[:3]))
+        return -9, "(it never finished: %d s)" % timeout
+    return r.returncode, r.stdout
+
+
+class AppRun:
+    """run_app's result, as subprocess.run's (returncode, stdout)."""
+    def __init__(self, cmd, timeout=300 if WIN else 120, env=None):
+        self.returncode, self.stdout = run_app(cmd, env, timeout)
 
 
 def art():
@@ -368,8 +407,7 @@ def main():
 
     def build(rom, bdir, trace=True, env=None, app=APP):
         cmd = [app, "--build", rom, "--build-dir", bdir] + (["--trace-progress"] if trace else [])
-        r = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=120)
-        return r.returncode, r.stdout
+        return run_app(cmd, env)
 
     def stages_of(out):
         return [int(m) for m in re.findall(r"^stage (\d)/5", out, re.M)]
@@ -389,8 +427,11 @@ def main():
           and end is not None and float(end.group(1)) == 1.0,
           "%d samples, max %.3f, end %s" % (len(prog), max(prog or [0]), end and end.group(1)))
     rt = re.search(r"runtime: .*", out)
-    check("build: all runtime files compiled", "runtime: 18 of 18" in out, rt.group(0) if rt else "")
-    exe = os.path.join(builds, "my_game__test_")
+    check("build: all runtime files compiled", "runtime: %d of %d" % (RT_N, RT_N) in out,
+          rt.group(0) if rt else "")
+    exe = os.path.join(builds, "my_game__test_" + EXE)
+    beside = os.path.join(builds, "SDL2.dll") if WIN else os.path.join(builds, "lib", "libSDL2.dylib")
+    check("build: SDL2's library copied beside the game", os.path.exists(beside), "no %s" % beside)
     ran = subprocess.run([exe, spaced, "--headless", "--frames", "600", "--no-save"],
                          capture_output=True, text=True) if os.path.exists(exe) else None
     check("build: the program runs and passes its test",
@@ -411,7 +452,7 @@ def main():
     code, out = build(spaced, builds, trace=False)
     rt = re.search(r"runtime: .*", out)
     check("the ROM changed: built again, no runtime file compiled",
-          code == 0 and stages_of(out) == [1, 2, 3, 4, 5] and "runtime: 0 of 18" in out,
+          code == 0 and stages_of(out) == [1, 2, 3, 4, 5] and "runtime: 0 of %d" % RT_N in out,
           rt.group(0) if rt else "exit %d, stages %s" % (code, stages_of(out)))
     with open(spaced + ".missed", "w") as f:    # a .missed file appears: again
         f.write("")
@@ -448,11 +489,14 @@ def main():
     # The app and its recompiler copied together, as in the bundle, so
     # the recompiler can be made newer; SDL2 beside them as in build/.
     fbin = os.path.join(fake, "bin")
-    os.makedirs(fbin)
-    for name in ("nesrecomp-app", "nesrecomp-recomp"):
-        shutil.copy2(os.path.join(ROOT, "build", name), fbin)
-    os.symlink(os.path.join(ROOT, "build", "sdl2"), os.path.join(fbin, "sdl2"))
-    fapp = os.path.join(fbin, "nesrecomp-app")
+    if WIN:                                     # the app's whole folder
+        shutil.copytree(WIN_APP_DIR, fbin)
+    else:
+        os.makedirs(fbin)
+        for name in ("nesrecomp-app", "nesrecomp-recomp"):
+            shutil.copy2(os.path.join(ROOT, "build", name), fbin)
+        os.symlink(os.path.join(ROOT, "build", "sdl2"), os.path.join(fbin, "sdl2"))
+    fapp = os.path.join(fbin, "nesrecomp-app" + EXE)
     fenv = dict(os.environ, NESRECOMP_ROOT=fake)
     fh = os.path.join(OUT, "builds_header")
     shutil.rmtree(fh, ignore_errors=True)
@@ -465,11 +509,12 @@ def main():
     os.utime(os.path.join(fake, "runtime", "rt.h"), (later, later))  # ...than a header
     code, out = build(spaced, fh, trace=False, env=fenv, app=fapp)
     rt = re.search(r"runtime: .*", out)
-    check("a newer runtime header: every runtime file again", code == 0 and "runtime: 18 of 18" in out,
+    check("a newer runtime header: every runtime file again",
+          code == 0 and "runtime: %d of %d" % (RT_N, RT_N) in out,
           rt.group(0) if rt else "exit %d" % code)
     code, out = build(spaced, fh, trace=False, env=fenv, app=fapp)
     up = code == 0 and "up to date: " in out
-    rc = os.path.join(fbin, "nesrecomp-recomp")
+    rc = os.path.join(fbin, "nesrecomp-recomp" + EXE)
     later = os.path.getmtime(rc) + 20
     os.utime(rc, (later, later))
     code, out = build(spaced, fh, trace=False, env=fenv, app=fapp)
@@ -483,8 +528,19 @@ def main():
     seen = stages_of(out)
     check("a runtime file that doesn't compile: the compiler's message",
           code == 1 and "error: the C compiler:" in out and seen[-1:] == [4]
-          and not os.path.exists(os.path.join(fb, "my_game__test_")),
+          and not os.path.exists(os.path.join(fb, "my_game__test_" + EXE)),
           "exit %d, %s" % (code, last_line(out)))
+
+    # Where builds go when not told: the app's folder (a scratch home here).
+    ahome = os.path.join(OUT, "a home")
+    aenv = {k: v for k, v in os.environ.items() if k != "NESRECOMP_ROOT"}
+    aenv.update(HOME=ahome, LOCALAPPDATA=os.path.join(ahome, "AppData", "Local"))
+    info = subprocess.run([APP, "--sdl-info"], capture_output=True, text=True, env=aenv).stdout
+    want = os.path.join(ahome, "AppData", "Local", "NES RECOMP") if WIN else \
+        os.path.join(ahome, "Library", "Application Support", "NES RECOMP")
+    got = [l[7:] for l in info.splitlines() if l.startswith("builds ")]
+    check("builds go to the app's folder (%s)" % want.replace(ahome, "~"), got == [want],
+          "%s" % got)
 
     # 7. playing (play.c, as the window uses it after a build)
     for name, title, msg in (("stopped", "THE GAME STOPPED", "unknown opcode $02 at $C000"),):
@@ -510,9 +566,8 @@ def main():
     shutil.copy(free, game)
     headless = "--headless --frames 600 --no-save"
 
-    def play(*args):
-        r = subprocess.run([APP] + list(args), capture_output=True, text=True, timeout=120)
-        return r.returncode, r.stdout
+    def play(*args, env=None):
+        return run_app([APP] + list(args), env)
 
     code, out = play("--build", game, "--build-dir", pb, "--then-play", "--play-args", headless)
     glog = os.path.join(pb, "basics.game.log")
@@ -540,18 +595,30 @@ def main():
     code, out = play("--build", jam, "--build-dir", pb, "--then-play", "--play-args", headless)
     check("a game that stops: its message", code == 1 and "error: unknown opcode $02 at $C000" in out,
           "exit %d, %s" % (code, last_line(out)))
-    crash = os.path.join(proms, "crash.sh")
-    with open(crash, "w") as f:
-        f.write("#!/bin/sh\nkill -SEGV $$\n")
-    os.chmod(crash, 0o755)
-    code, out = play("--play-only", crash, game)
-    check("a game that crashes: the signal", code == 1 and "error: the game crashed (signal 11" in out,
-          "exit %d, %s" % (code, last_line(out)))
-    fails3 = os.path.join(proms, "fails.sh")
-    with open(fails3, "w") as f:
-        f.write("#!/bin/sh\necho 'no window for you'\nexit 3\n")
-    os.chmod(fails3, 0o755)
-    code, out = play("--play-only", fails3, game)
+    if WIN:
+        # Stand-ins: a program (tests/stand_in.c), told what to do.
+        stand_in = os.path.join(proms, "stand_in.exe")
+        subprocess.run(toolchain.cc() + ["-O1", "-o", stand_in, os.path.join(HERE, "stand_in.c")],
+                       capture_output=True)
+        code, out = play("--play-only", stand_in, game, env=dict(os.environ, STANDIN_CRASH="1"))
+        check("a game that crashes: the exception",
+              code == 1 and "error: the game crashed (exception 0xC0000005, an access violation)" in out,
+              "exit %d, %s" % (code, last_line(out)))
+        code, out = play("--play-only", stand_in, game,
+                         env=dict(os.environ, STANDIN_SAY="no window for you", STANDIN_EXIT="3"))
+    else:
+        crash = os.path.join(proms, "crash.sh")
+        with open(crash, "w") as f:
+            f.write("#!/bin/sh\nkill -SEGV $$\n")
+        os.chmod(crash, 0o755)
+        code, out = play("--play-only", crash, game)
+        check("a game that crashes: the signal", code == 1 and "error: the game crashed (signal 11" in out,
+              "exit %d, %s" % (code, last_line(out)))
+        fails3 = os.path.join(proms, "fails.sh")
+        with open(fails3, "w") as f:
+            f.write("#!/bin/sh\necho 'no window for you'\nexit 3\n")
+        os.chmod(fails3, 0o755)
+        code, out = play("--play-only", fails3, game)
     check("a game that fails: its status and last line",
           code == 1 and "error: the game ended with status 3: no window for you" in out,
           "exit %d, %s" % (code, last_line(out)))
@@ -584,27 +651,37 @@ def main():
     shutil.rmtree(sdir, ignore_errors=True)
     os.makedirs(sdir)
     said = os.path.join(sdir, "opened.txt")
-    fake_open = os.path.join(sdir, "open.sh")
-    with open(fake_open, "w") as f:
-        f.write("#!/bin/sh\necho \"$@\" >> '%s'\n" % said)
-    os.chmod(fake_open, 0o755)
-    oenv = dict(os.environ, NESRECOMP_OPEN=fake_open)
-    r_ = subprocess.run([APP, "--key-test", "about", "d"], capture_output=True, text=True, env=oenv)
+    if WIN:
+        fake_open = os.path.join(sdir, "open.exe")
+        subprocess.run(toolchain.cc() + ["-O1", "-o", fake_open, os.path.join(HERE, "stand_in.c")],
+                       capture_output=True)
+        oenv = dict(os.environ, NESRECOMP_OPEN=fake_open, STANDIN_LOG=said)
+    else:
+        fake_open = os.path.join(sdir, "open.sh")
+        with open(fake_open, "w") as f:
+            f.write("#!/bin/sh\necho \"$@\" >> '%s'\n" % said)
+        os.chmod(fake_open, 0o755)
+        oenv = dict(os.environ, NESRECOMP_OPEN=fake_open)
+    r_ = AppRun([APP, "--key-test", "about", "d"], env=oenv)
     got = open(said).read() if os.path.exists(said) else ""
     check("D on the About screen opens the support page", "key: support" in r_.stdout and got == KOFI + "\n",
           "%r, opened %r" % (r_.stdout.strip(), got))
     if os.path.exists(said):
         os.remove(said)
-    r_ = subprocess.run([APP, "--key-test", "about", "x"], capture_output=True, text=True, env=oenv)
+    r_ = AppRun([APP, "--key-test", "about", "x"], env=oenv)
     check("another key on the About screen leaves it, opening nothing",
           "key: leave" in r_.stdout and not os.path.exists(said), r_.stdout.strip())
-    r_ = subprocess.run([APP, "--menu-test", "--choose-support"], capture_output=True, text=True, env=oenv,
-                        timeout=60)
+    r_ = AppRun([APP, "--menu-test", "--choose-support"], env=oenv, timeout=60)
     items = r_.stdout.splitlines()
     got = open(said).read() if os.path.exists(said) else ""
-    check("the app menu: \"Support NES RECOMP\u2026\" right after About",
-          len(items) > 3 and items[0] == "added 0" and items[1].startswith("About ")
-          and items[2] == "Support NES RECOMP\u2026", "%s" % items[:4])
+    if WIN:
+        check("the window's menu: \"Support NES RECOMP\u2026\" last, after a line (and Close before)",
+              len(items) > 4 and items[0] == "added 0" and any("Close" in i for i in items[1:-3])
+              and items[-3:-1] == ["-", "Support NES RECOMP\u2026"], "%s" % items)
+    else:
+        check("the app menu: \"Support NES RECOMP\u2026\" right after About",
+              len(items) > 3 and items[0] == "added 0" and items[1].startswith("About ")
+              and items[2] == "Support NES RECOMP\u2026", "%s" % items[:4])
     check("choosing it opens the support page", "chose: 0" in r_.stdout and got == KOFI + "\n",
           "%s, opened %r" % (items[-1:], got))
     lic_path = os.path.join(ROOT, "LICENSE")
@@ -719,86 +796,87 @@ def main():
     bad = screen_text(img, w_set, glyph_pixels(font, "DROP THE ROM AGAIN", cx, sy + 60))
     check("the no-compiler screen after the click", not bad, "%d pixel(s) differ" % bad)
 
-    xs = subprocess.run(["xcode-select", "-p"], capture_output=True, text=True).stdout.strip()
-    info = subprocess.run([APP, "--sdl-info"], capture_output=True, text=True).stdout
-    cc_line = [l for l in info.splitlines() if l.startswith("compiler ")]
-    check("the compiler: found where xcode-select -p says",
-          xs and len(cc_line) == 1 and cc_line[0][9:].startswith(xs + "/") and cc_line[0].endswith("/clang"),
-          "xcode-select %r, app %s" % (xs, cc_line))
-    # /Library/Developer unreadable, as on a Mac without the tools. And
-    # Apple's stand-ins (/usr/bin/cc and the like) can't run: on such a
-    # Mac they pop up Apple's installer, which a wrong app (a break) would
-    # otherwise do here on a real Mac.
-    nocc = ("(version 1)(allow default)(deny file-read* (subpath \"/Library/Developer\"))"
-            "(deny process-exec (literal \"/usr/bin/cc\") (literal \"/usr/bin/clang\")"
-            " (literal \"/usr/bin/gcc\") (literal \"/usr/bin/c++\") (literal \"/usr/bin/clang++\")"
-            " (literal \"/usr/bin/xcrun\") (literal \"/usr/bin/ld\") (literal \"/usr/bin/make\"))")
-    probe = subprocess.run(["sandbox-exec", "-p", nocc, "/bin/ls", "/Library/Developer"],
-                           capture_output=True, text=True)
-    probe_cc = subprocess.run(["sandbox-exec", "-p", nocc, "/usr/bin/cc", "--version"],
-                              capture_output=True, text=True)
-    check("the sandbox really forbids reading /Library/Developer, and running cc",
-          probe.returncode != 0 and probe_cc.returncode != 0 and "clang" not in probe_cc.stdout,
-          "ls %d, cc %d" % (probe.returncode, probe_cc.returncode))
-    ncdir = os.path.join(OUT, "builds_nocc")
-    shutil.rmtree(ncdir, ignore_errors=True)
-    ncrom = os.path.join(roms, "no compiler.nes")
-    shutil.copy(free, ncrom)
+    if not WIN:                 # Apple's compiler: the Mac's alone
+        xs = subprocess.run(["xcode-select", "-p"], capture_output=True, text=True).stdout.strip()
+        info = subprocess.run([APP, "--sdl-info"], capture_output=True, text=True).stdout
+        cc_line = [l for l in info.splitlines() if l.startswith("compiler ")]
+        check("the compiler: found where xcode-select -p says",
+              xs and len(cc_line) == 1 and cc_line[0][9:].startswith(xs + "/") and cc_line[0].endswith("/clang"),
+              "xcode-select %r, app %s" % (xs, cc_line))
+        # /Library/Developer unreadable, as on a Mac without the tools. And
+        # Apple's stand-ins (/usr/bin/cc and the like) can't run: on such a
+        # Mac they pop up Apple's installer, which a wrong app (a break) would
+        # otherwise do here on a real Mac.
+        nocc = ("(version 1)(allow default)(deny file-read* (subpath \"/Library/Developer\"))"
+                "(deny process-exec (literal \"/usr/bin/cc\") (literal \"/usr/bin/clang\")"
+                " (literal \"/usr/bin/gcc\") (literal \"/usr/bin/c++\") (literal \"/usr/bin/clang++\")"
+                " (literal \"/usr/bin/xcrun\") (literal \"/usr/bin/ld\") (literal \"/usr/bin/make\"))")
+        probe = subprocess.run(["sandbox-exec", "-p", nocc, "/bin/ls", "/Library/Developer"],
+                               capture_output=True, text=True)
+        probe_cc = subprocess.run(["sandbox-exec", "-p", nocc, "/usr/bin/cc", "--version"],
+                                  capture_output=True, text=True)
+        check("the sandbox really forbids reading /Library/Developer, and running cc",
+              probe.returncode != 0 and probe_cc.returncode != 0 and "clang" not in probe_cc.stdout,
+              "ls %d, cc %d" % (probe.returncode, probe_cc.returncode))
+        ncdir = os.path.join(OUT, "builds_nocc")
+        shutil.rmtree(ncdir, ignore_errors=True)
+        ncrom = os.path.join(roms, "no compiler.nes")
+        shutil.copy(free, ncrom)
 
-    def nocc_build(env=None, sandbox=True, *more):
-        cmd = [APP, "--build", ncrom, "--build-dir", ncdir] + list(more)
-        if sandbox:
-            cmd = ["sandbox-exec", "-p", nocc] + cmd
-        return subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=300)
+        def nocc_build(env=None, sandbox=True, *more):
+            cmd = [APP, "--build", ncrom, "--build-dir", ncdir] + list(more)
+            if sandbox:
+                cmd = ["sandbox-exec", "-p", nocc] + cmd
+            return subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=300)
 
-    def stopped_at_1(r):
-        made = sorted(f for f in os.listdir(ncdir) if f.startswith("no_compiler")) \
-            if os.path.isdir(ncdir) else []
-        return (r.returncode == 1 and "screen: needcc" in r.stdout and stages_of(r.stdout) == [1]
-                and "error: needs Apple's C compiler: xcode-select --install" in r.stdout
-                and made == []), made
+        def stopped_at_1(r):
+            made = sorted(f for f in os.listdir(ncdir) if f.startswith("no_compiler")) \
+                if os.path.isdir(ncdir) else []
+            return (r.returncode == 1 and "screen: needcc" in r.stdout and stages_of(r.stdout) == [1]
+                    and "error: needs Apple's C compiler: xcode-select --install" in r.stdout
+                    and made == []), made
 
-    r = nocc_build()
-    ok, made = stopped_at_1(r)
-    check("no compiler: stops at stage 1 with its screen, nothing compiled", ok,
-          "exit %d, %s, made %s" % (r.returncode, last_line(r.stdout), made))
-    fake = os.path.join(OUT, "fake_xcode_select")
-    os.makedirs(fake, exist_ok=True)
-    said = os.path.join(fake, "said.txt")
-    fails_xs = os.path.join(fake, "fails.sh")
-    with open(fails_xs, "w") as f:
-        f.write("#!/bin/sh\necho \"$@\" >> '%s'\n"
-                "echo 'xcode-select: error: unable to get active developer directory' >&2\nexit 2\n" % said)
-    empty_xs = os.path.join(fake, "empty.sh")
-    with open(empty_xs, "w") as f:
-        f.write("#!/bin/sh\necho '%s'\n" % fake)
-    for x in (fails_xs, empty_xs):
-        os.chmod(x, 0o755)
-    for x, what in ((fails_xs, "an xcode-select that fails"), (empty_xs, "a folder with no clang")):
-        r = nocc_build(dict(os.environ, NESRECOMP_XCODE_SELECT=x), False)
+        r = nocc_build()
         ok, made = stopped_at_1(r)
-        check("no compiler, %s: the same" % what, ok,
+        check("no compiler: stops at stage 1 with its screen, nothing compiled", ok,
               "exit %d, %s, made %s" % (r.returncode, last_line(r.stdout), made))
-    r = nocc_build(None, False)
-    built = r.returncode == 0 and "built: " in r.stdout
-    r = nocc_build(None, True, "--then-play", "--play-args", "--headless --frames 600 --no-save")
-    check("no compiler, a game already built: up to date, and it plays",
-          built and "up to date" in r.stdout and "played: the game ended well" in r.stdout,
-          "built first: %s; %s" % (built, last_line(r.stdout)))
-    if os.path.exists(said):
-        os.remove(said)
-    env = dict(os.environ, NESRECOMP_XCODE_SELECT=fails_xs)
-    on = subprocess.run([APP, "--click-test", "needcc", "960x540", "480", "200"],
-                        capture_output=True, text=True, env=env).stdout
-    ran = open(said).read() if os.path.exists(said) else ""
-    check("a click on the TV there runs xcode-select --install",
-          "click: install" in on and ran == "--install\n", "%r, it was given %r" % (on.strip(), ran))
-    if os.path.exists(said):
-        os.remove(said)
-    off = subprocess.run([APP, "--click-test", "needcc", "960x540", "20", "20"],
-                         capture_output=True, text=True, env=env).stdout
-    check("a click beside the TV runs nothing", "click: nothing" in off and not os.path.exists(said),
-          off.strip())
+        fake = os.path.join(OUT, "fake_xcode_select")
+        os.makedirs(fake, exist_ok=True)
+        said = os.path.join(fake, "said.txt")
+        fails_xs = os.path.join(fake, "fails.sh")
+        with open(fails_xs, "w") as f:
+            f.write("#!/bin/sh\necho \"$@\" >> '%s'\n"
+                    "echo 'xcode-select: error: unable to get active developer directory' >&2\nexit 2\n" % said)
+        empty_xs = os.path.join(fake, "empty.sh")
+        with open(empty_xs, "w") as f:
+            f.write("#!/bin/sh\necho '%s'\n" % fake)
+        for x in (fails_xs, empty_xs):
+            os.chmod(x, 0o755)
+        for x, what in ((fails_xs, "an xcode-select that fails"), (empty_xs, "a folder with no clang")):
+            r = nocc_build(dict(os.environ, NESRECOMP_XCODE_SELECT=x), False)
+            ok, made = stopped_at_1(r)
+            check("no compiler, %s: the same" % what, ok,
+                  "exit %d, %s, made %s" % (r.returncode, last_line(r.stdout), made))
+        r = nocc_build(None, False)
+        built = r.returncode == 0 and "built: " in r.stdout
+        r = nocc_build(None, True, "--then-play", "--play-args", "--headless --frames 600 --no-save")
+        check("no compiler, a game already built: up to date, and it plays",
+              built and "up to date" in r.stdout and "played: the game ended well" in r.stdout,
+              "built first: %s; %s" % (built, last_line(r.stdout)))
+        if os.path.exists(said):
+            os.remove(said)
+        env = dict(os.environ, NESRECOMP_XCODE_SELECT=fails_xs)
+        on = subprocess.run([APP, "--click-test", "needcc", "960x540", "480", "200"],
+                            capture_output=True, text=True, env=env).stdout
+        ran = open(said).read() if os.path.exists(said) else ""
+        check("a click on the TV there runs xcode-select --install",
+              "click: install" in on and ran == "--install\n", "%r, it was given %r" % (on.strip(), ran))
+        if os.path.exists(said):
+            os.remove(said)
+        off = subprocess.run([APP, "--click-test", "needcc", "960x540", "20", "20"],
+                             capture_output=True, text=True, env=env).stdout
+        check("a click beside the TV runs nothing", "click: nothing" in off and not os.path.exists(said),
+              off.strip())
 
     # 10. under the hood.
     def hood_screen(runs):
@@ -888,12 +966,11 @@ def main():
     for k in range(3):
         pre = None
         if k == 2:      # the third: built first, so the play finds it up to date
-            subprocess.run([APP, "--build", hrom, "--build-dir", hb], capture_output=True)
+            run_app([APP, "--build", hrom, "--build-dir", hb])
             pl = os.path.join(hb, "01-basics.log")
             pre = re.search(r"translated (\d+) instructions", open(pl).read() if os.path.exists(pl) else "")
-        r_ = subprocess.run([APP, "--build", hrom, "--build-dir", hb, "--then-play", "--play-args",
-                             "--headless --frames 600 --no-save"], capture_output=True, text=True,
-                            timeout=300)
+        r_ = AppRun([APP, "--build", hrom, "--build-dir", hb, "--then-play", "--play-args",
+                     "--headless --frames 600 --no-save"], timeout=300)
         m = re.search(r"hood: run (\d+) translated (-?\d+) spots (\d+) native (\d+) interp (\d+)",
                       r_.stdout)
         if not m:
@@ -902,7 +979,8 @@ def main():
         run_ = tuple(int(g) for g in m.groups())
         runs.append(run_)
         blog = open(os.path.join(hb, "01-basics.log")).read() if os.path.exists(os.path.join(hb, "01-basics.log")) else ""
-        glog = open(os.path.join(hb, "01-basics.game.log")).read()
+        gpath = os.path.join(hb, "01-basics.game.log")
+        glog = open(gpath).read() if os.path.exists(gpath) else ""
         t = re.search(r"translated (\d+) instructions", blog)
         sp = re.search(r"(\d+) spot\(s\) ran in the interpreter", glog)
         ran = re.search(r"ran (\d+) instruction\(s\) as translated C, (\d+) in the interpreter", glog)
@@ -929,8 +1007,8 @@ def main():
           "%s" % [(r_[1], r_[2]) for r_ in runs])
     nrom = os.path.join(hroms, "nestest.nes")
     shutil.copy(os.path.join(ROOT, "tests", "nestest.nes"), nrom)     # no .missed
-    subprocess.run([APP, "--build", nrom, "--build-dir", hb], capture_output=True)
-    nexe = os.path.join(hb, "nestest")
+    run_app([APP, "--build", nrom, "--build-dir", hb])
+    nexe = os.path.join(hb, "nestest" + EXE)
 
     def counts(*args):
         r_ = subprocess.run([nexe, nrom, "--headless", "--no-save"] + list(args),
@@ -1060,7 +1138,7 @@ def main():
         return pic, insns[cur], top
 
     nl, nc_ = os.path.join(OUT, "nestest.listing"), os.path.join(OUT, "nestest_listed.c")
-    subprocess.run([os.path.join(ROOT, "build", "nesrecomp-recomp"), os.path.join(ROOT, "tests", "nestest.nes"),
+    subprocess.run([toolchain.recompiler(), os.path.join(ROOT, "tests", "nestest.nes"),
                     "--entry", "C000", "-o", nc_, "--listing", nl], capture_output=True)
     for label, keys in (("at its start (the reset routine)", []),
                         ("after down, down, a page, up", ["down", "down", "pgdn", "up"]),
@@ -1095,10 +1173,11 @@ def main():
           okl, "%d listed" % len(rows_))
     if os.path.exists(lb):
         os.remove(lb)
-    r_ = subprocess.run([APP, "--build", hrom, "--build-dir", hb], capture_output=True, text=True)
+    r_ = AppRun([APP, "--build", hrom, "--build-dir", hb])
     check("a build without its listing is built again (not up to date)",
           r_.returncode == 0 and "up to date" not in r_.stdout and os.path.exists(lb), last_line(r_.stdout))
 
+    check("every build and game finished (none ran past its time)", not hung, "%s" % hung)
     print("\n%d check(s) failed" % len(fails) if fails else "\nall checks pass")
     sys.exit(1 if fails else 0)
 

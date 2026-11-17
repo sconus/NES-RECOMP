@@ -24,6 +24,9 @@
 #                           (build/windows/, with Zig; PLAN-windows.md)
 #   make windows-game ROM=x.nes   a game for Windows, build/windows/<name>.exe
 #                           (with SDL2.dll beside it)
+#   make windows-app        the app for Windows, in build/windows/app/
+#                           (tools/make_windows_app.py; checked on GitHub's
+#                           Windows machine)
 #   make same-c             write down the C the Mac's recompiler writes
 #                           (tests/same_c.txt); make test-same-c checks it
 #   make release            build/NES-RECOMP-<version>.zip: the app, a read-me
@@ -127,12 +130,12 @@ $(SDL2_LIB): tools/build_sdl2.sh
 sdl2: $(SDL2_LIB)
 
 build/nesrecomp-app: app/app.c app/build.c app/build.h app/play.c app/play.h app/hood.c app/hood.h \
-                     app/code.c app/code.h app/support.h app/support_mac.m \
+                     app/code.c app/code.h app/support.h app/support_mac.m app/os.h app/os_mac.c \
                      app/art.h $(SDL2_LIB) \
                      $(RECOMP)
 	@mkdir -p build
 	$(CC) $(CFLAGS) $(APP_ARCH) $(APP_SDL) -Iapp -o $@ app/app.c app/build.c app/play.c app/hood.c app/code.c \
-	    app/support_mac.m $(APP_LIBS) -framework Cocoa
+	    app/os_mac.c app/support_mac.m $(APP_LIBS) -framework Cocoa
 
 app: build/nesrecomp-app
 
@@ -177,6 +180,12 @@ build/windows/zlib/%.o: $(ZLIB_SRC)/%.c
 	@mkdir -p build/windows/zlib
 	$(WIN_CC) -O2 -c $< -o $@
 
+# The app for Windows, in a folder with what it needs beside it
+# (PLAN-windows.md step 4).
+windows-app: build/windows/nesrecomp-recomp.exe
+	python3 tools/make_windows_app.py --cc "$(WIN_CC)" --sdl2 $(SDL2_WIN) --zlib-src $(ZLIB_SRC) \
+	    --recomp build/windows/nesrecomp-recomp.exe --out build/windows/app
+
 windows-game: build/windows/nesrecomp-recomp.exe $(RECOMP) $(ZLIB_WIN_OBJ)
 	@test -n "$(ROM)" || { echo "usage: make windows-game ROM=path/to/file.nes"; exit 1; }
 	@mkdir -p build/windows
@@ -206,4 +215,4 @@ clean:
 	find build -mindepth 1 -maxdepth 1 ! -name sdl2 -exec rm -rf {} + 2>/dev/null; \
 	rm -f $(NESTEST).missed
 
-.PHONY: test test-ppu test-all test-record release test-release windows windows-game same-c test-same-c game run recomp test-recomp sdl2 app run-app test-app app-bundle test-app-bundle test-standalone clean
+.PHONY: windows-app test test-ppu test-all test-record release test-release windows windows-game same-c test-same-c game run recomp test-recomp sdl2 app run-app test-app app-bundle test-app-bundle test-standalone clean

@@ -17,7 +17,9 @@ permissions:
 jobs:
   windows:
     runs-on: windows-latest
-    timeout-minutes: 120
+    timeout-minutes: 240
+    env:
+      PYTHONUTF8: "1"           # the checks read the app's UTF-8 (its menu's "...")
     steps:
       - name: Files as they are in git (no "\r\n" added on checkout)
         run: git config --global core.autocrlf false
@@ -77,6 +79,12 @@ jobs:
 
       - name: Recording on Windows (Media Foundation), read back
         run: python tests/check_record_win.py
+
+      - name: The app on Windows, put together (tools/make_windows_app.py)
+        run: python tools/make_windows_app.py --cc "zig cc" --sdl2 "$env:NESRECOMP_SDL2" --zlib-src "$env:NESRECOMP_ZLIB_SRC" --recomp build/windows/nesrecomp-recomp.exe --out build/windows/app
+
+      - name: The app on Windows (tests/check_app.py)
+        run: python tests/check_app.py
 
       - name: Breaks, each in a scratch copy on this machine
         run: python tests/windows_breaks.py
