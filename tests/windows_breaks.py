@@ -34,6 +34,16 @@ runtime's Windows half (runtime/sys.c) and in what it makes:
   - Ctrl+Break not caught on Windows (the game killed, not ended well);
   - a picture's red and blue swapped;
   - the sound made at 44,100 samples a second instead of 48,000.
+
+Step 3's (checked with tests/check_record_win.py) are in recording on
+Windows (runtime/record_win.c):
+  - the sound a frame late;
+  - a frame dropped;
+  - the wrong rate (60 frames a second, not 60.0988);
+  - no sound;
+  - a file not finished on quit;
+  - frames shown out of order (H.264's High profile, with B-frames: the
+    picture a frame behind the sound).
 """
 import os
 import shlex
@@ -57,8 +67,17 @@ def sub(work, path, old, new):
 SAME_C = [["tests/check_same_c.py", "--recompiler", "{exe}"]]
 RUNTIME = [["tests/check_runtime_sys.py"],
            ["tests/run_tests.py", "240pee/240pee.nes", "tests/nsf_rate.nsf"]]
+RECORD = [["tests/check_record_win.py"]]
+
+
+def wrong_rate(w):
+    sub(w, "runtime/record_win.c", "set_pair(a, &MF_MT_FRAME_RATE, FRAME_DEN, FRAME_NUM);",
+        "set_pair(a, &MF_MT_FRAME_RATE, 60, 1);")
+    sub(w, "runtime/record_win.c", "{ return (n * 10482736 + 31) / 63; }", "{ return n * 10000000 / 60; }")
+
+
 BREAKS = [
-    ("no break: the copy as it is (must pass)", lambda w: None, SAME_C + RUNTIME),
+    ("no break: the copy as it is (must pass)", lambda w: None, SAME_C + RUNTIME + RECORD),
     ("the C written as text",
      lambda w: sub(w, "recomp/main.c", 'FILE *f = fopen(out, "wb");', 'FILE *f = fopen(out, "w");'), SAME_C),
     ("the listing written as text",
@@ -85,6 +104,21 @@ BREAKS = [
                    "            r[3 + x * 3] = c >> 16;\n            r[2 + x * 3] = c >> 8;\n            r[1 + x * 3] = (uint8_t)c;"), RUNTIME[1:]),
     ("the sound made at 44,100 samples a second",
      lambda w: sub(w, "runtime/apu.c", "#define SAMPLE_RATE 48000", "#define SAMPLE_RATE 44100"), RUNTIME[1:]),
+    ("recording: the sound a frame late",
+     lambda w: sub(w, "runtime/record_win.c", "(DWORD)n * 2, 0, sample_time(at),",
+                   "(DWORD)n * 2, 0, sample_time(at + 800),"), RECORD),
+    ("recording: a frame dropped",
+     lambda w: sub(w, "runtime/record_win.c", "    long long n = frames++;\n",
+                   "    long long n = frames++;\n    if (n == 100) return;\n"), RECORD),
+    ("recording: the wrong rate (60 a second)", wrong_rate, RECORD),
+    ("recording: no sound",
+     lambda w: sub(w, "runtime/record_win.c", "    if (!writer || n <= 0) return;\n    long long at",
+                   "    return;\n    long long at"), RECORD),
+    ("recording: the file not finished on quit",
+     lambda w: sub(w, "runtime/record_win.c", "HRESULT hr = IMFSinkWriter_Finalize(writer);",
+                   "HRESULT hr = S_OK;"), RECORD),
+    ("recording: frames shown out of order (B-frames)",
+     lambda w: sub(w, "runtime/record_win.c", "&MF_MT_MPEG2_PROFILE, 66);", "&MF_MT_MPEG2_PROFILE, 100);"), RECORD),
 ]
 
 

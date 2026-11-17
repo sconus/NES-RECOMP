@@ -182,7 +182,7 @@ windows-game: build/windows/nesrecomp-recomp.exe $(RECOMP) $(ZLIB_WIN_OBJ)
 	@mkdir -p build/windows
 	$(RECOMP) $(ROM) -o build/windows/$(NAME).c $(call missed_arg,$(ROM))
 	$(WIN_CC) -O1 -Wall -I$(SDL2_WIN)/include/SDL2 -I$(ZLIB_SRC) -Iruntime -o build/windows/$(NAME).exe \
-	    build/windows/$(NAME).c $(RT_WIN_SRC) $(ZLIB_WIN_OBJ) $(SDL2_WIN)/lib/libSDL2.dll.a
+	    build/windows/$(NAME).c $(RT_WIN_SRC) $(ZLIB_WIN_OBJ) $(SDL2_WIN)/lib/libSDL2.dll.a -lole32
 	cp $(SDL2_WIN)/bin/SDL2.dll build/windows/
 
 # The fingerprints of the C the Mac's recompiler writes (tests/same_c.txt),

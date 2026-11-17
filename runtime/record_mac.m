@@ -32,6 +32,8 @@ static char movie_path[1024];
 
 int record_active(void) { return writer != nil; }
 
+const char *record_ext(void) { return "mov"; }
+
 static int fail(const char *what, NSError *err) {
     fprintf(stderr, "can't record to %s: %s%s%s\n", movie_path, what, err ? ": " : "",
             err ? [[err localizedDescription] UTF8String] : "");

@@ -65,7 +65,7 @@ def sdl_flags():
         sdl = os.environ["NESRECOMP_SDL2"]
         zinc, zobjs = _zlib()
         return (["-I" + os.path.join(sdl, "include", "SDL2"), "-I" + zinc, "-D_THREAD_SAFE"],
-                zobjs + [os.path.join(sdl, "lib", "libSDL2.dll.a")])
+                zobjs + [os.path.join(sdl, "lib", "libSDL2.dll.a"), "-lole32"])
     prefix = subprocess.run(["sdl2-config", "--prefix"], capture_output=True, text=True).stdout.strip()
     cflags = subprocess.run(["sdl2-config", "--cflags"], capture_output=True, text=True).stdout.split()
     return cflags, [os.path.join(prefix, "lib", "libSDL2.dylib"), "-lz", "-lm",

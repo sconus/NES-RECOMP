@@ -75,5 +75,8 @@ jobs:
       - name: The runtime on Windows - the test ROM suite (tests/suite.txt)
         run: python tests/run_tests.py
 
+      - name: Recording on Windows (Media Foundation), read back
+        run: python tests/check_record_win.py
+
       - name: Breaks, each in a scratch copy on this machine
         run: python tests/windows_breaks.py

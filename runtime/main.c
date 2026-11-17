@@ -305,7 +305,7 @@ static void start_recording(const char *path) {
 void runtime_record_key(void) {
     if (record_active()) { record_stop(); return; }
     char path[1200];
-    if (media_path(path, sizeof path, "mov") == 0) start_recording(path);
+    if (media_path(path, sizeof path, record_ext()) == 0) start_recording(path);
     else fprintf(stderr, "can't record: no free file name\n");
 }
 
@@ -627,7 +627,7 @@ static void usage(const char *prog) {
         "  --no-save          don't load or write <rom>.sav (battery RAM)\n"
         "  --files-at P       keep <rom>.missed and <rom>.sav as P.missed, P.sav\n"
         "  --wav FILE         write the sound to a WAV file\n"
-        "  --record FILE      record the run to a movie (.mov; V does it in the window)\n"
+        "  --record FILE      record the run to a movie (.mov; .mp4 on Windows; V does it)\n"
         "  --record-dir D     where V's movies and P's pictures go\n"
         "                     (default ~/Movies/NES RECOMP)\n"
         "  --mute             no sound from the speakers (M toggles it)\n"

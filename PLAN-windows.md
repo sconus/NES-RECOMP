@@ -291,6 +291,49 @@ to bring its own.
   - Breaks: the sound a frame late, a frame dropped, the wrong rate, no
     sound, a file not finished on quit.
 
+- Done (tested on the branch `windows-step3`; the Windows run is green):
+  - **`runtime/record_win.c` records with Media Foundation:** an MP4,
+    H.264 at 1024x960 and 20 Mbit/s, AAC at 48 kHz mono and 192 kbit/s,
+    on game time. The picture's colours are worked out here (BT.709,
+    16-235, as on the Mac), and the file says so.
+    - **H.264's Baseline profile**, not High: with High, the encoder
+      shows frames out of order ("B-frames"), and Media Foundation's MP4
+      then shows every frame one frame late with nothing in the file to
+      undo it, so the picture would be 17 ms behind the sound. Found by
+      the first Windows run. At 20 Mbit/s it looks the same.
+    - **Frame times to the file's tick:** Media Foundation's MP4 keeps
+      the picture's time in its own unit, 60,098 ticks a second, so each
+      frame is at its exact game time to the nearest tick (16.6 µs): 1,000
+      ticks a frame, with an occasional 999.
+    - **Media Foundation is loaded when a recording starts**, only from
+      Windows' own folder. A Windows without it (the "N" editions) still
+      runs games; V then says Microsoft's Media Feature Pack adds it.
+      That message is written but not tried on a real Windows N.
+    - V's movies end in `.mp4` on Windows (`record_ext()`), `.mov` on the
+      Mac.
+    - The game is linked with `ole32` (Windows' COM, which Media
+      Foundation needs); `make windows-game` too.
+  - **The check, `tests/check_record_win.py`**, reads the movies back
+    with `tests/read_movie_win.c` (Media Foundation's decoders), and
+    looks inside the MP4 at its timing tables. On GitHub's Windows
+    machine, all pass:
+    - 300 frames, 1024x960, at 60.0988 a second, frame N at its game time
+      (to the file's tick), from 0, none shown out of its place;
+    - each checked frame within 1.3 of 255 of the runtime's own picture
+      on average; the flashes 4 frames each, 60 apart;
+    - the sound as long as the picture, and 0.9% different from the
+      `--wav` of the same run; each beep within 0.07 of a frame of its
+      flash;
+    - stopped by Ctrl+Break part way: the movie opens;
+    - in a window, V's way (names, " 2"), P's picture, and the default
+      `Videos\NES RECOMP`.
+  - **16 of 16 breaks caught**, the copy with no break passing: steps 1
+    and 2's ten, and six for recording (the sound a frame late, a frame
+    dropped, the wrong rate, no sound, a file not finished on quit, and
+    B-frames back).
+  - The Mac's suites still pass (`make test-all`, 219 of 220 as always,
+    and the system checks).
+
 ### 4. The app on Windows
 - `app/os_win.c`, with the Mac's ways moved into `app/os_mac.c` behind
   the same functions:
