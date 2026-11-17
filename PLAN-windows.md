@@ -418,6 +418,44 @@ to bring its own.
   - Breaks: the build using a compiler from the PC, the shipped
     preparation not used, a part of Zig left out that a build needs.
 
+- Done (tested on the branch `windows-step5`; the Windows run is green):
+  - **What's shipped as the preparation changed.** Zig's cache can't be
+    shipped: on this Mac, a copy of Zig never used a cache made by
+    another copy, even with the same files and times (Zig records where
+    its files are on the disk), and made everything again. But only
+    linking needs that work (compiling needs no cache), so what's
+    shipped is its result, the C library itself:
+    - `tools/make_windows_app.py --zig DIR` links a tiny program once,
+      as a game is linked, with the full Zig, and keeps the 26 files
+      the link used (the start-up code, MinGW's and Zig's libraries,
+      Windows's import libraries) in `zig\prebuilt\`, with the link's
+      command in `zig\link.txt`;
+    - the app links each game with Zig's linker (`zig lld-link`)
+      against them. On GitHub's machine a first build in a new folder
+      takes 2.4 s, and Zig makes nothing for its library.
+  - **The app uses only its own `zig\zig.exe`**, never one on PATH;
+    without it (or its `link.txt`) a build says "the app's compiler is
+    missing". Zig's cache goes in the build folder (`zig-cache`).
+  - **Everything is built for any 64-bit PC** (`-target
+    x86_64-windows-gnu`), not for the building machine's processor:
+    the games, the app, zlib and the prebuilt library.
+  - **The size:** the app's `zig\` is 287.8 MB: `zig.exe` 190.1 MB, of
+    `lib\` only the C headers 81.2 MB (clang's, MinGW's, and
+    `std\std.zig`, by which Zig knows its folder), `prebuilt\` 16.5 MB.
+  - **`tests/check_app.py` on Windows, new checks:** with PATH cut to
+    Windows's own folders (no Zig, GCC or LLVM reachable) the app builds
+    a free test ROM, every runtime file compiled, and the game passes
+    its test; the log names the app's `zig.exe` for every compile and
+    the link; Zig's cache has nothing made in it; the first build's
+    time printed; a second build up to date at once (0.0 s). All of
+    check_app passes there; the Mac's 95 too.
+  - **24 of 24 breaks caught**, the copy with no break passing: the 21
+    before, and three for the compiler (a compiler from the PC, the
+    prebuilt library not used, Zig's C headers left out).
+  - **For step 6:** the prebuilt library is made by whichever Zig puts
+    the app together. A release made on this Mac (with the Mac's Zig)
+    should make the same Windows files, but that's to be checked there.
+
 ### 6. The Windows release
 - `make release-windows` builds `build/NES-RECOMP-<version>-windows.zip`.
   It holds one folder, "NES RECOMP <version>", with:

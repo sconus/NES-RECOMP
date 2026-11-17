@@ -91,6 +91,8 @@ double os_now(void) {
     return t.tv_sec + t.tv_nsec / 1e9;
 }
 
+void os_setenv(const char *name, const char *value) { setenv(name, value, 1); }
+
 #ifdef __APPLE__
 #include <mach-o/dyld.h>
 #endif

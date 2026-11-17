@@ -43,6 +43,7 @@ jobs:
           if ((Get-FileHash zig.zip -Algorithm SHA256).Hash -ne $want) { throw "Zig's checksum is wrong" }
           Expand-Archive zig.zip -DestinationPath $env:RUNNER_TEMP
           "$env:RUNNER_TEMP\zig-x86_64-windows-0.17.1" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
+          "NESRECOMP_ZIG=$env:RUNNER_TEMP\zig-x86_64-windows-0.17.1" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
 
       - name: SDL 2.32.10's official Windows build, and zlib 1.3.1's source (both checked)
         shell: pwsh
@@ -80,8 +81,8 @@ jobs:
       - name: Recording on Windows (Media Foundation), read back
         run: python tests/check_record_win.py
 
-      - name: The app on Windows, put together (tools/make_windows_app.py)
-        run: python tools/make_windows_app.py --cc "zig cc" --sdl2 "$env:NESRECOMP_SDL2" --zlib-src "$env:NESRECOMP_ZLIB_SRC" --recomp build/windows/nesrecomp-recomp.exe --out build/windows/app
+      - name: The app on Windows, put together with its own Zig (tools/make_windows_app.py)
+        run: python tools/make_windows_app.py --cc "zig cc" --sdl2 "$env:NESRECOMP_SDL2" --zlib-src "$env:NESRECOMP_ZLIB_SRC" --recomp build/windows/nesrecomp-recomp.exe --out build/windows/app --zig "$env:NESRECOMP_ZIG"
 
       - name: The app on Windows (tests/check_app.py)
         run: python tests/check_app.py

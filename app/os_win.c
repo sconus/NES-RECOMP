@@ -150,6 +150,11 @@ double os_now(void) {
     return (double)c.QuadPart / (double)f.QuadPart;
 }
 
+void os_setenv(const char *name, const char *value) {
+    wchar_t wn[256], wv[WMAX];               /* what CreateProcessW passes on */
+    if (widen(name, wn, 256) && widen(value, wv, WMAX)) SetEnvironmentVariableW(wn, wv);
+}
+
 int os_exe_path(char *out, size_t n) {
     wchar_t w[WMAX];
     DWORD len = GetModuleFileNameW(NULL, w, WMAX);

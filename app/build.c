@@ -44,10 +44,15 @@
    app's folder holds beside NES RECOMP's program: nesrecomp-recomp.exe,
    runtime\, SDL2.dll with sdl2\include and sdl2\lib\libSDL2.dll.a (to
    link against), and zlib\include and zlib\lib\libz.a (Windows has no
-   zlib of its own). The compiler is Zig's (`zig cc`): the app's own,
-   zig\zig.exe beside the program, or one on PATH. A game is NAME.exe,
-   and SDL2.dll is copied beside it. Only the runtime's .c files are
-   compiled (record_mac.m is the Mac's). */
+   zlib of its own). The compiler is Zig's, the app's own (zig\zig.exe
+   beside the program, PLAN-windows.md step 5), never one on the PC: `zig
+   cc` compiles, for x86_64-windows-gnu (any 64-bit PC). Linking is done
+   with Zig's linker (`zig lld-link`) against the C library Zig made when
+   the app was put together (zig\prebuilt\, the command in zig\link.txt,
+   by tools/make_windows_app.py), so a first build on a new PC doesn't
+   spend a minute making it. Zig's cache is kept in the build folder
+   (zig-cache). A game is NAME.exe, and SDL2.dll is copied beside it.
+   Only the runtime's .c files are compiled (record_mac.m is the Mac's). */
 #include "build.h"
 #include "os.h"
 #include <math.h>
@@ -61,6 +66,7 @@ static char recompiler[PATH_MAX];
 #ifdef _WIN32
 static char sdl_implib[PATH_MAX], zlib_inc[PATH_MAX + 8], zlib_lib[PATH_MAX];
 static char zig[PATH_MAX];              /* the compiler (build_have_compiler) */
+static char zig_dir[PATH_MAX], zig_link[PATH_MAX];  /* its folder, link.txt */
 #endif
 
 /* How much of the bar each stage has. */
@@ -282,29 +288,67 @@ static void stamp_text(const char *rom, const char *missed, char *out, size_t n)
 #ifdef _WIN32
 const char *build_xcode_select(void) { return ""; }
 
-/* Zig's compiler: the app's own (zig\zig.exe beside the program, PLAN-
-   windows.md step 5), or one on PATH. */
+/* Zig's compiler: the app's own, zig\zig.exe beside the program, with
+   its link command (zig\link.txt); none on the PC is looked for. */
 int build_have_compiler(char *where, size_t n) {
     if (where && n) where[0] = 0;
-    char own[PATH_MAX];
-    snprintf(own, sizeof own, "%s", recompiler);
-    char *cut = (char *)os_last_sep(own);
-    if (cut) { snprintf(cut + 1, sizeof own - (size_t)(cut + 1 - own), "zig/zig.exe"); }
+    snprintf(zig_dir, sizeof zig_dir, "%s", recompiler);
+    char *cut = (char *)os_last_sep(zig_dir);
     zig[0] = 0;
-    if (cut && os_can_run(own)) snprintf(zig, sizeof zig, "%s", own);
-    else {
-        const char *path = getenv("PATH");
-        char dir[PATH_MAX];
-        while (path && *path && !zig[0]) {
-            size_t k = strcspn(path, ";");
-            snprintf(dir, sizeof dir, "%.*s/zig.exe", (int)k, path);
-            if (k && os_can_run(dir)) snprintf(zig, sizeof zig, "%s", dir);
-            path += k + (path[k] == ';');
-        }
-    }
-    if (!zig[0]) return 0;
+    if (!cut) return 0;
+    snprintf(cut + 1, sizeof zig_dir - (size_t)(cut + 1 - zig_dir), "zig");
+    snprintf(zig, sizeof zig, "%s/zig.exe", zig_dir);
+    snprintf(zig_link, sizeof zig_link, "%s/link.txt", zig_dir);
+    if (!os_can_run(zig) || !exists(zig_link)) { zig[0] = 0; return 0; }
     if (where) snprintf(where, n, "%s", zig);
     return 1;
+}
+
+/* The link command, from zig\link.txt: one argument a line, with {out}
+   (the game), {objects} (its objects, one argument each), {zig} (the
+   app's Zig folder, where prebuilt\ is), {sdl2} (SDL's import library)
+   and {zlib} (zlib's library) filled in. Its arguments go in a[] after
+   `zig lld-link`, kept in text[] (ntext of them); returns how many in
+   a[], or -1. */
+static int link_args(char **a, int most, char (*text)[PATH_MAX + 64], int ntext, const char *out,
+                     const char *gobj, char (*objs)[PATH_MAX], int ns) {
+    FILE *f = fopen(zig_link, "r");
+    if (!f) return -1;
+    int k = 0, t = 0;
+    a[k++] = zig; a[k++] = "lld-link";
+    char line[PATH_MAX];
+    while (fgets(line, sizeof line, f)) {
+        line[strcspn(line, "\r\n")] = 0;
+        if (!line[0]) continue;
+        if (k + ns + 2 >= most || t >= ntext) { fclose(f); return -1; }
+        if (!strcmp(line, "{objects}")) {
+            a[k++] = (char *)gobj;
+            for (int i = 0; i < ns; i++) a[k++] = objs[i];
+            continue;
+        }
+        static const char *const names[] = { "{out}", "{zig}", "{sdl2}", "{zlib}" };
+        const char *with[] = { out, zig_dir, sdl_implib, zlib_lib };
+        char *p = text[t];
+        size_t room = sizeof text[t];
+        const char *s = line;
+        p[0] = 0;
+        while (*s) {
+            int hit = -1;
+            for (int j = 0; j < 4; j++)
+                if (!strncmp(s, names[j], strlen(names[j]))) hit = j;
+            size_t len = strlen(p);
+            if (hit >= 0) {
+                snprintf(p + len, room - len, "%s", with[hit]);
+                s += strlen(names[hit]);
+            } else {
+                if (len + 1 < room) { p[len] = *s; p[len + 1] = 0; }
+                s++;
+            }
+        }
+        a[k++] = text[t++];
+    }
+    fclose(f);
+    return k;
 }
 #else
 #include <errno.h>
@@ -375,7 +419,7 @@ static int by_name(const void *a, const void *b) {
 static int cc_start(char **a, char *inc) {
     int k = 0;
 #ifdef _WIN32
-    a[k++] = zig; a[k++] = "cc";
+    a[k++] = zig; a[k++] = "cc"; a[k++] = "-target"; a[k++] = "x86_64-windows-gnu";
 #else
     a[k++] = "cc";
 #endif
@@ -472,6 +516,12 @@ int build_run(struct build *b, const char *rom) {
     if (!build_have_compiler(NULL, 0)) {
 #ifdef _WIN32
         return fail(b, "%s", "the app's compiler is missing");
+    /* Zig's cache in the build folder (a first build only fills it with
+       what it compiles; the C library it would make is prebuilt). */
+    char zcache[PATH_MAX + 16];
+    snprintf(zcache, sizeof zcache, "%s/zig-cache", build_dir);
+    os_setenv("ZIG_GLOBAL_CACHE_DIR", zcache);
+    os_setenv("ZIG_LOCAL_CACHE_DIR", zcache);
 #else
         b->no_compiler = 1;
         return fail(b, "%s", "needs Apple's C compiler: xcode-select --install");
@@ -562,17 +612,18 @@ int build_run(struct build *b, const char *rom) {
         for (int j = 0; j < ns; j++) free(srcs[j]);
         return fail(b, "can't copy SDL2 from %s", sdl_lib[0] ? sdl_lib : "the app");
     }
-    char *la[300];
+    char *la[400];
     int ln = 0;
 #ifdef _WIN32
-    la[ln++] = zig; la[ln++] = "cc";
-    la[ln++] = "-o"; la[ln++] = b->out; la[ln++] = gobj;
-    for (int i = 0; i < ns; i++) la[ln++] = objs[i];
-    /* SDL2.dll, which it finds beside it (copied there above), through
-       its import library; zlib for pictures; ole32 for recording. */
-    la[ln++] = sdl_implib;
-    la[ln++] = zlib_lib;
-    la[ln++] = "-lole32";
+    /* With SDL2.dll, which it finds beside it (copied there above),
+       through its import library; zlib for pictures; ole32 for
+       recording: all in link.txt, as tools/make_windows_app.py made it. */
+    static char ltext[128][PATH_MAX + 64];
+    ln = link_args(la, 400, ltext, 128, b->out, gobj, objs, ns);
+    if (ln < 0) {
+        for (int j = 0; j < ns; j++) free(srcs[j]);
+        return fail(b, "%s", "the app's compiler is missing (its link.txt)");
+    }
 #else
     la[ln++] = "cc"; la[ln++] = "-o"; la[ln++] = b->out; la[ln++] = gobj;
     for (int i = 0; i < ns; i++) la[ln++] = objs[i];

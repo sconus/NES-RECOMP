@@ -88,6 +88,7 @@ import shutil
 import struct
 import subprocess
 import sys
+import time
 import zlib
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -227,6 +228,69 @@ def text_pixels(defs, font, lines, scale=2, gap=6):
                             for dx in range(scale):
                                 on.add((x0 + i * 6 * scale + c * scale + dx, y0 + r * scale + dy))
     return on
+
+
+def own_compiler(check, build, stages_of, rom):
+    """The app's own compiler on Windows (PLAN-windows.md step 5): Zig in
+    the app's zig\\ folder, with the C library prebuilt (zig\\prebuilt,
+    zig\\link.txt). A build with no other compiler reachable, timed."""
+    zdir = os.path.join(WIN_APP_DIR, "zig")
+    size = sum(os.path.getsize(os.path.join(d, f)) for d, _, fs in os.walk(zdir) for f in fs)
+    print("     the app's Zig: %.1f MB" % (size / 1e6))
+    parts = [os.path.join(zdir, p) for p in ("zig.exe", "LICENSE", "link.txt", "prebuilt", "lib")]
+    check("the app's own Zig is in its folder (zig.exe, its license, link.txt, prebuilt\\)",
+          all(os.path.exists(p) for p in parts), "missing: %s" % [p for p in parts if not os.path.exists(p)])
+    # No other compiler reachable: PATH only Windows's own folders, so
+    # neither GitHub's Zig, nor its GCC or LLVM, can be found.
+    sysroot = os.environ.get("SystemRoot", r"C:\Windows")
+    bare = dict(os.environ, PATH=os.path.join(sysroot, "System32") + ";" + sysroot)
+    bare.pop("NESRECOMP_ROOT", None)
+    found = [c for c in ("zig.exe", "gcc.exe", "clang.exe", "cc.exe", "cl.exe")
+             if shutil.which(c, path=bare["PATH"])]
+    check("no compiler on the trimmed PATH", not found, "found %s" % found)
+    bdir = os.path.join(OUT, "own compiler builds")
+    shutil.rmtree(bdir, ignore_errors=True)
+    t0 = time.time()
+    code, out = build(rom, bdir, trace=False, env=bare)
+    first = time.time() - t0
+    print("     a first build with the app's Zig, in a new build folder: %.1f s" % first)
+    exe = os.path.join(bdir, "my_game__test_" + EXE)
+    check("no other compiler: the app's Zig builds a free test ROM",
+          code == 0 and stages_of(out) == [1, 2, 3, 4, 5] and os.path.exists(exe),
+          "exit %d, %s" % (code, (out.strip().splitlines() or ["?"])[-1]))
+    rt = re.search(r"runtime: .*", out)
+    check("no other compiler: every runtime file compiled", "runtime: %d of %d" % (RT_N, RT_N) in out,
+          rt.group(0) if rt else "")
+    # Every command after the recompiler is the app's own zig.exe.
+    log = os.path.join(bdir, "my_game__test_.log")
+    cmds = [l[2:] for l in open(log, encoding="utf-8", errors="replace").read().splitlines()
+            if l.startswith("$ ")] if os.path.exists(log) else []
+    own = os.path.normcase(os.path.normpath(os.path.join(zdir, "zig.exe")))
+    progs = [os.path.normcase(os.path.normpath(c.split(" cc ")[0].split(" lld-link ")[0])) for c in cmds[1:]]
+    check("the log names the app's own compiler for every compile and the link",
+          len(progs) >= 3 and all(p == own for p in progs)
+          and any(" lld-link " in c for c in cmds),
+          "%d command(s): %s" % (len(progs), sorted(set(progs))[:3]))
+    # Again at once (before playing, which may write a .missed that makes
+    # the next build a real one; read the log first, as a build starts it
+    # afresh): up to date.
+    t0 = time.time()
+    code2, out2 = build(rom, bdir, trace=False, env=bare)
+    again = time.time() - t0
+    print("     the same build again: %.1f s" % again)
+    check("the second build: up to date at once (under 5 s)",
+          code2 == 0 and "up to date: " in out2 and again < 5, "exit %d, %.1f s" % (code2, again))
+    ran = subprocess.run([exe, rom, "--headless", "--frames", "600", "--no-save"], capture_output=True,
+                         text=True, env=bare) if os.path.exists(exe) else None
+    check("no other compiler: the game runs and passes its test",
+          ran is not None and "test status at $6000: $00" in ran.stderr,
+          "no program" if ran is None else ran.stderr[-120:])
+    # The C library came prebuilt: Zig made nothing for it in its cache
+    # (it would have put the library's parts, hundreds of them, in o\\).
+    made = os.path.join(bdir, "zig-cache", "o")
+    n = len(os.listdir(made)) if os.path.isdir(made) else 0
+    check("the first build used the prebuilt C library (Zig's cache: nothing made in o\\)",
+          code == 0 and n == 0, "%d made in %s, first build %.1f s" % (n, made, first))
 
 
 def main():
@@ -530,6 +594,9 @@ def main():
           code == 1 and "error: the C compiler:" in out and seen[-1:] == [4]
           and not os.path.exists(os.path.join(fb, "my_game__test_" + EXE)),
           "exit %d, %s" % (code, last_line(out)))
+
+    if WIN:
+        own_compiler(check, build, stages_of, spaced)
 
     # Where builds go when not told: the app's folder (a scratch home here).
     ahome = os.path.join(OUT, "a home")

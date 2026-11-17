@@ -54,6 +54,13 @@ half (app/os_win.c, support_win.c) and its build (app/build.c):
   - a build that never finishes (a program's end never seen);
   - SDL2.dll not beside a game;
   - the support link wrong in the window's menu.
+
+Step 5's (checked with tests/check_app.py too) are in the app's own
+compiler (app/build.c, tools/make_windows_app.py):
+  - a build using a compiler from the PC (zig.exe looked for on PATH);
+  - the prebuilt C library not used (a game linked with `zig cc`, which
+    would make the library first);
+  - a part of Zig left out that a build needs (its C headers).
 """
 import os
 import shlex
@@ -85,6 +92,13 @@ def wrong_rate(w):
     sub(w, "runtime/record_win.c", "set_pair(a, &MF_MT_FRAME_RATE, FRAME_DEN, FRAME_NUM);",
         "set_pair(a, &MF_MT_FRAME_RATE, 60, 1);")
     sub(w, "runtime/record_win.c", "{ return (n * 10482736 + 31) / 63; }", "{ return n * 10000000 / 60; }")
+
+
+def pc_compiler(w):
+    sub(w, "app/build.c", '    snprintf(zig, sizeof zig, "%s/zig.exe", zig_dir);',
+        '    snprintf(zig, sizeof zig, "%s", "zig.exe");')
+    sub(w, "app/build.c", "    if (!os_can_run(zig) || !exists(zig_link)) { zig[0] = 0; return 0; }",
+        "    if (!exists(zig_link)) { zig[0] = 0; return 0; }")
 
 
 BREAKS = [
@@ -145,6 +159,17 @@ BREAKS = [
     ("app: the support link wrong in the window's menu",
      lambda w: sub(w, "app/support_win.c", "        support_open();\n        return 0;",
                    '        os_open_url("https://ko-fi.com/");\n        return 0;'), APP),
+    ("app: a build using a compiler from the PC", pc_compiler, APP),
+    ("app: the prebuilt C library not used (linked with zig cc)",
+     lambda w: sub(w, "app/build.c", "    ln = link_args(la, 400, ltext, 128, b->out, gobj, objs, ns);",
+                   '    (void)link_args; (void)ltext; ln = 0;\n'
+                   '    la[ln++] = zig; la[ln++] = "cc"; la[ln++] = "-target"; la[ln++] = "x86_64-windows-gnu";\n'
+                   '    la[ln++] = "-o"; la[ln++] = b->out; la[ln++] = gobj;\n'
+                   '    for (int i = 0; i < ns; i++) la[ln++] = objs[i];\n'
+                   '    la[ln++] = sdl_implib; la[ln++] = zlib_lib; la[ln++] = "-lole32";'), APP),
+    ("app: a part of Zig left out (its C headers)",
+     lambda w: sub(w, "tools/make_windows_app.py", '"include", "libc/include/any-windows-any", "std/std.zig"',
+                   '"include", "std/std.zig"'), APP),
 ]
 
 
@@ -181,7 +206,8 @@ def main():
                 a = subprocess.run([sys.executable, os.path.join(work, "tools", "make_windows_app.py"),
                                     "--cc", " ".join(cc), "--sdl2", os.environ["NESRECOMP_SDL2"],
                                     "--zlib-src", os.environ["NESRECOMP_ZLIB_SRC"], "--recomp", out,
-                                    "--out", os.path.join(work, "build", "windows", "app")],
+                                    "--out", os.path.join(work, "build", "windows", "app"),
+                                    "--zig", os.environ["NESRECOMP_ZIG"]],
                                    capture_output=True, text=True)
                 if a.returncode:
                     results.append((name, "BUILD FAILED (not counted): the app: " +

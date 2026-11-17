@@ -31,6 +31,8 @@ int os_run(char *const argv[], const char *log);
 int os_thread(void (*fn)(void *), void *arg);
 /* Seconds, from some fixed time (for timing stages). */
 double os_now(void);
+/* Set an environment variable for the programs started from now on. */
+void os_setenv(const char *name, const char *value);
 
 /* The running program's own full path. Returns 0, or -1. */
 int os_exe_path(char *out, size_t n);
