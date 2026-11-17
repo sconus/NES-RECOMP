@@ -222,6 +222,58 @@ to bring its own.
     wrong, a save written to the wrong place, Ctrl+C losing the
     `.missed` file.
 
+
+- Done (committed and pushed: 57da016; the Windows run is green):
+  - **SDL2: SDL's official Windows build** (`SDL2-devel-2.32.10-mingw.zip`,
+    from SDL's GitHub release, its published SHA-256 checked), not a
+    build from source as planned. Building SDL for Windows needs CMake
+    or a Windows resource compiler, which neither this Mac nor GitHub's
+    Windows machine reliably has. This is the same version as the Mac's,
+    made by SDL's own maintainers, and the identical file on both
+    machines.
+  - **zlib 1.3.1** (zlib.net; its checksum matched zlib's published one
+    and the copy on zlib's GitHub), its 15 C files compiled by Zig.
+    zlib 1.4 was only eleven days old, so the long-used 1.3.1 it is.
+  - **The runtime's changes:**
+    - `runtime/sys.c` holds the Mac's way and Windows's for the
+      pictures' folder (Movies or Videos), making folders, whether a
+      file is there, and quitting from outside (signals on the Mac;
+      the console's Ctrl+C, Ctrl+Break and closing on Windows).
+    - `video_sdl.c` was missing an `#include <stdio.h>`, which the Mac's
+      SDL headers had hidden.
+    - `record_win.c` is a stand-in until step 3: on Windows, V says
+      "recording isn't on Windows yet".
+    - **Ctrl+C now always ends a game well**, on the Mac too, not only
+      while recording, so `.missed`, `.sav` and any recording are
+      written.
+  - `make windows-game ROM=x.nes` builds `build/windows/<name>.exe`, with
+    `SDL2.dll` beside it.
+  - **The test scripts build through `tests/toolchain.py`:** the Mac's
+    `cc` and Homebrew's SDL2 as before, or Zig with SDL's Windows build
+    and zlib.
+    - `tests/run_nestest.py` does what `make test` does, on any system.
+    - `tests/check_runtime_sys.py` checks `sys.c`: a picture into a new
+      folder two levels deep, into the system's own folder, two in one
+      second kept apart, and a game asked to quit from outside ending
+      well.
+  - **On GitHub's Windows machine:**
+    - nestest exact (all 8,991 instructions, with its cycles), the game
+      controller self-test, and 19 of 19 header cases;
+    - the test ROM suite at 219 of 220 (test28 as always), with its 32
+      pictures and 8 sounds the same as on the Mac;
+    - `sys.c`'s four checks (the default folder `~\Videos\NES RECOMP`);
+    - step 1's checks.
+  - **Breaks, 10 of 10 caught there**, the copy with no break passing:
+    step 1's four, and six new ones: the pictures' default folder wrong
+    on Windows, folders not made two levels deep, a file's being there
+    never seen (a second picture over the first), Ctrl+Break not caught
+    (the game killed), a picture's red and blue swapped, and the sound
+    at 44,100 samples a second. The suite counts a picture that differs
+    as "WORSE" rather than FAIL, so the breaks script counts both.
+  - Unchanged on the Mac: `make test-all`, `make test-recomp`,
+    `make test-standalone`, `make test-app-bundle` and
+    `make test-release` all pass; the app now compiles 18 runtime files.
+
 ### 3. Recording on Windows
 - `runtime/record_win.c`, with Media Foundation: an MP4, H.264 at
   1024x960, 60.0988 frames a second on game time, AAC sound at 48 kHz.
