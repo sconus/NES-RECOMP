@@ -2,7 +2,8 @@
 
 A static recompiler for NES programs, built as a learning project. It turns
 the 6502 machine code in a `.nes` file into C, which a normal compiler turns
-into a native program for your Mac, with graphics in a window, sound
+into a native program for your Mac (or, through the app, a Windows
+PC), with graphics in a window, sound
 (including the Famicom cartridges' extra sound chips), up to four players
 on the keyboard or game controllers, a Zapper light gun or an Arkanoid
 paddle on the mouse, bank switching for the common cartridge types, and
@@ -268,17 +269,23 @@ device instead (below).
 
 ## The app
 
-NES RECOMP also comes as a Mac app: a pixel-art room with a TV and a
-console, in the colours of the Polygon Legends channel. You drop a ROM
-on it, and it recompiles the game to C, builds it on your Mac and plays
-it. It's a standalone app: it needs nothing from this project folder,
-from Python or from Homebrew, only Apple's free C compiler.
+NES RECOMP also comes as an app, for the Mac and for Windows: a
+pixel-art room with a TV and a console, in the colours of the Polygon
+Legends channel. You drop a ROM on it, and it recompiles the game to C,
+builds it on your computer and plays it. It's a standalone app: it
+needs nothing from this project folder, from Python or from Homebrew;
+on the Mac only Apple's free C compiler, and on Windows nothing at all
+(its compiler comes with it). Windows is below, under "On Windows".
 
 ### Getting it, and opening it the first time
 
-`make release` makes `build/NES-RECOMP-1.0.zip`: the app, a "READ ME
-FIRST" for whoever gets it, the MIT License and SDL's license. Give
-that zip to someone, or unzip it yourself.
+The latest release is on
+[GitHub's Releases page](https://github.com/sconus/NES-RECOMP/releases/latest):
+`NES-RECOMP-<version>-mac.zip` for the Mac, `NES-RECOMP-<version>-windows.zip`
+for Windows. `make release` makes the Mac one here,
+`build/NES-RECOMP-2.0-mac.zip`: the app, a "READ ME FIRST" for whoever
+gets it, the MIT License and SDL's license. Give that zip to someone,
+or unzip it yourself.
 
 The app is signed ad hoc, not by an Apple-registered developer, so the
 first time it's opened, macOS stops it:
@@ -359,7 +366,7 @@ it: you bring your own.
 
     make app-bundle          # builds build/nesrecomp.app
     open build/nesrecomp.app # or double-click it in Finder
-    make release             # build/NES-RECOMP-1.0.zip, to give away
+    make release             # build/NES-RECOMP-2.0-mac.zip, to give away
 
 (`make run-app` opens the same window without the bundle, keeping its
 builds in `build/` here.)
@@ -380,6 +387,51 @@ run after the app is moved. It holds no path of this Mac.
   or this folder;
 - `make test-release` checks the zip as a downloaded copy would be
   treated (PLAN-standalone.md step 9).
+
+### On Windows
+
+The same app, for Windows 10 (version 1903 or later) and Windows 11,
+64-bit (PLAN-windows.md). Its C compiler comes with it: Zig, in the
+`zig` folder, with the C library it needs already made, so the first
+build takes seconds and nothing else needs installing.
+
+- **Getting it:** `NES-RECOMP-<version>-windows.zip` from the
+  [Releases page](https://github.com/sconus/NES-RECOMP/releases/latest).
+  It holds one folder, "NES RECOMP <version>": `NES RECOMP.exe`, what it
+  builds games from, its "READ ME FIRST" and the licenses (MIT, and in
+  `licenses`, SDL's, zlib's, Zig's, LLVM's and MinGW-w64's).
+- **Unzip it first:** right-click the zip, "Extract All...". Opened from
+  inside the zip, it stops with "SDL2.dll was not found": Windows takes
+  only the program out of the zip, not the files beside it. Keep the
+  folder together.
+- **The first time,** Windows SmartScreen says "Windows protected your
+  PC", as NES RECOMP isn't signed by a registered developer: click
+  "More info", then "Run anyway". After that it opens with a
+  double-click.
+- **Using it** is as on the Mac, but Enter is Start. Its support item
+  is in the window's own menu (the icon at its top left, or Alt+Space).
+  Names with accents or other alphabets work: the app, the recompiler
+  and every game use Windows's UTF-8 setting.
+- **Where things go:** builds, logs and settings in
+  `%LOCALAPPDATA%\NES RECOMP`; recordings (MP4, H.264 and AAC, through
+  Windows's Media Foundation) and pictures in `Videos\NES RECOMP`;
+  `.missed` and `.sav` beside the ROM, as on the Mac.
+
+Building it from this project, on the Mac (Zig builds Windows programs
+here too):
+
+    make windows-app         # the app's folder, build/windows/app (no Zig in it)
+    make release-windows     # build/NES-RECOMP-2.0-windows.zip, with Zig
+    make test-release-windows  # what can be checked of it here
+
+`make release-windows` downloads Zig's official Windows build the first
+time (about 100 MB from ziglang.org, checked against its SHA-256) for
+the `zig.exe` it ships; this Mac's Zig builds the rest. The rest of the
+checking runs on a Windows machine on GitHub
+(`.github/workflows/windows.yml`), on every push: the recompiler gives
+the same C as on the Mac, the runtime passes the test suite, recording,
+the app's screens and builds, the zip unzipped as a browser would leave
+it, and the breaks (`tests/windows_breaks.py`) it must catch.
 
 ## The Arkanoid paddle
 

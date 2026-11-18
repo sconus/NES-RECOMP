@@ -20,6 +20,7 @@ shows for a few seconds.
 Exit status 0 when all pass.
 """
 import os
+import re
 import plistlib
 import shutil
 import subprocess
@@ -94,9 +95,10 @@ def main():
     except (OSError, plistlib.InvalidFileException) as e:
         info = {}
         check("Info.plist", False, str(e))
+    APP_VERSION = re.search(r'#define APP_VERSION "([^"]+)"', open(os.path.join(ROOT, "app", "build.h")).read()).group(1)
     want = {
         "CFBundleName": "NES RECOMP", "CFBundleIdentifier": IDENT,
-        "CFBundleShortVersionString": "1.0", "CFBundleExecutable": "nesrecomp",
+        "CFBundleShortVersionString": APP_VERSION, "CFBundleExecutable": "nesrecomp",
         "CFBundleIconFile": "nesrecomp", "CFBundlePackageType": "APPL",
         "NSHumanReadableCopyright": "For educational purposes only. By Serge and Claude. "
                                     "Free software under the MIT License.",

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Check the release (PLAN-standalone.md step 9). Run by `make
 test-release`, after `make release`.
-  1. the zip, build/NES-RECOMP-<version>.zip (the version the app's own):
+  1. the zip, build/NES-RECOMP-<version>-mac.zip (the version the app's own):
      one folder, "NES RECOMP <version>", holding the app, READ ME
      FIRST.txt, LICENSE.txt and SDL LICENSE.txt and nothing else (no
      __MACOSX folder of this Mac's file attributes); the
@@ -72,7 +72,7 @@ def main():
     if not os.path.exists(prog):
         sys.exit("build/nesrecomp.app is missing: make app-bundle first")
     version = run(prog, "--version").stdout.strip()
-    zpath = os.path.join(ROOT, "build", "NES-RECOMP-%s.zip" % version)
+    zpath = os.path.join(ROOT, "build", "NES-RECOMP-%s-mac.zip" % version)
     if not os.path.exists(zpath):
         sys.exit("%s is missing: make release first" % zpath)
     top = "NES RECOMP %s/" % version

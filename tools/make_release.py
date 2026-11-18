@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Make build/NES-RECOMP-<version>.zip, the app to give away
+"""Make build/NES-RECOMP-<version>-mac.zip, the app to give away
 (PLAN-standalone.md step 9). Run by `make release`, after `make
 app-bundle`. The zip holds one folder, "NES RECOMP <version>":
 
@@ -115,7 +115,7 @@ def main():
     shutil.copyfile(os.path.join(ROOT, "LICENSE"), os.path.join(folder, "LICENSE.txt"))
     shutil.copyfile(os.path.join(APP, "Contents", "Resources", "sdl2", "LICENSE.txt"),
                     os.path.join(folder, "SDL LICENSE.txt"))
-    zip_path = os.path.join(ROOT, "build", "NES-RECOMP-%s.zip" % version)
+    zip_path = os.path.join(ROOT, "build", "NES-RECOMP-%s-mac.zip" % version)
     if os.path.exists(zip_path):
         os.remove(zip_path)
     # Without resource forks, extended attributes or ACLs: the app needs

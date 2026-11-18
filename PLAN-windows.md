@@ -546,6 +546,30 @@ to bring its own.
 - The README gets a "Windows" part: getting it, opening it the first
   time, and building it from the project.
 
+- Done (tested on the branch `windows-step8`; the Windows run is green):
+  - **Step 7, your Boot Camp test (Windows 10):** the zip made on this
+    Mac works once unzipped. Opened from inside the zip it stops with
+    "SDL2.dll was not found" (Windows takes only the program out of the
+    zip); the read-me's first step covers it, and you chose no extra
+    message. Typing landing in Windows's search box now and then while
+    playing is most likely the Windows key (or Ctrl+Esc) opening Start;
+    left as it is unless it's found to be something else.
+  - **Version 2.0:** `APP_VERSION` in `app/build.h`, the one place it's
+    kept; `tests/check_app_bundle.py` now reads it from there too.
+  - **The zips:** `build/NES-RECOMP-2.0-mac.zip` (2.2 MB; the Mac's now
+    named `-mac`, beside `-windows`) and
+    `build/NES-RECOMP-2.0-windows.zip` (72.7 MB). On the Mac: `make
+    test-app` 95, `test-release` 29, `test-app-bundle` (after macOS
+    asked again about the Desktop folder, for the newly signed app),
+    `test-standalone` 50, `test-release-windows` 9, all passing.
+  - **The README:** the app is for the Mac and Windows; the Releases
+    page for both zips; an "On Windows" section: what it needs,
+    unzipping first, SmartScreen, Enter as Start, the window's menu,
+    where things go, and building it here.
+  - The v2 mappers (71, 79 and others) weren't ready: not in 2.0.
+  - **The release:** tag `v2.0`, "NES RECOMP 2.0", both zips, with
+    notes for each system; on your go-ahead.
+
 ## Order, and what can be trimmed
 
 - **Why this order:** every later step needs the test bench of step 1;
