@@ -192,6 +192,98 @@ static void caltron_reset(void) {
     caltron_apply();
 }
 
+/* ---- 228: Active Enterprises (Action 52, Cheetahmen II). nesdev wiki,
+   "INES Mapper 228". Everything is in a write to $8000-$FFFF:
+     address  ..MH HPPP PPS. CCCC
+              M mirroring (0 vertical, 1 horizontal), HH which 512 KB
+              PRG chip, PPPPP the 16 KB bank in that chip, S the PRG
+              mode (0: 32 KB, the bank with bit 0 clear at $8000 and set
+              at $C000; 1: the same 16 KB at both), CCCC the high bits
+              of the 8 KB CHR bank;
+     data     .... ..CC  the low bits of the CHR bank.
+   Action 52 has three 512 KB chips, in sockets 0, 1 and 3: socket 2 is
+   empty, so chip 3 is the file's third 512 KB. The wiki says an empty
+   socket reads as open bus; here chip 2 is the third chip too, as in
+   Mesen (neither game selects it). The games expect $00 written to
+   $8000 at power-on and reset. The wiki says the 4-bit RAM once
+   described at $4020-$5FFF isn't on either cartridge, so there is none. */
+
+static void ae_write(uint16_t addr, uint8_t val) {
+    int chip = addr >> 11 & 3;
+    if (chip == 3) chip = 2;
+    int bank = chip << 5 | (addr >> 6 & 0x1F);
+    if (addr & 0x20) {
+        set_prg_16k(0, bank);
+        set_prg_16k(1, bank);
+    } else {
+        set_prg_16k(0, bank & ~1);
+        set_prg_16k(1, bank | 1);
+    }
+    set_chr_8k((addr & 0x0F) << 2 | (val & 3));
+    cart.mirroring = (addr & 0x2000) ? MIRROR_HORIZONTAL : MIRROR_VERTICAL;
+}
+
+static void ae_reset(void) {           /* the reset button */
+    ppu_catch_up();
+    ae_write(0x8000, 0);
+    ppu_schedule();
+}
+
+/* ---- 172: TXC 22211, the Jiahe/Super Mega board (1991 Du Ma Racing).
+   nesdev wiki, "INES Mapper 172": mapper 136's JV001 chip mounted upside
+   down, so the CPU's data bits D0-D5 reach the chip as D5-D0. Modelled
+   here in the chip's own bit order (as mapper 136 describes it), with
+   the bits reversed on the way in and out. Registers where
+   addr & $E103 is $4100-$4103:
+     $4100 write  Mode 0: Register := Input, bits 0-3 inverted if
+                  Invert; Mode 1: bits 0-3 of Register count up by one,
+                  bits 4-5 stay.
+     $4101 write  Invert := chip bit 0 (CPU bit 5).
+     $4102 write  Input := the six bits.
+     $4103 write  Mode := chip bit 0 (CPU bit 5).
+     read         Register, bits 4-5 inverted if Invert; bits 6-7 open
+                  bus (0 here, as the runtime's open bus).
+   A write to $8000-$FFFF (its value ignored) copies Register to Output:
+   Output bits 0-1 are the 8 KB CHR bank, and mirroring becomes
+   horizontal with Invert clear, vertical with it set. The wiki doesn't
+   say what the chip holds at power-on: here everything is 0, and the
+   header's mirroring holds until the first $8000 write. PRG never
+   switches. */
+
+static struct { uint8_t input, reg, invert, mode; } txc;
+
+static uint8_t rev6(uint8_t v) {
+    uint8_t r = 0;
+    for (int i = 0; i < 6; i++)
+        if (v & 1 << i) r |= (uint8_t)(0x20 >> i);
+    return r;
+}
+
+static void txc_write_low(uint16_t addr, uint8_t val) {
+    if ((addr & 0xE100) != 0x4100) return;
+    uint8_t v = rev6(val & 0x3F);
+    switch (addr & 3) {
+    case 0:
+        if (txc.mode) txc.reg = (uint8_t)((txc.reg & 0x30) | ((txc.reg + 1) & 0x0F));
+        else txc.reg = txc.input ^ (txc.invert ? 0x0F : 0);
+        break;
+    case 1: txc.invert = v & 1; break;
+    case 2: txc.input = v; break;
+    case 3: txc.mode = v & 1; break;
+    }
+}
+
+static int txc_read_low(uint16_t addr) {
+    if ((addr & 0xE100) != 0x4100) return -1;
+    return rev6(txc.reg ^ (txc.invert ? 0x30 : 0));
+}
+
+static void txc_write(uint16_t addr, uint8_t val) {
+    (void)addr; (void)val;
+    set_chr_8k(txc.reg & 3);
+    cart.mirroring = txc.invert ? MIRROR_VERTICAL : MIRROR_HORIZONTAL;
+}
+
 /* ---- 28: Action 53. A multicart board (nesdev wiki "Action 53 mapper").
    $5000-$5FFF selects a register with bits 7 and 0; $8000-$FFFF writes
    it. No bus conflicts.
@@ -1995,6 +2087,18 @@ void mapper_init(void) {
         mapper.name = "Caltron 6-in-1"; write_reg = caltron_write;
         mapper.write_6000 = caltron_write_6000;
         caltron_reset();
+        break;
+    case 228:
+        mapper.name = "Active Enterprises"; write_reg = ae_write;
+        mapper.reset = ae_reset;
+        ae_write(0x8000, 0);
+        break;
+    case 172:
+        mapper.name = "TXC 172"; write_reg = txc_write;
+        write_low = txc_write_low; read_low = txc_read_low;
+        memset(&txc, 0, sizeof txc);
+        set_prg_32k(0);
+        set_chr_8k(0);
         break;
     default:
         fprintf(stderr, "mapper %d is not supported yet; running it as NROM, "

@@ -51,6 +51,10 @@ struct mapper {
        6-in-1's outer register at $6000-$67FF); still written to RAM too,
        when there is RAM. Called through mapper_write_6000. */
     void (*write_6000)(uint16_t addr, uint8_t val);
+    /* The reset button, for boards that change when it's pressed (Active
+       Enterprises' register is written with $00). Called by
+       cpu_reset_target before the reset vector is read. */
+    void (*reset)(void);
     /* Nametable reads and writes ($2000-$3EFF), when the mapper decides
        where each nametable comes from (MMC5's $5105, fill mode, ExRAM). */
     uint8_t (*nt_read)(uint16_t addr);

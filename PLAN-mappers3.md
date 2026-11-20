@@ -115,7 +115,7 @@ switching out the running code changes nothing the test can see. Your
 games (Cosmic Spacehead, the AVE games, Caltron 6 in 1) are the real
 check, yours to try in the app.
 
-### 2. Multicarts with odd layouts: 228 and 172
+### 2. Multicarts with odd layouts: 228 and 172 (done)
 - **228, Active Enterprises (Action 52, Cheetahmen II):** everything is
   in the written address: the program bank, which of the three ROM
   chips, 16 or 32 KB mode, mirroring; the data and the low address bits
@@ -128,6 +128,73 @@ check, yours to try in the app.
 - Checks: `make_ae_test.py`, `make_txc_test.py`.
 - Breaks: the chip gap ignored, 16/32 KB mode swapped, the read-back
   register wrong, 172's bits not reversed.
+
+Done, following the nesdev wiki's pages ("INES Mapper 228", "INES
+Mapper 172" and, for the chip 172 is built on, "INES Mapper 136"):
+- **228, Active Enterprises:** a write to `$8000-$FFFF` sets everything
+  from its address, `..MH HPPP PPS. CCCC` (mirroring, the 512 KB chip,
+  the 16 KB bank, 32 or 16 KB mode, the high graphics bits), and the
+  low two graphics bits from its data. Chip 3 is the file's third
+  512 KB (Action 52's empty socket). The games expect `$00` written at
+  power-on and on reset, so the runtime has a new hook,
+  `mapper.reset`, called when the reset button is pressed, before the
+  reset vector is read.
+- **172, TXC 22211:** the wiki describes it as mapper 136's JV001 chip
+  mounted upside down, with the CPU's data bits D0-D5 reaching it as
+  D5-D0. It's written that way: the chip's registers (Input, Register,
+  Invert, Mode, Output) in the chip's own bit order, as the 136 page
+  gives them, with the bits reversed on the way in and out. This also
+  explains the 172 page's two different-looking CHR formulas (Output
+  bits 5/4 in the CPU's order are bits 0/1 in the chip's). Registers
+  where `addr & $E103` is `$4100-$4103`, read back at `$4100`; a write
+  to `$8000-$FFFF` sets the CHR bank and the mirroring.
+- Both recompiler tables have the two boards. 228 has no `low_regs`
+  (its register is at `$8000-$FFFF`), and 172's program never moves.
+
+Different from what this plan said, or the wiki leaves open:
+- **No RAM at `$5FF0` for 228.** The wiki says the 4-bit RAM once
+  described for this board isn't on either cartridge, and neither game
+  touches it, so there is none.
+- **Chip 2 of 228** (the empty socket) reads as open bus on the real
+  board, says the wiki. Here it is the third chip, as in Mesen: neither
+  game selects it, and open bus there would need a fake bank.
+- **172 at power-on:** the wiki doesn't say. Here everything starts at 0,
+  and the header's mirroring holds until the first `$8000` write.
+  Reading `$4100` gives 0 in bits 6-7, as the runtime's open bus does
+  everywhere (the games check the low six bits).
+
+Checks: `tests/ae_switch.nes` (from `make_ae_test.py`: 1.5 MB of PRG
+laid out as Action 52's three chips, 512 KB of CHR, the program in every
+16 KB bank) and `tests/txc_switch.nes` (from `make_txc_test.py`). Both
+pass; each generator's docstring lists its status codes. The 228 test
+asks for the reset button (status `$81`) and checks the banks after it.
+The 172 test's expected values were worked out by hand from the wiki, in
+the CPU's bit order, and are written next to each check.
+
+Breaks, in scratch copies: 19 of 19 caught, each with its own FAIL code.
+For 228: the chip gap ignored, 16 and 32 KB modes swapped, 32 KB mode
+keeping bit 0, the chip from the wrong address bits, the data's
+graphics bits ignored, mirroring swapped, the register only at
+`$8000-$BFFF`, nothing on the reset button. For 172: the input bits not
+reversed, the read not reversed, the read inverting the wrong bits, the
+`$4100` copy not inverted, the count carrying into bits 4-5, Invert from
+the wrong data bit, the CHR bank from the wrong Output bits, mirroring
+swapped, the header's mirroring replaced at power-on, the registers
+answering without `A8`, the registers only at `$41xx`.
+
+Results: `make test-all` 224 of 225 (test28 as always), nestest exact;
+`tests/check_same_c.py` and `make test-recomp` pass. `tests/same_c.txt`
+gained the two ROMs. Its other 397 changed lines differ only in the
+listing's hash (the temporary C file names moved along again); the exit
+status, the C and the printed lines are the same for all 399 earlier
+files. The same-C list only covers files git tracks, so it was written
+with a scratch index holding the two new ROMs, not the real one.
+
+Not verified: chip 2's open bus (not built, see above), and anything
+the wiki doesn't describe. Your games (Action 52, Cheetahmen II, 1991
+Du Ma Racing) are the real check, yours to try in the app.
+
+GitHub's Windows run (run 31, test branch `mappers3-step2`) passed.
 
 ### 3. MMC3's relatives: 112 and 119
 - **112, NTDEC/Asder:** like MMC3 (a register select at `$8000`, the

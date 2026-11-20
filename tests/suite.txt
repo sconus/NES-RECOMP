@@ -203,6 +203,16 @@ result 60 tests/camerica_switch.nes
 result 60 tests/nina_switch.nes
 result 60 tests/caltron_switch.nes
 
+# --- PLAN-mappers3.md step 2: Active Enterprises (228) and TXC 22211
+# (172). ae_switch.nes (tests/make_ae_test.py) checks the address-set
+# register: 32 and 16 KB modes, the three PRG chips with Action 52's empty
+# socket, the CHR bits split between address and data, mirroring, and $00
+# on reset. txc_switch.nes (make_txc_test.py) checks the JV001's Input,
+# Register, Invert and Mode, with the data bits reversed, read back at
+# $4100, and copied to CHR and mirroring at $8000.
+result 120 tests/ae_switch.nes
+result 60 tests/txc_switch.nes
+
 # --- Mapper 28 (Action 53). The Streemerz collection's menu launches its
 # first game, whose title screen must appear (the menu runs a small
 # routine from RAM that switches to the game's banks). test28 (2012)

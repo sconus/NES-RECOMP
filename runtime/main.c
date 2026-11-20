@@ -121,7 +121,10 @@ void runtime_disk_key(int n) {
 static long song_frames;            /* how long the song has played */
 
 uint16_t cpu_reset_target(void) {
-    if (cart.mapper != MAPPER_NSF) return rd(0xFFFC) | (rd(0xFFFD) << 8);
+    if (cart.mapper != MAPPER_NSF) {
+        if (mapper.reset) mapper.reset();
+        return rd(0xFFFC) | (rd(0xFFFD) << 8);
+    }
     memset(ram, 0, sizeof ram);
     memset(cart.prg_ram, 0, cart.prg_ram_alloc);
     song_frames = 0;

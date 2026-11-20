@@ -303,6 +303,13 @@ MAPPERS = {
     # $6000-$67FF.
     41: dict(name="Caltron 6-in-1", unit=4, fixed={}, power_on={0: 0, 1: 1, 2: 2, 3: 3},
              low_regs=(0x6000, 0x67FF)),
+    # Active Enterprises (Action 52, Cheetahmen II): the written address
+    # picks 32 KB, or the same 16 KB twice, so both halves switch.
+    228: dict(name="Active Enterprises", unit=2, fixed={},
+              power_on={0: 0, 1: 1, 2: 2, 3: 3}),
+    # TXC 22211 / JV001, mapper 172 (1991 Du Ma Racing): only CHR and
+    # mirroring switch; 32 KB of PRG that never moves.
+    172: dict(name="TXC 172", unit=None),
     # An NSF music file (not an iNES mapper; the runtime uses the same
     # number): 32 KB at $8000 that never moves.
     NSF_MAPPER: dict(name="NSF", unit=None),
