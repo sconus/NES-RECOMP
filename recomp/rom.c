@@ -47,6 +47,8 @@ static const struct mapper {
     { 79, "NINA-03/06", 4, { NOT_FIXED, NOT_FIXED, NOT_FIXED, NOT_FIXED }, { 0, 1, 2, 3 },
       0x4100, 0x5FFF },
     { 85, "VRC7", 1, { NOT_FIXED, NOT_FIXED, NOT_FIXED, -1 }, { 0, 1, 2, -1 }, -1, -1 },
+    { 112, "NTDEC 112", 1, { NOT_FIXED, NOT_FIXED, -2, -1 }, { 0, 1, -2, -1 }, -1, -1 },
+    { 119, "TQROM", 1, { NOT_FIXED, NOT_FIXED, NOT_FIXED, -1 }, { 0, 1, -2, -1 }, -1, -1 },
     { 172, "TXC 172", 0, { 0 }, { 0 }, -1, -1 },
     { 228, "Active Enterprises", 2, { NOT_FIXED, NOT_FIXED, NOT_FIXED, NOT_FIXED }, { 0, 1, 2, 3 },
       -1, -1 },

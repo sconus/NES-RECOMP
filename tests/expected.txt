@@ -264,3 +264,5 @@ tests/dev_vaus_port2.nes +vaus.txt	pass
 tests/dev_vaus_famicom.nes +vaus.txt	pass
 tests/dev_four_score.nes +four.txt	pass
 tests/dev_four_famicom.nes +four.txt	pass
+tests/ntdec_switch.nes	pass
+tests/tqrom_switch.nes	pass

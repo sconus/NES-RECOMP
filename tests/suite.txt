@@ -495,3 +495,13 @@ result 200 tests/dev_vaus_port2.nes tests/inputs/vaus.txt
 result 200 tests/dev_vaus_famicom.nes tests/inputs/vaus.txt
 result 200 tests/dev_four_score.nes tests/inputs/four.txt
 result 200 tests/dev_four_famicom.nes tests/inputs/four.txt
+
+# --- PLAN-mappers3.md step 3: NTDEC / Asder (112) and TQROM (119).
+# ntdec_switch.nes (tests/make_ntdec_test.py) checks the scrambled MMC3:
+# select/data at $8000/$A000, no mode bits, the fixed last 16 KB, the 2 KB
+# and 1 KB CHR banks, mirroring at $E000, odd addresses ignored.
+# tqrom_switch.nes (make_tqrom_test.py) checks bit 6 of the MMC3's CHR
+# bank numbers picking the 8 KB CHR RAM, in 1 and 2 KB banks and with the
+# CHR swap bit, and that the MMC3's PRG banks and scanline IRQ still work.
+result 60 tests/ntdec_switch.nes
+result 60 tests/tqrom_switch.nes

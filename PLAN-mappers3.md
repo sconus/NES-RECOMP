@@ -11,7 +11,7 @@ At every step:
 - `make test-all` must not get worse, and nestest stays exact;
 - the 395 test files recompile to the same C, byte for byte, and
   `make test-recomp` shows `recomp.py` and the C recompiler agree;
-- GitHub's Windows run stays green (a test branch, on your OK).
+- GitHub's Windows run stays green (it runs on every push to main).
 
 ## Your list
 
@@ -196,7 +196,7 @@ Du Ma Racing) are the real check, yours to try in the app.
 
 GitHub's Windows run (run 31, test branch `mappers3-step2`) passed.
 
-### 3. MMC3's relatives: 112 and 119
+### 3. MMC3's relatives: 112 and 119 (done)
 - **112, NTDEC/Asder:** like MMC3 (a register select at `$8000`, the
   value at `$A000`): two 8 KB program banks, the last 16 KB fixed, two
   2 KB and four 1 KB graphics banks, mirroring at `$E000`; no IRQ.
@@ -207,6 +207,67 @@ GitHub's Windows run (run 31, test branch `mappers3-step2`) passed.
   and RAM banks in one picture).
 - Breaks: 112's fixed banks wrong, TQROM's RAM bit ignored, MMC3's IRQ
   disturbed (the existing MMC3 tests must still pass).
+
+Done, following the nesdev wiki's pages ("INES Mapper 112", "INES
+Mapper 119"):
+- **112, NTDEC/Asder:** its own small board in `runtime/mapper.c`
+  (`ntdec_*`): registers where `addr & $E001` is `$8000` (select, bits
+  0-2 only: no PRG or CHR mode bits), `$A000` (data) and `$E000`
+  (bit 0: the wiki's "horizontal arrangement", which is vertical
+  mirroring, or "vertical arrangement", horizontal mirroring). No IRQ.
+- **119, TQROM:** the MMC3's code with one change: each CHR bank number
+  goes through `mmc3_chr()`, which sends it to the board's 8 KB of CHR
+  RAM when bit 6 is set (bits 0-2 pick the 1 KB bank, since the RAM only
+  has 8 KB) and to CHR ROM otherwise (bits 0-5, up to 64 KB). RAM banks
+  are marked writable; ROM banks aren't. For mapper 4 nothing changes.
+- Both recompiler tables have the two boards: 112 with `$C000-$FFFF`
+  fixed, 119 the same as MMC3.
+
+Different from what this plan said, or the wiki leaves open:
+- **112's fixed banks, 2 KB bank units and power-on** aren't on the
+  wiki page. Here, as on the MMC3 it imitates: the last 16 KB fixed, a
+  2 KB bank number counted in 1 KB banks with its low bit ignored, and
+  the first 16 KB at `$8000` at power-on.
+- **112's `$C000` register:** some emulators give 112 a register at
+  `$C000` with extra CHR bank bits, for games with more than 256 KB of
+  CHR. The wiki doesn't list it, so it isn't here. If Chik Bik Ji Jin
+  shows wrong graphics, this is the first thing to look at.
+- **No picture for TQROM:** the test reads ROM and RAM banks back
+  through `$2007` instead, which checks the same thing with a status
+  code for each case.
+
+Checks: `tests/ntdec_switch.nes` (`make_ntdec_test.py`: 128 KB PRG,
+128 KB CHR, the program in the fixed last 8 KB) and
+`tests/tqrom_switch.nes` (`make_tqrom_test.py`: 128 KB PRG, 64 KB CHR
+ROM, the CHR RAM; 1 and 2 KB RAM banks, the CHR swap bit, the RAM
+wrapping at 8 KB, ROM not writable, the MMC3's PRG banks and its
+scanline IRQ). Both pass; each generator's docstring lists its status
+codes. The TQROM test turns the APU's frame IRQ off first: a first
+version left it on, and a break of the MMC3's IRQ then hung in the IRQ
+handler instead of failing, which also meant the passing run couldn't
+prove which IRQ it had seen.
+
+Breaks, in scratch copies: 19 of 19 caught, each with its own FAIL
+code. For 112: `$C000` switching with R0, the wrong fixed bank, MMC3's
+PRG mode bit obeyed, MMC3's CHR swap bit obeyed, select keeping bit 3,
+2 KB banks in 2 KB units, mirroring swapped, odd addresses answered, a
+register at `$C000`. For 119: the RAM bit ignored, the RAM not
+writable, only 4 KB of RAM, ROM writable, writable marks not cleared,
+RAM only through the 1 KB registers, RAM ignoring the swap bit, the
+IRQ never enabled, no A12 hook, the PRG mode bit ignored. (A first run
+caught 14: two breaks crashed because the 112 test ran from `$C000`,
+and three found gaps in the tests; the tests were fixed and every break
+run again.)
+
+Results: `make test-all` 226 of 227 (test28 as always), nestest exact;
+`tests/check_same_c.py` and `make test-recomp` pass. `tests/same_c.txt`
+gained the two ROMs; its other 336 changed lines differ only in the
+listing's hash, as in steps 1 and 2. The exit status, the C and the
+printed lines are the same for all 401 earlier files.
+
+Not verified: GitHub's Windows run (it starts with the push to main).
+Your games (Chik Bik Ji Jin, High Speed) are the real check, yours to
+try in the app.
 
 ### 4. Bandai FCG: 16
 - 16 KB at `$8000`, the last 16 KB fixed, eight 1 KB graphics banks,

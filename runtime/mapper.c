@@ -1829,11 +1829,28 @@ static struct {
     uint64_t a12_low_since;
 } mmc3;
 
+/* 119: TQROM, an MMC3 with 8 KB of CHR RAM beside its CHR ROM (nesdev
+   wiki, "INES Mapper 119"). Bit 6 of a CHR bank number picks the chip:
+   0 CHR ROM (bits 0-5: up to 64 KB), 1 CHR RAM, where only the bits
+   that fit 8 KB (0-2) count, as the RAM's address lines are CHR A0-A12. */
+static int tqrom;
+static uint8_t tqrom_ram[0x2000];
+
+static void mmc3_chr(int slot, uint8_t bank) {
+    if (tqrom && (bank & 0x40)) {
+        mapper.chr[slot] = tqrom_ram + (bank & 7) * 0x400;
+        mapper.chr_writable |= (uint8_t)(1 << slot);
+    } else {
+        set_chr_1k(slot, tqrom ? bank & 0x3F : bank);
+    }
+}
+
 static void mmc3_apply(void) {
     int x = (mmc3.select & 0x80) ? 4 : 0;   /* swap CHR halves */
-    set_chr_1k(0 ^ x, mmc3.r[0] & 0xFE); set_chr_1k(1 ^ x, mmc3.r[0] | 1);
-    set_chr_1k(2 ^ x, mmc3.r[1] & 0xFE); set_chr_1k(3 ^ x, mmc3.r[1] | 1);
-    for (int i = 0; i < 4; i++) set_chr_1k((4 + i) ^ x, mmc3.r[2 + i]);
+    mapper.chr_writable = 0;
+    mmc3_chr(0 ^ x, mmc3.r[0] & 0xFE); mmc3_chr(1 ^ x, mmc3.r[0] | 1);
+    mmc3_chr(2 ^ x, mmc3.r[1] & 0xFE); mmc3_chr(3 ^ x, mmc3.r[1] | 1);
+    for (int i = 0; i < 4; i++) mmc3_chr((4 + i) ^ x, mmc3.r[2 + i]);
     if (mmc3.select & 0x40) { set_prg_8k(0, -2); set_prg_8k(2, mmc3.r[6]); }
     else                    { set_prg_8k(0, mmc3.r[6]); set_prg_8k(2, -2); }
     set_prg_8k(1, mmc3.r[7]);
@@ -1889,6 +1906,49 @@ static void mmc3_reset(void) {
     mmc3.four_screen = cart.mirroring == MIRROR_FOUR_SCREEN;
     mmc3_apply();
     mapper.a12 = mmc3_a12;
+}
+
+/* ---- 112: NTDEC / Asder (nesdev wiki, "INES Mapper 112"). A simpler,
+   scrambled MMC3, registers where addr & $E001 is:
+     $8000  bank select, bits 0-2: 0/1 the 8 KB PRG bank at $8000/$A000,
+            2/3 the 2 KB CHR banks at $0000/$0800, 4-7 the 1 KB CHR
+            banks at $1000-$1C00 (no PRG or CHR mode bits)
+     $A000  bank data
+     $E000  bit 0: nametable arrangement, 0 horizontal (A10: vertical
+            mirroring), 1 vertical (A11: horizontal mirroring)
+   No IRQ. The wiki doesn't say which banks are fixed or the units of the
+   2 KB banks: here $C000-$FFFF is the last 16 KB, as on the MMC3 it
+   imitates, and a 2 KB bank number counts 1 KB banks with its low bit
+   ignored, also as on the MMC3. Power-on (not given either): the
+   first 16 KB at $8000 (R0 = 0, R1 = 1), the other registers 0. ---- */
+
+static uint8_t ntdec_select, ntdec_r[8];
+
+static void ntdec_apply(void) {
+    set_prg_8k(0, ntdec_r[0]);
+    set_prg_8k(1, ntdec_r[1]);
+    set_chr_1k(0, ntdec_r[2] & 0xFE); set_chr_1k(1, ntdec_r[2] | 1);
+    set_chr_1k(2, ntdec_r[3] & 0xFE); set_chr_1k(3, ntdec_r[3] | 1);
+    for (int i = 0; i < 4; i++) set_chr_1k(4 + i, ntdec_r[4 + i]);
+}
+
+static void ntdec_write(uint16_t addr, uint8_t val) {
+    switch (addr & 0xE001) {
+    case 0x8000: ntdec_select = val & 7; break;
+    case 0xA000: ntdec_r[ntdec_select] = val; ntdec_apply(); break;
+    case 0xE000:
+        cart.mirroring = (val & 1) ? MIRROR_HORIZONTAL : MIRROR_VERTICAL;
+        break;
+    }
+}
+
+static void ntdec_reset(void) {
+    ntdec_select = 0;
+    memset(ntdec_r, 0, sizeof ntdec_r);
+    ntdec_r[1] = 1;
+    ntdec_apply();
+    set_prg_8k(2, -2);
+    set_prg_8k(3, -1);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -2037,6 +2097,12 @@ void mapper_init(void) {
            this, can still choose. */
         if (cart.submapper == 4) mmc3_revision = 'A';
         break;
+    case 119:
+        mapper.name = "TQROM"; write_reg = mmc3_write;
+        tqrom = 1; memset(tqrom_ram, 0, sizeof tqrom_ram);
+        mmc3_reset();
+        break;
+    case 112: mapper.name = "NTDEC 112"; write_reg = ntdec_write; ntdec_reset(); break;
     case 7:
         mapper.name = "AxROM"; write_reg = axrom_write;
         set_prg_32k(0);

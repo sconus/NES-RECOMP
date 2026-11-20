@@ -307,6 +307,14 @@ MAPPERS = {
     # picks 32 KB, or the same 16 KB twice, so both halves switch.
     228: dict(name="Active Enterprises", unit=2, fixed={},
               power_on={0: 0, 1: 1, 2: 2, 3: 3}),
+    # NTDEC / Asder (mapper 112): like MMC3 without its mode bits, so
+    # $8000 and $A000 switch and the last 16 KB never moves.
+    112: dict(name="NTDEC 112", unit=1, fixed={2: -2, 3: -1},
+              power_on={0: 0, 1: 1, 2: -2, 3: -1}),
+    # TQROM (mapper 119): an MMC3 with CHR RAM beside its CHR ROM; the
+    # program banks are the MMC3's.
+    119: dict(name="TQROM", unit=1, fixed={3: -1},
+              power_on={0: 0, 1: 1, 2: -2, 3: -1}),
     # TXC 22211 / JV001, mapper 172 (1991 Du Ma Racing): only CHR and
     # mirroring switch; 32 KB of PRG that never moves.
     172: dict(name="TXC 172", unit=None),
