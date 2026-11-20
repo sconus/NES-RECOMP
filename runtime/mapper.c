@@ -123,6 +123,75 @@ static void gxrom_write(uint16_t addr, uint8_t val) {
     set_chr_8k(val & 3);
 }
 
+/* ---- 71: Camerica / Codemasters (BF9093, BF9097). nesdev wiki,
+   "INES Mapper 071". 16 KB at $8000 switches by writes to $C000-$FFFF
+   (bits 0-3), the last 16 KB is fixed, CHR is RAM. The BF9097 (Fire
+   Hawk) also has one-screen mirroring at $8000-$9FFF (bit 4: 0 $2000,
+   1 $2400): submapper 1 says the board has it; with submapper 0, as the
+   wiki suggests, the header's mirroring holds until the program first
+   writes there. No bus conflicts (the CIC-stun chip drives the bus). */
+
+static int camerica_mirror_reg;
+
+static void camerica_write(uint16_t addr, uint8_t val) {
+    if (addr >= 0xC000) set_prg_16k(0, val & 0x0F);
+    else if (addr < 0xA000 && (camerica_mirror_reg || cart.submapper == 0))
+        cart.mirroring = (val & 0x10) ? MIRROR_SINGLE_HIGH : MIRROR_SINGLE_LOW;
+}
+
+static void camerica_reset(void) {
+    set_prg_16k(0, 0);
+    set_prg_16k(1, -1);
+    camerica_mirror_reg = cart.submapper == 1;
+    if (camerica_mirror_reg) cart.mirroring = MIRROR_SINGLE_LOW;
+}
+
+/* ---- 79: AVE NINA-03 / NINA-06. nesdev wiki, "INES Mapper 079". One
+   register, answering at $4100-$5FFF where A8 is set (addr & $E100 =
+   $4100): bit 3 the 32 KB PRG bank, bits 0-2 the 8 KB CHR bank.
+   Mirroring is the header's. */
+
+static void nina_write_low(uint16_t addr, uint8_t val) {
+    if ((addr & 0xE100) != 0x4100) return;
+    set_prg_32k((val >> 3) & 1);
+    set_chr_8k(val & 7);
+}
+
+/* ---- 41: Caltron 6-in-1. nesdev wiki, "INES Mapper 041". Two
+   registers:
+     $6000-$67FF  the address is the value: ..MC CEPP, the 32 KB PRG bank
+                  in bits 0-2 (EPP), bit 2 (E) also lets the inner
+                  register be written, CC the high bits of the CHR bank,
+                  M mirroring (0 vertical, 1 horizontal);
+     $8000-$FFFF  the inner register, only while E is set: the low two
+                  bits of the 8 KB CHR bank, with bus conflicts. */
+
+static int caltron_outer, caltron_inner;
+
+static void caltron_apply(void) {
+    set_prg_32k(caltron_outer & 7);
+    set_chr_8k((caltron_outer >> 1 & 0x0C) | (caltron_inner & 3));
+    cart.mirroring = (caltron_outer & 0x20) ? MIRROR_HORIZONTAL : MIRROR_VERTICAL;
+}
+
+static void caltron_write_6000(uint16_t addr, uint8_t val) {
+    (void)val;
+    if (addr >= 0x6800) return;
+    caltron_outer = addr & 0x3F;
+    caltron_apply();
+}
+
+static void caltron_write(uint16_t addr, uint8_t val) {
+    if (!(caltron_outer & 4)) return;
+    caltron_inner = bus_conflict(addr, val) & 3;
+    caltron_apply();
+}
+
+static void caltron_reset(void) {
+    caltron_outer = caltron_inner = 0;
+    caltron_apply();
+}
+
 /* ---- 28: Action 53. A multicart board (nesdev wiki "Action 53 mapper").
    $5000-$5FFF selects a register with bits 7 and 0; $8000-$FFFF writes
    it. No bus conflicts.
@@ -1843,6 +1912,7 @@ static void check_submapper(void) {
         }
         known = s == 2; break;                              /* BNROM */
     case 85: known = s == 1 || s == 2; break;               /* wiring */
+    case 71: known = s == 1; break;                         /* BF9097 */
     default: known = 0;
     }
     if (s && !known)
@@ -1914,6 +1984,18 @@ void mapper_init(void) {
         mapper.name = "Action 53"; write_reg = a53_write; write_low = a53_select;
         a53_reset();
         break;
+    case 71:
+        mapper.name = "Camerica"; write_reg = camerica_write; camerica_reset();
+        break;
+    case 79:
+        mapper.name = "NINA-03/06"; write_reg = nrom_write; write_low = nina_write_low;
+        set_prg_32k(0);
+        break;
+    case 41:
+        mapper.name = "Caltron 6-in-1"; write_reg = caltron_write;
+        mapper.write_6000 = caltron_write_6000;
+        caltron_reset();
+        break;
     default:
         fprintf(stderr, "mapper %d is not supported yet; running it as NROM, "
                         "which will probably go wrong\n", cart.mapper);
@@ -1938,6 +2020,13 @@ void mapper_write_low(uint16_t addr, uint8_t val) {
     write_low(addr, val);
     ppu_schedule();
     if (mapper.schedule) mapper.schedule();     /* Namco 163's IRQ counter */
+}
+
+void mapper_write_6000(uint16_t addr, uint8_t val) {
+    ppu_catch_up();     /* CHR or mirroring may change mid-frame */
+    mapper.write_6000(addr, val);
+    ppu_schedule();
+    if (mapper.schedule) mapper.schedule();
 }
 
 void mapper_write(uint16_t addr, uint8_t val) {

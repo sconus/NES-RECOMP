@@ -47,6 +47,10 @@ struct mapper {
        vblank, rendering off or $2007; 1 background; 2 sprites), so the
        mapper can switch between its CHR sets. */
     void (*ppu_phase)(int phase);
+    /* CPU writes to $6000-$7FFF, for boards with registers there (Caltron
+       6-in-1's outer register at $6000-$67FF); still written to RAM too,
+       when there is RAM. Called through mapper_write_6000. */
+    void (*write_6000)(uint16_t addr, uint8_t val);
     /* Nametable reads and writes ($2000-$3EFF), when the mapper decides
        where each nametable comes from (MMC5's $5105, fill mode, ExRAM). */
     uint8_t (*nt_read)(uint16_t addr);
@@ -96,6 +100,9 @@ void mapper_write(uint16_t addr, uint8_t val);
 /* CPU write to $4020-$5FFF, which some boards also decode (Action 53's
    register select). Ignored by the others. */
 void mapper_write_low(uint16_t addr, uint8_t val);
+/* CPU write to $6000-$7FFF, for a board with a register there
+   (mapper.write_6000 set). */
+void mapper_write_6000(uint16_t addr, uint8_t val);
 /* CPU read of $4020-$5FFF: a mapper register (MMC5) or open bus (0). */
 uint8_t mapper_read_low(uint16_t addr);
 

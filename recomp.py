@@ -291,6 +291,18 @@ MAPPERS = {
     # starts in its last 32 KB.
     28: dict(name="Action 53", unit=2, fixed={},
              power_on={0: -4, 1: -3, 2: -2, 3: -1}),
+    # Camerica / Codemasters: 16 KB at $8000 switches, the last 16 KB is
+    # fixed (like UxROM).
+    71: dict(name="Camerica", unit=2, fixed={2: -2, 3: -1},
+             power_on={0: 0, 1: 1, 2: -2, 3: -1}),
+    # AVE NINA-03/06: 32 KB switched by a register at $4100-$5FFF (where
+    # A8 is set), so stores there may switch the running code out.
+    79: dict(name="NINA-03/06", unit=4, fixed={}, power_on={0: 0, 1: 1, 2: 2, 3: 3},
+             low_regs=(0x4100, 0x5FFF)),
+    # Caltron 6-in-1: 32 KB switched by the address of a write to
+    # $6000-$67FF.
+    41: dict(name="Caltron 6-in-1", unit=4, fixed={}, power_on={0: 0, 1: 1, 2: 2, 3: 3},
+             low_regs=(0x6000, 0x67FF)),
     # An NSF music file (not an iNES mapper; the runtime uses the same
     # number): 32 KB at $8000 that never moves.
     NSF_MAPPER: dict(name="NSF", unit=None),

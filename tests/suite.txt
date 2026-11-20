@@ -194,6 +194,15 @@ tones 600 tests/vrc7_tones.nes 440.4@1,440.0@-,440.0@0.251/2,880.0@1.282/2,440.0
 result 60 tests/gxrom_switch.nes
 frame 300 other/test001.nes
 
+# --- PLAN-mappers3.md step 1: Camerica / Codemasters (71), AVE NINA-03/06
+# (79) and Caltron 6-in-1 (41). Each test ROM (tests/make_camerica_test.py,
+# make_nina_test.py, make_caltron_test.py) checks its board's registers as
+# the nesdev wiki describes them: banks, the fixed bank, mirroring, the
+# addresses the registers answer at, Caltron's lock and bus conflicts.
+result 60 tests/camerica_switch.nes
+result 60 tests/nina_switch.nes
+result 60 tests/caltron_switch.nes
+
 # --- Mapper 28 (Action 53). The Streemerz collection's menu launches its
 # first game, whose title screen must appear (the menu runs a small
 # routine from RAM that switches to the game's banks). test28 (2012)

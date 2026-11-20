@@ -92,6 +92,7 @@ void wr(uint16_t a, uint8_t v) {
     else if (a >= 0x4020 && a < 0x6000) mapper_write_low(a, v);
     else if (a >= 0x6000) {
         uint8_t *p = ram6000_at(a);
+        if (mapper.write_6000) mapper_write_6000(a, v);
         if (mapper.latch6000 && a < 0x7000) mapper.latch_bit = v & 1;
         else if (p && !mapper.prg_ram_readonly) code_ram_write(p, a, v);
     }

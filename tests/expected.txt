@@ -101,6 +101,9 @@ tests/vrc7.nes	pass
 tests/vrc7_tones.nes	pass
 tests/gxrom_switch.nes	pass
 other/test001.nes	frame:3fea565c
+tests/camerica_switch.nes	pass
+tests/nina_switch.nes	pass
+tests/caltron_switch.nes	pass
 other/Streemerz_bundle.nes +a53_streemerz.txt	frame:27b96123
 other/test28.nes	fail: B                 d / C                 e / @      @   @ @ /
 tests/vrc4_21.nes	pass
