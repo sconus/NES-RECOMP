@@ -51,6 +51,10 @@ struct mapper {
        6-in-1's outer register at $6000-$67FF); still written to RAM too,
        when there is RAM. Called through mapper_write_6000. */
     void (*write_6000)(uint16_t addr, uint8_t val);
+    /* CPU reads of $6000-$7FFF, for a board that answers there (Bandai's
+       EEPROM data bit): the byte, or -1 for the usual RAM or open bus.
+       Must have no side effects (peek uses it too). */
+    int (*read_6000)(uint16_t addr);
     /* The reset button, for boards that change when it's pressed (Active
        Enterprises' register is written with $00). Called by
        cpu_reset_target before the reset vector is read. */

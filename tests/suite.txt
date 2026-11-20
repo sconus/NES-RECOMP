@@ -505,3 +505,15 @@ result 200 tests/dev_four_famicom.nes tests/inputs/four.txt
 # CHR swap bit, and that the MMC3's PRG banks and scanline IRQ still work.
 result 60 tests/ntdec_switch.nes
 result 60 tests/tqrom_switch.nes
+
+# --- PLAN-mappers3.md step 4: Bandai FCG-1/2 and LZ93D50 (16).
+# tests/make_bandai_test.py writes three: bandai_fcg.nes (submapper 4,
+# registers at $6000-$7FFF), bandai_lz.nes (submapper 5, at $8000-$FFFF,
+# with a 24C02 EEPROM) and bandai_both.nes (no submapper: both). Each
+# checks the banks, mirroring, which addresses answer, and the IRQ
+# counter to the cycle; the LZ93D50 one also the IRQ latch and the
+# EEPROM's writes, reads, page wrap and device code. Keeping the EEPROM
+# across a restart: tests/check_bandai_save.py.
+result 60 tests/bandai_fcg.nes
+result 60 tests/bandai_lz.nes
+result 60 tests/bandai_both.nes

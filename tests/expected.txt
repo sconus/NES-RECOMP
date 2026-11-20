@@ -266,3 +266,6 @@ tests/dev_four_score.nes +four.txt	pass
 tests/dev_four_famicom.nes +four.txt	pass
 tests/ntdec_switch.nes	pass
 tests/tqrom_switch.nes	pass
+tests/bandai_fcg.nes	pass
+tests/bandai_lz.nes	pass
+tests/bandai_both.nes	pass

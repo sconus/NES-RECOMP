@@ -1951,6 +1951,192 @@ static void ntdec_reset(void) {
     set_prg_8k(3, -1);
 }
 
+/* ---- 16: Bandai FCG-1/2 and LZ93D50 (nesdev wiki, "INES Mapper 016"
+   and "Bandai FCG board"). 16 KB at $8000 switches, the last 16 KB is
+   fixed, eight 1 KB CHR banks. Registers, by address AND $000F:
+     0-7  CHR bank for PPU $0000, $0400, ... $1C00
+     8    PRG bank, bits 0-3
+     9    mirroring, bits 0-1: 0 vertical (the wiki's "horizontal
+          arrangement", A10), 1 horizontal, 2 one-screen $2000, 3 $2400
+     A    IRQ: bit 0 enables counting; any write acknowledges the IRQ
+     B/C  IRQ counter (FCG) or latch (LZ93D50), low/high byte
+     D    EEPROM (LZ93D50): bit 5 SCL, bit 6 SDA, bit 7 releases SDA to
+          read; the data comes back in bit 4 of reads of $6000-$7FFF
+   The FCG-1/2 (submapper 4) answers at $6000-$7FFF, its counter written
+   directly; the LZ93D50 (submapper 5) at $8000-$FFFF, its B/C a latch
+   copied to the counter by every write to A. Submapper 0 decodes both,
+   each range acting as its own chip. While enabled, the counter counts
+   down every CPU cycle, and the IRQ fires on a cycle that finds it at 0
+   (so enabling it at 0 fires at once); the wiki doesn't say more. Here,
+   as in Mesen, it then goes on counting down from $FFFF.
+
+   The EEPROM: a 24C02 (256 bytes) when the NES 2.0 header gives the
+   LZ93D50 board 256 bytes or more of battery RAM, or, with no submapper,
+   when the header has the battery bit. It is that battery RAM, so it is
+   kept in <rom>.sav like any other. The wiki gives no protocol for it;
+   it follows the 24C02's own (I2C): a start is SDA falling while SCL is
+   high, a stop SDA rising; bits go most significant first, sampled
+   while SCL rises; the device byte is $A0 (write) or $A1 (read), then
+   for a write the word address and data bytes, each acknowledged by the
+   chip pulling SDA low on the ninth clock; writes wrap within an 8-byte
+   page; reads go on through all 256 bytes while the program
+   acknowledges. The chip's write time (about 5 ms, when it answers
+   nothing) isn't modelled: writes land at once. Not here: the 128-byte
+   X24C01 of submapper 1 / mapper 159, the Datach (2, mapper 157) and
+   submapper 3's 8 KB RAM (mapper 153). Power-on (not given): every
+   register 0, the header's mirroring until register 9 is written. */
+
+static struct {
+    uint8_t chr[8], enabled;
+    uint16_t counter, latch;
+    uint64_t time;                  /* cycle the counter is valid at */
+} bandai;
+
+static struct {
+    uint8_t *mem;                   /* 256 bytes, or NULL: no EEPROM */
+    int mode, next, bits, ack;
+    uint8_t shift, addr, byte;
+    int scl, sda, out;              /* out: what the chip drives (1: let go) */
+} ee;
+enum { EE_IDLE, EE_DEVICE, EE_ADDR, EE_WRITE, EE_READ, EE_ACK_OUT, EE_ACK_IN };
+
+static void ee_send_byte(void) {
+    ee.byte = ee.mem[ee.addr];
+    ee.out = ee.byte >> 7;
+    ee.bits = 1;                    /* bits put on SDA so far */
+}
+
+static void ee_lines(int scl, int sda) {
+    if (ee.scl && scl && ee.sda && !sda) {              /* start */
+        ee.mode = EE_DEVICE; ee.bits = 0; ee.shift = 0; ee.out = 1;
+    } else if (ee.scl && scl && !ee.sda && sda) {       /* stop */
+        ee.mode = EE_IDLE; ee.out = 1;
+    } else if (!ee.scl && scl) {                        /* SCL rises */
+        if (ee.mode == EE_DEVICE || ee.mode == EE_ADDR || ee.mode == EE_WRITE) {
+            ee.shift = (uint8_t)(ee.shift << 1 | sda);
+            ee.bits++;
+        } else if (ee.mode == EE_ACK_IN) {
+            ee.ack = !sda;
+        }
+    } else if (ee.scl && !scl) {                        /* SCL falls */
+        switch (ee.mode) {
+        case EE_DEVICE:
+            if (ee.bits < 8) break;
+            if ((ee.shift & 0xFE) != 0xA0) { ee.mode = EE_IDLE; break; }
+            ee.next = (ee.shift & 1) ? EE_READ : EE_ADDR;
+            ee.mode = EE_ACK_OUT; ee.out = 0;
+            break;
+        case EE_ADDR:
+            if (ee.bits < 8) break;
+            ee.addr = ee.shift;
+            ee.next = EE_WRITE; ee.mode = EE_ACK_OUT; ee.out = 0;
+            break;
+        case EE_WRITE:
+            if (ee.bits < 8) break;
+            ee.mem[ee.addr] = ee.shift;
+            ee.addr = (uint8_t)((ee.addr & 0xF8) | ((ee.addr + 1) & 7));
+            ee.next = EE_WRITE; ee.mode = EE_ACK_OUT; ee.out = 0;
+            break;
+        case EE_ACK_OUT:                /* the ninth clock is over */
+            ee.mode = ee.next; ee.bits = 0; ee.shift = 0; ee.out = 1;
+            if (ee.mode == EE_READ) ee_send_byte();
+            break;
+        case EE_READ:
+            if (ee.bits < 8) {
+                ee.out = (ee.byte >> (7 - ee.bits)) & 1;
+                ee.bits++;
+            } else {                    /* let go for the program's ack */
+                ee.out = 1; ee.mode = EE_ACK_IN; ee.ack = 0;
+                ee.addr++;
+            }
+            break;
+        case EE_ACK_IN:
+            if (ee.ack) { ee.mode = EE_READ; ee_send_byte(); }
+            else ee.mode = EE_IDLE;     /* no ack: wait for the stop */
+            break;
+        }
+    }
+    ee.scl = scl; ee.sda = sda;
+}
+
+static int bandai_read_6000(uint16_t addr) {
+    if (!ee.mem) return -1;
+    return ((addr >> 8) & 0xEF) | (ee.sda & ee.out) << 4;
+}
+
+static void bandai_irq_catch_up(void) {
+    uint64_t now = cycles;
+    if (bandai.enabled) {
+        uint64_t elapsed = now - bandai.time;
+        if (elapsed > bandai.counter)               /* found it at 0 */
+            cpu_set_irq_at(IRQ_MAPPER, 1, (bandai.time + bandai.counter + 1) * 3);
+        bandai.counter = (uint16_t)(bandai.counter - elapsed);
+    }
+    bandai.time = now;
+}
+
+static void bandai_irq_schedule(void) {
+    if (bandai.enabled) schedule_event(bandai.time + bandai.counter + 1);
+}
+
+static void bandai_reg(int lz, uint16_t addr, uint8_t val) {
+    int r = addr & 0x0F;
+    if (r < 8) {
+        bandai.chr[r] = val;
+        set_chr_1k(r, val);
+    } else if (r == 8) {
+        set_prg_16k(0, val & 0x0F);
+    } else if (r == 9) {
+        static const enum mirroring mir[4] = {
+            MIRROR_VERTICAL, MIRROR_HORIZONTAL, MIRROR_SINGLE_LOW, MIRROR_SINGLE_HIGH };
+        cart.mirroring = mir[val & 3];
+    } else if (r == 0x0A) {
+        bandai_irq_catch_up();
+        cpu_set_irq(IRQ_MAPPER, 0);
+        if (lz) bandai.counter = bandai.latch;
+        bandai.enabled = val & 1;
+    } else if (r == 0x0B || r == 0x0C) {
+        int shift = r == 0x0B ? 0 : 8;
+        uint16_t keep = (uint16_t)(0xFF00 >> shift);
+        if (lz) {
+            bandai.latch = (uint16_t)((bandai.latch & keep) | val << shift);
+        } else {
+            bandai_irq_catch_up();
+            bandai.counter = (uint16_t)((bandai.counter & keep) | val << shift);
+        }
+    } else if (r == 0x0D && lz && ee.mem) {
+        ee_lines(val >> 5 & 1, (val >> 6 | val >> 7) & 1);
+    }
+}
+
+static void bandai_write(uint16_t addr, uint8_t val) {           /* LZ93D50 */
+    if (cart.submapper != 4) bandai_reg(1, addr, val);
+}
+static void bandai_write_6000(uint16_t addr, uint8_t val) {      /* FCG-1/2 */
+    if (cart.submapper != 5) bandai_reg(0, addr, val);
+}
+
+static void bandai_reset(void) {
+    memset(&bandai, 0, sizeof bandai);
+    memset(&ee, 0, sizeof ee);
+    ee.scl = ee.sda = ee.out = 1;
+    bandai.time = cycles;
+    set_prg_16k(0, 0);
+    set_prg_16k(1, -1);
+    set_chr_8k(0);
+    int eeprom = cart.submapper == 5 ? cart.prg_nvram_size >= 256
+               : cart.submapper == 0 && cart.battery && cart.prg_nvram_size >= 256;
+    if (eeprom) {
+        ee.mem = cart.prg_ram + cart.prg_ram_size;
+        /* No plain RAM: $6000-$7FFF isn't the EEPROM's memory. */
+        if (!cart.prg_ram_size) mapper.ram6000_size = 0;
+    }
+    mapper.catch_up = bandai_irq_catch_up;
+    mapper.schedule = bandai_irq_schedule;
+    mapper.write_6000 = bandai_write_6000;
+    mapper.read_6000 = bandai_read_6000;
+}
+
 /* ---------------------------------------------------------------------- */
 
 /* ---- NSF expansion sound (nesdev wiki "NSF"). Header byte $7B lists
@@ -2065,6 +2251,7 @@ static void check_submapper(void) {
         known = s == 2; break;                              /* BNROM */
     case 85: known = s == 1 || s == 2; break;               /* wiring */
     case 71: known = s == 1; break;                         /* BF9097 */
+    case 16: known = s == 4 || s == 5; break;               /* FCG, LZ93D50 */
     default: known = 0;
     }
     if (s && !known)
@@ -2101,6 +2288,11 @@ void mapper_init(void) {
         mapper.name = "TQROM"; write_reg = mmc3_write;
         tqrom = 1; memset(tqrom_ram, 0, sizeof tqrom_ram);
         mmc3_reset();
+        break;
+    case 16:
+        mapper.name = cart.submapper == 4 ? "Bandai FCG" : cart.submapper == 5 ?
+                      "Bandai LZ93D50" : "Bandai FCG/LZ93D50";
+        write_reg = bandai_write; bandai_reset();
         break;
     case 112: mapper.name = "NTDEC 112"; write_reg = ntdec_write; ntdec_reset(); break;
     case 7:

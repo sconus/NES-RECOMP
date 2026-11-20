@@ -70,6 +70,7 @@ test: build/nestest
 # --- test ROM suite: see tests/suite.txt and tests/run_tests.py --------
 test-ppu: $(RECOMP)
 	python3 tests/run_tests.py
+	python3 tests/check_bandai_save.py
 
 test-all: test test-ppu test-app test-record
 

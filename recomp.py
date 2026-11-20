@@ -280,6 +280,11 @@ MAPPERS = {
     # is fixed. Mapper 26 is the same chip with two address lines swapped.
     24: dict(name="VRC6", unit=1, fixed={3: -1}, power_on={0: 0, 1: 1, 2: -2, 3: -1}),
     26: dict(name="VRC6", unit=1, fixed={3: -1}, power_on={0: 0, 1: 1, 2: -2, 3: -1}),
+    # Bandai FCG-1/2 and LZ93D50: 16 KB at $8000 switches, the last 16 KB
+    # is fixed. The FCG's registers are at $6000-$7FFF, so stores there
+    # may switch the running code out.
+    16: dict(name="Bandai FCG", unit=2, fixed={2: -2, 3: -1},
+             power_on={0: 0, 1: 1, 2: -2, 3: -1}, low_regs=(0x6000, 0x7FFF)),
     # Namco 163: three 8 KB slots switch, $E000 is the last bank.
     19: dict(name="Namco 163", unit=1, fixed={3: -1}, power_on={0: 0, 1: 1, 2: 2, 3: -1}),
     # Konami VRC7: three 8 KB slots switch, $E000 is the last bank.

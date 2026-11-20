@@ -30,6 +30,7 @@ static const struct mapper {
     { 9, "MMC2", 1, { NOT_FIXED, -3, -2, -1 }, { 0, -3, -2, -1 }, -1, -1 },
     { 10, "MMC4", 2, { NOT_FIXED, NOT_FIXED, -2, -1 }, { 0, 1, -2, -1 }, -1, -1 },
     { 11, "Color Dreams", 4, { NOT_FIXED, NOT_FIXED, NOT_FIXED, NOT_FIXED }, { 0, 1, 2, 3 }, -1, -1 },
+    { 16, "Bandai FCG", 2, { NOT_FIXED, NOT_FIXED, -2, -1 }, { 0, 1, -2, -1 }, 0x6000, 0x7FFF },
     { 19, "Namco 163", 1, { NOT_FIXED, NOT_FIXED, NOT_FIXED, -1 }, { 0, 1, 2, -1 }, -1, -1 },
     { 21, "VRC4", 1, { NOT_FIXED, NOT_FIXED, NOT_FIXED, -1 }, { 0, 1, -2, -1 }, -1, -1 },
     { 22, "VRC2", 1, { NOT_FIXED, NOT_FIXED, NOT_FIXED, -1 }, { 0, 1, -2, -1 }, -1, -1 },

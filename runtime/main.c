@@ -55,6 +55,10 @@ static uint8_t *ram6000_at(uint16_t a) {
    here; where there is no RAM at all the data bus keeps the last byte
    the CPU fetched, for an absolute read the address's high byte. */
 static uint8_t rd6000(uint16_t a) {
+    if (mapper.read_6000) {
+        int v = mapper.read_6000(a);
+        if (v >= 0) return (uint8_t)v;
+    }
     if (mapper.latch6000 && a < 0x7000)         /* VRC2: bit 0 answers */
         return (uint8_t)(((a >> 8) & 0xFE) | mapper.latch_bit);
     uint8_t *p = ram6000_at(a);

@@ -269,7 +269,7 @@ Not verified: GitHub's Windows run (it starts with the push to main).
 Your games (Chik Bik Ji Jin, High Speed) are the real check, yours to
 try in the app.
 
-### 4. Bandai FCG: 16
+### 4. Bandai FCG: 16 (done)
 - 16 KB at `$8000`, the last 16 KB fixed, eight 1 KB graphics banks,
   mirroring, and a 16-bit IRQ counter clocked by the CPU. Its registers
   are at `$6000-$7FFF` on the FCG-1/2 chips and at `$8000-$FFFF` on the
@@ -285,6 +285,90 @@ try in the app.
   cycle, the EEPROM written and read back, and kept across a restart).
 - Breaks: the IRQ a cycle late, the register range wrong for a
   submapper, the EEPROM's acknowledge bit wrong, the save not kept.
+
+Done, following the nesdev wiki's pages ("INES Mapper 016", "Bandai FCG
+board", "INES Mapper 159"):
+- **The registers** (`bandai_*` in `runtime/mapper.c`), by address AND
+  `$000F`: 0-7 the 1 KB CHR banks, 8 the 16 KB PRG bank (bits 0-3), 9
+  mirroring (0 vertical, 1 horizontal, 2/3 one-screen), A the IRQ
+  enable (any write acknowledges), B/C the counter's low and high byte,
+  D the EEPROM's lines. Submapper 4 (FCG-1/2) answers at `$6000-$7FFF`
+  and B/C write the counter itself; submapper 5 (LZ93D50) answers at
+  `$8000-$FFFF`, B/C write a latch, and every write to A copies it to
+  the counter. Submapper 0 decodes both ranges, each acting as its own
+  chip.
+- **The IRQ:** while enabled, the counter counts down every CPU cycle,
+  and a cycle that finds it at 0 raises the IRQ (so enabling it at 0
+  fires at once, as the wiki says). Built like the FME-7's: the counter
+  is brought up to date when touched, and an event is asked for the
+  cycle it will fire.
+- **The EEPROM:** a 24C02 (256 bytes) when the NES 2.0 header gives the
+  LZ93D50 board 256 bytes or more of battery RAM, or, with no
+  submapper, when the header has the battery bit. Its memory *is* that
+  battery RAM, so the existing `<rom>.sav` code keeps it, with no new
+  save path. Its data comes back in bit 4 of reads of `$6000-$7FFF`,
+  through a new runtime hook, `mapper.read_6000`.
+- The recompiler tables: 16 KB at `$8000` switches, the last 16 KB
+  fixed, and `low_regs` over `$6000-$7FFF` for the FCG's registers.
+
+Different from what this plan said, or the wiki leaves open:
+- **The EEPROM's protocol** isn't on the wiki (its pages for the chips
+  are gone). It follows the 24C02's own (I2C, as on its data sheets):
+  start and stop conditions, bits most significant first, the device
+  byte `$A0`/`$A1`, a word address, an acknowledge on each ninth clock,
+  writes wrapping within an 8-byte page, reads going on while the
+  program acknowledges. The chip's write time (about 5 ms, when it
+  answers nothing) isn't modelled.
+- **Only the 24C02.** The 128-byte X24C01 (submapper 1, mapper 159)
+  talks differently and the wiki doesn't say how, so it isn't here;
+  neither are the Datach (submapper 2, mapper 157) or submapper 3's
+  8 KB RAM (mapper 153). They run as submapper 0, with a warning.
+- **After the IRQ fires**, the counter goes on counting down from
+  `$FFFF` (the wiki doesn't say; Mesen does this).
+- **Power-on** (not given): every register 0, PRG bank 0 at `$8000`,
+  the header's mirroring until register 9 is written.
+
+Checks: `make_bandai_test.py` writes three ROMs: `bandai_fcg.nes`
+(submapper 4), `bandai_lz.nes` (submapper 5 with the EEPROM) and
+`bandai_both.nes` (iNES 1.0, no submapper). All three pass; the
+generator's docstring lists the status codes. The IRQ is checked to the
+cycle: the docstring works out by hand which instruction the IRQ should
+interrupt for counters 20, 21 and 0, and counters 20 and 21 land on
+different instructions, so one cycle either way shows. The runtime
+landed exactly where the hand count said. `tests/check_bandai_save.py`
+(now part of `make test-ppu`) runs `bandai_lz.nes` three times: the
+EEPROM starts blank and the `.sav` holds the 256 bytes written; the
+second run finds them; a byte changed in the `.sav` is what the third
+run reads.
+
+Breaks, in scratch copies: 28 of 28 caught, each with its own FAIL
+code (the save one by the save check): the IRQ a cycle late, a cycle
+early, enabling at 0 waiting a full count, the LZ93D50's latch not
+copied, its B/C writing the counter, the FCG copying a latch, no
+acknowledge, no disable, submapper 4 answering at `$8000`, submapper 5
+at `$6000`, submapper 0 ignoring `$6000`, the FCG only at
+`$6000-$600F`, the LZ93D50 only at `$8000-$800F`, `$C000` switching,
+mirroring swapped, the one-screen pages swapped, the CHR registers
+reversed; for the EEPROM: no acknowledge of the device byte, none of
+data bytes, bits least significant first, no page wrap, reads not
+moving on, any device code answered, the data in bit 0, bit 7 not
+letting SDA go, not kept in the battery RAM, the `$6000` read hook not
+called, no EEPROM on submapper 5. (First runs found test gaps, all
+fixed before the final run: the FCG test wrote its CHR registers over
+its own status bytes at `$6000`, so it now uses the mirror at `$7F00`;
+the test text was overwritten mid-word by the `$6008` check, so it's
+written last; the one-screen check compared the two pages only with
+each other.)
+
+Results: `make test-all` 229 of 230 (test28 as always), nestest exact;
+`tests/check_same_c.py` and `make test-recomp` pass. `tests/same_c.txt`
+gained the three ROMs; its other 396 changed lines differ only in the
+listing's hash. The exit status, the C and the printed lines are the
+same for all 403 earlier files.
+
+Not verified: GitHub's Windows run (it starts with the push to main).
+Battle Rush is the real check, yours to try in the app; as a Datach
+game, whatever needs a scanned card won't work.
 
 ### 5. Sunsoft-4: 68
 - 16 KB at `$8000`, the last 16 KB fixed, four 2 KB graphics banks, and
