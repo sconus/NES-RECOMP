@@ -25,6 +25,7 @@
 #include "cycles.h"
 #include "mapper.h"
 #include "rt.h"
+#include "state.h"
 
 /* Note lengths, indexed by the top 5 bits of the 4th channel register. */
 static const uint8_t length_table[32] = {
@@ -399,8 +400,9 @@ int apu_take_samples(int16_t *out, int max) {
     return n;
 }
 
+static int primed;                  /* the filters have had a first sample */
+
 static void emit_sample(float x) {
-    static int primed;
     if (!primed) {      /* start the filters at rest, without a power-on click */
         snd.hp90_prev_in = x;
         snd.hp440_prev_in = 0;
@@ -788,4 +790,31 @@ void apu_reset(void) {
     apu.pending_reset_at = 0;
     apu.reset_pending = 1;
     apu.frame_start = 0;
+}
+
+/* What a state holds from here: the channels, frame counter and DMC
+   (struct apu), the DMC's DMA, and the sound being made: where the
+   sample clock is, the filters, and samples made but not yet taken
+   (so the same sound comes out after a load). Not saved: whether sound
+   is on, the mixer tables, and the clock's rate trim, which belong to
+   the speakers, not the console. */
+void apu_state(struct state_io *s) {
+    state_part(s, "apu", &apu, sizeof apu);
+    state_part(s, "apu.clock_now", &clock_now, sizeof clock_now);
+    state_part(s, "apu.last_4017", &last_4017, sizeof last_4017);
+    state_part(s, "dmc_dma_due", &dmc_dma_due, sizeof dmc_dma_due);
+    state_part(s, "dmc_dma_requested", &dmc_dma_requested, sizeof dmc_dma_requested);
+    state_part(s, "dmc_dma_request_at", &dmc_dma_request_at, sizeof dmc_dma_request_at);
+    state_part(s, "dmc_dma_load", &dmc_dma_load, sizeof dmc_dma_load);
+    state_part(s, "snd.at", &snd.at, sizeof snd.at);
+    state_part(s, "snd.next_sample", &snd.next_sample, sizeof snd.next_sample);
+    state_part(s, "snd.sum", &snd.sum, sizeof snd.sum);
+    state_part(s, "snd.count", &snd.count, sizeof snd.count);
+    state_part(s, "snd.filters", &snd.hp90_prev_in,
+               (size_t)((char *)(&snd.lp_out + 1) - (char *)&snd.hp90_prev_in));
+    state_part(s, "snd.primed", &primed, sizeof primed);
+    state_part(s, "snd.len", &snd.len, sizeof snd.len);
+    size_t got;                     /* only the samples waiting */
+    state_part_sized(s, "snd.buf", snd.buf, (size_t)snd.len * sizeof snd.buf[0],
+                     sizeof snd.buf, &got);
 }

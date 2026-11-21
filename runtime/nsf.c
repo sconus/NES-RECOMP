@@ -293,6 +293,21 @@ static void draw_text(uint16_t *fb, int row, const char *s, uint16_t ink) {
     }
 }
 
+void draw_text_5x7(uint16_t *fb, int x0, int y0, const char *s, uint16_t ink) {
+    for (int i = 0; s[i]; i++) {
+        int ch = (unsigned char)s[i];
+        if (ch >= 'a' && ch <= 'z') ch -= 32;
+        if (ch < 0x20 || ch > 0x5F) ch = '?';
+        const uint8_t *g = font[ch - 0x20];
+        for (int y = 0; y < 7; y++)
+            for (int x = 0; x < 5; x++) {
+                int px = x0 + i * 6 + x, py = y0 + y;
+                if ((g[y] & (0x10 >> x)) && px >= 0 && px < 256 && py >= 0 && py < 240)
+                    fb[py * 256 + px] = ink;
+            }
+    }
+}
+
 void nsf_draw(uint16_t *fb, long frames) {
     char line[64];
     for (int i = 0; i < 256 * 240; i++) fb[i] = INK_BACK;

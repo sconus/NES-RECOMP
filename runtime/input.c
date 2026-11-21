@@ -44,6 +44,7 @@
    midway point 26 lines, $10's and $00's 24, a little under $00's 19,
    darker nothing (the colours of rows $01-$0C and $11-$1C). */
 #include "input.h"
+#include "state.h"
 #include "palette.h"
 #include "ppu.h"
 
@@ -168,4 +169,18 @@ uint8_t input_read(int port) {
     else if (four_players == FOUR_FAMICOM || four_players == FOUR_HORI)
         v |= (uint8_t)(next_bit(&shift1[port]) << 1);
     return v;
+}
+
+/* What a state holds from here: the buttons and paddle and Zapper
+   readings the game sees now (the next frame's input replaces them), and
+   the shift registers mid-read. What is plugged in is a setting, not
+   state. */
+void input_state(struct state_io *s) {
+    state_part(s, "pad_buttons", pad_buttons, sizeof pad_buttons);
+    state_part(s, "vaus", vaus, sizeof vaus);
+    state_part(s, "zapper", &zapper, sizeof zapper);
+    state_part(s, "input.shift", shift, sizeof shift);
+    state_part(s, "input.shift1", shift1, sizeof shift1);
+    state_part(s, "input.strobe", &strobe, sizeof strobe);
+    state_part(s, "input.vaus_shift", vaus_shift, sizeof vaus_shift);
 }

@@ -271,3 +271,4 @@ tests/bandai_lz.nes	pass
 tests/bandai_both.nes	pass
 tests/sunsoft4_switch.nes	pass
 tests/sunsoft4_picture.nes	frame:49224aa7
+tests/mmc3_split.nes	frame:9b24b929

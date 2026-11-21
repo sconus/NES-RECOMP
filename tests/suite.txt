@@ -527,3 +527,10 @@ result 60 tests/bandai_both.nes
 # above, blue vertical stripes below (a regression picture).
 result 60 tests/sunsoft4_switch.nes
 frame 60 tests/sunsoft4_picture.nes
+
+# --- PLAN-savestates.md step 1: mmc3_split.nes (tests/
+# make_mmc3_split_test.py) runs the MMC3's scanline IRQ every frame, as
+# a game's status bar does: 24-line bands, each scrolled 12 pixels more,
+# sliding a pixel a frame (a regression picture). It's there so the
+# save-state test (make test-states) sees a forgotten IRQ counter.
+frame 120 tests/mmc3_split.nes

@@ -11,7 +11,16 @@
 #include "palette.h"
 #include "ppu.h"
 #include "record.h"
+#include "state.h"
 #include "video.h"
+
+/* The window's own shortcuts: Cmd on the Mac, Ctrl on Windows (where the
+   Windows key belongs to Windows). */
+#ifdef _WIN32
+#define CMD_KEY KMOD_CTRL
+#else
+#define CMD_KEY KMOD_GUI
+#endif
 
 static SDL_Window *window;
 static int window_scale;                /* the last whole-step size, for video_scale */
@@ -59,6 +68,13 @@ void video_init_audio(void) {
     static const int16_t silence[AUDIO_TARGET];
     SDL_QueueAudio(audio, silence, sizeof silence);
     SDL_PauseAudioDevice(audio, 0);
+}
+
+void video_restart_audio(void) {
+    if (!audio) return;
+    static const int16_t silence[AUDIO_TARGET];
+    SDL_ClearQueuedAudio(audio);
+    if (!muted) SDL_QueueAudio(audio, silence, sizeof silence);
 }
 
 void video_queue_audio(const int16_t *samples, int n) {
@@ -164,11 +180,14 @@ static void handle_events(void) {
         if (e.type == SDL_MOUSEMOTION) mouse_seen = 1;
         gamepad_event(&e);
         if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_ESCAPE) exit(0);
-        if (e.type == SDL_KEYDOWN && (e.key.keysym.mod & KMOD_GUI) && !e.key.repeat) {
+        if (e.type == SDL_KEYDOWN && (e.key.keysym.mod & CMD_KEY) && !e.key.repeat) {
             /* Cmd+= / Cmd+-: a whole step bigger or smaller; Cmd+F: full
-               screen. (Plain keys stay the controllers'.) */
+               screen; Cmd+S / Cmd+L: save / load a state. (Plain keys
+               stay the controllers'.) */
             SDL_Keycode k = e.key.keysym.sym;
-            if (k == SDLK_EQUALS || k == SDLK_PLUS || k == SDLK_KP_PLUS) resize_step(1);
+            if (k == SDLK_s) runtime_state_key(STATE_SAVE);
+            else if (k == SDLK_l) runtime_state_key(STATE_LOAD);
+            else if (k == SDLK_EQUALS || k == SDLK_PLUS || k == SDLK_KP_PLUS) resize_step(1);
             else if (k == SDLK_MINUS || k == SDLK_KP_MINUS) resize_step(-1);
             else if (k == SDLK_f) {
                 int full = SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN_DESKTOP;

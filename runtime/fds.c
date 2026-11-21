@@ -256,6 +256,7 @@ int fds_sound_read(uint16_t addr) {
 #include "ppu.h"
 #include "apu.h"
 #include "fds_bios.h"
+#include "state.h"
 
 #define SIDE_BYTES 65500
 /* Registers the real hardware doesn't have, for the project's BIOS:
@@ -1015,4 +1016,26 @@ void fds_reset(void) {
     mapper.catch_up = fds_catch_up;
     mapper.schedule = fds_schedule;
     mapper.audio_step = fds_audio_step;
+}
+
+/* What a state holds from here: the RAM adapter and the disk in the
+   drive (struct fds), the disk's sides as the program has written them
+   (games write to the disk), the drive's head and the bit stream it
+   reads (with what the head wrote to it), and the sound channel. The
+   image file's own copy (fds.orig) never changes. */
+void fds_state(struct state_io *s) {
+    uint8_t *image = fds.image, *orig = fds.orig, *stream = drive.stream;
+    state_part(s, "fds", &fds, sizeof fds);
+    state_part(s, "fds.image", fds.image, (size_t)fds.sides * SIDE_BYTES);
+    state_part(s, "fds.sound", &fs, sizeof fs);
+    size_t max = GAP_START + SIDE_BYTES + (SIDE_BYTES / 3) * (3 + GAP) + GAP;
+    state_part(s, "fds.drive", &drive, sizeof drive);
+    if (state_reading(s)) {
+        /* The buffers are this run's, not the state's. */
+        fds.image = image; fds.orig = orig;
+        if (!stream) stream = malloc(max);
+        drive.stream = stream;
+    }
+    size_t got;
+    state_part_sized(s, "fds.stream", drive.stream, drive.len, max, &got);
 }

@@ -8,6 +8,7 @@
 #include "apu.h"
 #include "mapper.h"
 #include "cycles.h"
+#include "state.h"
 
 uint64_t next_event = UINT64_MAX;
 static int nmi_pending;
@@ -130,7 +131,38 @@ uint16_t brk_vector(void) {
     return rd(v) | (rd(v + 1) << 8);
 }
 
+static uint16_t event_work(void);
+
+/* Save states (state.h) are taken and put back here, first thing: the
+   rest of the event then runs from the loaded state exactly as it ran
+   after the save. A request made during this event (a key read while
+   the PPU caught up) is served at the next boundary. */
 uint16_t runtime_event(void) {
+    state_service();
+    uint16_t vector = event_work();
+    if (state_wanted())
+        schedule_event(state_wanted_at() > cycles ? state_wanted_at() : cycles);
+    return vector;
+}
+
+/* What a state holds from here: everything above, including the
+   instruction the event follows (insn_pc, insn_start: poll_end looks
+   at it) and next_event. */
+void event_state(struct state_io *s) {
+    state_part(s, "next_event", &next_event, sizeof next_event);
+    state_part(s, "nmi_pending", &nmi_pending, sizeof nmi_pending);
+    state_part(s, "nmi_dot", &nmi_dot, sizeof nmi_dot);
+    state_part(s, "nmi_blocked_until", &nmi_blocked_until, sizeof nmi_blocked_until);
+    state_part(s, "irq_sources", &irq_sources, sizeof irq_sources);
+    state_part(s, "irq_dot", &irq_dot, sizeof irq_dot);
+    state_part(s, "old_i_until", &old_i_until, sizeof old_i_until);
+    state_part(s, "old_i", &old_i, sizeof old_i);
+    state_part(s, "reset_requested", &reset_requested, sizeof reset_requested);
+    state_part(s, "late_stall_insn", &late_stall_insn, sizeof late_stall_insn);
+    state_part(s, "late_stall", &late_stall, sizeof late_stall);
+}
+
+static uint16_t event_work(void) {
     ppu_catch_up();                 /* may raise an NMI and finish a frame */
     apu_catch_up();                 /* may raise an IRQ */
     if (mapper.catch_up) mapper.catch_up();     /* so may the mapper */

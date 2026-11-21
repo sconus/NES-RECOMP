@@ -19,6 +19,7 @@
 #include "palette.h"
 #include "ppu.h"
 #include "record.h"
+#include "state.h"
 #include "sys.h"
 #include "video.h"
 #include "wav.h"
@@ -238,6 +239,37 @@ static int speakers, audio_stats, ram_stats;
 static const char *remember_size;
 static int start_scale;
 
+/* --state-test N M (PLAN-savestates.md): run N frames and half of one, save a state,
+   run M more noting a fingerprint of each (the picture, the RAM, the
+   sound, how the code ran), load the state and run the same M frames again: every
+   fingerprint must match. */
+static int state_test_on;
+static long state_test_n, state_test_m;
+static int state_test_phase;            /* 0 before the save, 1 after, 2 after the load */
+static uint64_t sound_hash;             /* this frame's samples so far */
+#define STATE_TEST_MAX 3600
+static struct { uint64_t picture, ram, sound, code; } fingerprint[STATE_TEST_MAX];
+
+static uint64_t fnv(uint64_t h, const void *p, size_t n) {
+    const uint8_t *b = p;
+    for (size_t i = 0; i < n; i++) h = (h ^ b[i]) * 0x100000001B3ull;
+    return h;
+}
+#define FNV_START 0xCBF29CE484222325ull
+
+/* How the code ran since the last frame (or the save or load): how many
+   instructions ran translated and interpreted, in ROM and in RAM. The
+   game is the same either way, so the picture can't show a wrong
+   code_owner; this does. The counts start again at the save and at the
+   load, so both runs count the same instructions. */
+static uint64_t code_seen[4];
+static uint64_t code_since(void) {
+    uint64_t now[4] = { insn_count[0], insn_count[1], ram_native, ram_interp };
+    uint64_t d[4];
+    for (int i = 0; i < 4; i++) { d[i] = now[i] - code_seen[i]; code_seen[i] = now[i]; }
+    return fnv(FNV_START, d, sizeof d);
+}
+
 /* Hand the APU's finished samples to the speakers, the WAV file and the
    recording. */
 static void drain_sound(void) {
@@ -245,6 +277,7 @@ static void drain_sound(void) {
     apu_catch_up();
     int n;
     while ((n = apu_take_samples(buf, 4096)) > 0) {
+        if (state_test_on) sound_hash = fnv(sound_hash, buf, (size_t)n * sizeof buf[0]);
         if (wav_path) wav_write(buf, n);
         if (speakers) video_queue_audio(buf, n);
         record_audio(buf, n);
@@ -471,6 +504,8 @@ static void load_input_script(const char *path) {
 }
 
 static int headless;
+/* Frames a $6000 test has been waiting at "press reset" (frame_done). */
+static int reset_wait;
 static long stop_after_frames;      /* 0 = run until the window closes */
 static const char *screenshot_path;
 static int dump_text;
@@ -561,6 +596,123 @@ static void zapper_mouse(void) {
     zapper.trigger |= (uint8_t)button;
 }
 
+/* ---- save states (state.h) ---- */
+
+/* The CPU's part of a state, and the rest kept here: the 2 KB of RAM,
+   which code in RAM is still what was translated, and where an input
+   script has got to (so a scripted run replays the same presses). Not
+   saved: settings, the window, recordings, the counts of what ran how,
+   and the .missed notes. */
+void cpu_state(struct state_io *s) {
+    state_part(s, "A", &A, 1); state_part(s, "X", &X, 1);
+    state_part(s, "Y", &Y, 1); state_part(s, "SP", &SP, 1);
+    state_part(s, "C", &C, 1); state_part(s, "Z", &Z, 1);
+    state_part(s, "I", &I, 1); state_part(s, "D", &D, 1);
+    state_part(s, "V", &V, 1); state_part(s, "N", &N, 1);
+    state_part(s, "pc", &pc, sizeof pc);
+    state_part(s, "cycles", &cycles, sizeof cycles);
+    state_part(s, "insn_pc", &insn_pc, sizeof insn_pc);
+    state_part(s, "insn_start", &insn_start, sizeof insn_start);
+    state_part(s, "ram", ram, sizeof ram);
+    state_part(s, "code_owner", code_owner, sizeof code_owner);
+    state_part(s, "script_pos", &script_pos, sizeof script_pos);
+    state_part(s, "script_buttons", script_buttons, sizeof script_buttons);
+    state_part(s, "script_fire", script_fire, sizeof script_fire);
+    state_part(s, "script_trigger", &script_trigger, sizeof script_trigger);
+    state_part(s, "reset_wait", &reset_wait, sizeof reset_wait);
+}
+
+/* A short message over the picture for a second (not in recordings or
+   pictures: only the window shows it). */
+static char message[40];
+static int message_frames;
+
+void runtime_state_message(const char *text) {
+    snprintf(message, sizeof message, "%s", text);
+    message_frames = 60;
+    if (headless) fprintf(stderr, "frame %llu: %s\n", (unsigned long long)ppu.frame, text);
+}
+
+void runtime_state_saved(void) {
+    if (state_test_on) (void)code_since();
+}
+
+void runtime_state_loaded(void) {
+    if (state_test_on) (void)code_since();
+    video_restart_audio();          /* the old sound mustn't play over the new */
+    last_frame = NULL;
+}
+
+static const uint16_t *with_message(const uint16_t *fb) {
+    static uint16_t out[256 * 240];
+    memcpy(out, fb, sizeof out);
+    int w = (int)strlen(message) * 6 + 7, h = 13, x0 = 6, y0 = 14;
+    for (int y = y0; y < y0 + h; y++)
+        for (int x = x0; x < x0 + w && x < 256; x++)
+            out[y * 256 + x] = 0x0F;                    /* black box */
+    draw_text_5x7(out, x0 + 4, y0 + 3, message, 0x30);  /* white text */
+    return out;
+}
+
+/* Cmd+S and Cmd+L (Ctrl on Windows), from the window. */
+void runtime_state_key(int what) {
+    if (cart.mapper == MAPPER_NSF) return;      /* no states for music */
+    state_request(what);
+}
+
+static void state_test_frame(const uint16_t *fb) {
+    long f = (long)ppu.frame;
+    if (state_test_phase == 0 && state_held()) state_test_phase = 1;
+    if (state_test_phase == 0) {
+        /* Half a frame on (about line 130 of the picture): a state
+           taken mid-frame has more in flight than one at vblank, where
+           a key press lands (the scroll latches, a mapper's IRQ count
+           before the game resets it). */
+        if (f == state_test_n) state_request_at(STATE_SAVE, cycles + 14890);
+        if (f > state_test_n) {
+            fprintf(stderr, "state test: the state wasn't saved\n");
+            exit(1);
+        }
+        sound_hash = FNV_START;
+        return;
+    }
+    long k = f - state_test_n - 1;              /* 0 .. M-1 */
+    uint64_t pic = fnv(FNV_START, fb, 256 * 240 * sizeof fb[0]);
+    uint64_t mem = fnv(fnv(FNV_START, ram, sizeof ram), cart.prg_ram, cart.prg_ram_alloc);
+    uint64_t snd = sound_hash;
+    uint64_t code = code_since();
+    sound_hash = FNV_START;
+    if (k < 0 || k >= state_test_m) {
+        fprintf(stderr, "state test: frame %ld is outside the test\n", f);
+        exit(1);
+    }
+    if (state_test_phase == 1) {
+        fingerprint[k].picture = pic;
+        fingerprint[k].ram = mem;
+        fingerprint[k].sound = snd;
+        fingerprint[k].code = code;
+        if (k == state_test_m - 1) {
+            state_request(STATE_LOAD);
+            state_test_phase = 2;
+        }
+        return;
+    }
+    const char *what = fingerprint[k].picture != pic ? "picture" :
+                       fingerprint[k].ram != mem ? "RAM" :
+                       fingerprint[k].sound != snd ? "sound" :
+                       fingerprint[k].code != code ? "count of code run translated" : NULL;
+    if (what) {
+        fprintf(stderr, "state test: FAIL: frame %ld's %s differs after loading"
+                        " (state of %zu bytes)\n", f, what, state_size());
+        exit(1);
+    }
+    if (k == state_test_m - 1) {
+        fprintf(stderr, "state test: pass: %ld frames the same after loading"
+                        " (state of %zu bytes)\n", state_test_m, state_size());
+        exit(0);
+    }
+}
+
 static void frame_done(const uint16_t *ppu_fb) {
     /* An NSF has no picture of its own: show its screen instead. */
     static uint16_t nsf_screen[256 * 240];
@@ -575,7 +727,9 @@ static void frame_done(const uint16_t *ppu_fb) {
     if (audio_stats && ppu.frame % 60 == 0)
         fprintf(stderr, "frame %llu: %d samples queued\n",
                 (unsigned long long)ppu.frame, video_audio_queued());
-    if (!headless) video_present(fb);
+    if (!headless) video_present(message_frames ? with_message(fb) : fb);
+    if (message_frames) message_frames--;
+    if (state_test_on) state_test_frame(fb);
     if (cart.mapper == MAPPER_FDS) fds_frame();
     /* Buttons for the next frame: the script, plus the keyboard. */
     while (script_pos < script_len && script[script_pos].frame <= (long)ppu.frame) {
@@ -611,11 +765,11 @@ static void frame_done(const uint16_t *ppu_fb) {
         fprintf(stderr, "stopped by a signal (%d)\n", (int)stop_signal);
         exit(0);
     }
-    /* Headless runs stop as soon as a $6000 test reports its result. */
-    if (headless && test_rom_finished()) finish_run(fb);
+    /* Headless runs stop as soon as a $6000 test reports its result
+       (but the state test runs its own frames). */
+    if (headless && !state_test_on && test_rom_finished()) finish_run(fb);
     /* Status $81 means "press reset, at least 100 ms from now": in
        headless runs, press it 10 frames (about 170 ms) later. */
-    static int reset_wait;
     const uint8_t *r = cart.prg_ram;
     if (headless && r[1] == 0xDE && r[2] == 0xB0 && r[3] == 0x61 &&
         r[0] == 0x81) {
@@ -644,6 +798,8 @@ static void usage(const char *prog) {
         "  --ram-stats        on exit, count the instructions in RAM ($6000-$DFFF)\n"
         "                     that ran translated and interpreted (FDS, FDS NSFs)\n"
         "  --input FILE       scripted button presses (see README.md)\n"
+        "  --state-test N M   run N frames, save a state, run M more, load it and\n"
+        "                     check the M frames come out the same (headless)\n"
         "  --scale N          window size, N times 256x240 (default 3)\n"
         "  --mmc3-rev A|B     which MMC3 chip to act like (default B)\n"
         "  --port1 pad|vaus|zapper  what controller port 1 holds (default\n"
@@ -717,6 +873,13 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "--mute")) mute = 1;
         else if (!strcmp(a, "--audio-stats")) audio_stats = 1;
         else if (!strcmp(a, "--ram-stats")) ram_stats = 1;
+        else if (!strcmp(a, "--state-test") && i + 2 < argc) {
+            state_test_on = 1;
+            state_test_n = strtol(argv[++i], NULL, 10);
+            state_test_m = strtol(argv[++i], NULL, 10);
+            if (state_test_n < 1 || state_test_m < 1 || state_test_m > STATE_TEST_MAX)
+                usage(argv[0]);
+        }
         else if (!strcmp(a, "--mmc3-rev") && more) {
             char r = (char)toupper((unsigned char)argv[++i][0]);
             if (r != 'A' && r != 'B') usage(argv[0]);
@@ -768,6 +931,10 @@ int main(int argc, char **argv) {
         fprintf(stderr, "only one Zapper can be plugged in\n");
         return 1;
     }
+    if (state_test_on && (!headless || cart.mapper == MAPPER_NSF)) {
+        fprintf(stderr, "--state-test needs --headless, and a game, not an NSF\n");
+        return 1;
+    }
     if ((screenshot_path || dump_text) && !stop_after_frames) {
         fprintf(stderr, "--screenshot and --dump-text need --frames N\n");
         return 1;
@@ -805,7 +972,7 @@ int main(int argc, char **argv) {
     if (wav_path) wav_open(wav_path);
     /* (Muted, or with no window, the sound is made from when a recording
        starts: start_recording.) */
-    sound_on = wav_path || speakers;
+    sound_on = wav_path || speakers || state_test_on;
     if (sound_on) apu_enable_sound();
     if (record_path) start_recording(record_path);
     ppu_schedule();

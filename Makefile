@@ -3,6 +3,8 @@
 #                           the game controller mapping and header reading
 #   make test-ppu           run tests/suite.txt (needs the test ROM clone)
 #   make test-all           both
+#   make test-states        save a state mid-run and load it, for every ROM in
+#                           the suite (tests/check_states.py, PLAN-savestates.md)
 #   make game ROM=x.nes     recompile any NROM game into build/<name>
 #   make run ROM=x.nes      ...and run it in a window (options: ARGS="...")
 #   make recomp             the recompiler in C (build/nesrecomp-recomp)
@@ -73,6 +75,10 @@ test-ppu: $(RECOMP)
 	python3 tests/check_bandai_save.py
 
 test-all: test test-ppu test-app test-record
+
+# --- save states (runtime/state.c, PLAN-savestates.md) -----------------
+test-states: $(RECOMP)
+	python3 tests/check_states.py
 
 # --- recording (runtime/record_mac.m, PLAN-standalone.md step 6) ---------
 test-record: $(RECOMP)

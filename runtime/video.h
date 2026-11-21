@@ -19,6 +19,14 @@ void runtime_disk_key(int n);
    shows in the window's corner; it isn't in the movie. */
 void runtime_record_key(void);
 void runtime_snap_key(void);
+/* Cmd+S saves a state, Cmd+L loads it (Ctrl on Windows; state.h's
+   STATE_SAVE, STATE_LOAD), through runtime_state_key in main.c. */
+void runtime_state_key(int what);
+/* Empty the sound queue and start again from silence (after a load). */
+void video_restart_audio(void);
+/* Text in the runtime's 5x7 font (nsf.c), 6 pixels a character, with
+   its top left at (x, y), in NES colour `ink`. */
+void draw_text_5x7(uint16_t *fb, int x, int y, const char *s, uint16_t ink);
 void video_init_audio(void);
 void video_queue_audio(const int16_t *samples, int n);
 int video_audio_queued(void);           /* samples waiting, or -1 */

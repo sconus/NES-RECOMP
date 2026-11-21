@@ -12,6 +12,7 @@
 #include "event.h"
 #include "fds.h"
 #include "apu.h"
+#include "state.h"
 
 struct mapper mapper;
 static void (*write_reg)(uint16_t addr, uint8_t val);
@@ -2475,4 +2476,26 @@ void mapper_write(uint16_t addr, uint8_t val) {
     write_reg(addr, val);
     ppu_schedule();     /* an IRQ may now be due sooner */
     if (mapper.schedule) mapper.schedule();
+}
+
+/* What a state holds from here: struct mapper (which banks sit where,
+   RAM switched on or off; its pointers and hooks stay valid within one
+   run) and every board's registers, counters and sound chip. Every
+   board's are saved whatever the cartridge, as they are small, except
+   the two big RAMs, saved only on their own board. Not saved, as they
+   never change after mapper_init: bus conflicts, Camerica's mirroring
+   wiring, the Namco 163's gain, the 5B's DAC table, the low-address
+   hooks. NSFs get no save states. */
+#define BOARD(var) state_part(s, "mapper." #var, &var, sizeof var)
+void mapper_state(struct state_io *s) {
+    state_part(s, "mapper", &mapper, sizeof mapper);
+    BOARD(caltron_outer); BOARD(caltron_inner);
+    BOARD(txc); BOARD(a53); BOARD(vrc); BOARD(mmc2);
+    BOARD(mmc5); BOARD(m5a); BOARD(vrc6); BOARD(fme); BOARD(n163);
+    BOARD(vrc7); BOARD(mmc1); BOARD(mmc3);
+    BOARD(ntdec_select); BOARD(ntdec_r);
+    BOARD(bandai); BOARD(ee);
+    BOARD(sun4_nt); BOARD(sun4_rom_nt);
+    if (cart.mapper == 5) BOARD(mmc5_ram);
+    if (tqrom) BOARD(tqrom_ram);
 }
