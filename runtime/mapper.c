@@ -2137,6 +2137,84 @@ static void bandai_reset(void) {
     mapper.read_6000 = bandai_read_6000;
 }
 
+/* ---- 68: Sunsoft-4 (nesdev wiki, "INES Mapper 068"). 16 KB at $8000
+   switches, the last 16 KB is fixed; four 2 KB CHR banks; and the
+   background's nametables can come from CHR ROM. Registers by 4 KB:
+     $8000-$BFFF  the 2 KB CHR banks at PPU $0000, $0800, $1000, $1800
+     $C000/$D000  the 1 KB CHR ROM banks used in place of CIRAM's first
+                  and second 1 KB; bit 7 is always taken as 1, so they're
+                  in the last 128 KB of CHR ROM
+     $E000        bits 0-1 mirroring (0 vertical, 1 horizontal, 2/3 one
+                  screen, the first / second table), bit 4: nametables
+                  from CHR ROM ($C000 for the first, $D000 the second,
+                  arranged by the same mirroring) instead of CIRAM
+     $F000        bits 0-3 the PRG bank, bit 4 enables the PRG RAM
+   No bus conflicts. Not given by the wiki, and chosen here: writes to a
+   ROM nametable change nothing; power-on has every register 0 except
+   that the PRG RAM starts enabled, and the header's mirroring holds
+   until $E000 is written. Nantettatte!! Baseball's extra ROM cartridge
+   and licensing timer aren't here. */
+
+static uint8_t sun4_nt[2], sun4_rom_nt;
+
+static int sun4_table(uint16_t addr) {         /* 0: first, 1: second */
+    int t = (addr >> 10) & 3;
+    switch (cart.mirroring) {
+    case MIRROR_VERTICAL:    return t & 1;
+    case MIRROR_HORIZONTAL:  return t >> 1;
+    case MIRROR_SINGLE_HIGH: return 1;
+    default:                 return 0;
+    }
+}
+
+static uint8_t sun4_nt_read(uint16_t addr) {
+    int t = sun4_table(addr);
+    if (sun4_rom_nt) {
+        size_t bank = (size_t)wrap(sun4_nt[t] | 0x80, chr_banks_1k());
+        return cart.chr[bank * 0x400 + (addr & 0x3FF)];
+    }
+    return ppu.nametables[t << 10 | (addr & 0x3FF)];
+}
+
+static void sun4_nt_write(uint16_t addr, uint8_t val) {
+    if (!sun4_rom_nt) ppu.nametables[sun4_table(addr) << 10 | (addr & 0x3FF)] = val;
+}
+
+static void sun4_write(uint16_t addr, uint8_t val) {
+    switch (addr & 0xF000) {
+    case 0x8000: case 0x9000: case 0xA000: case 0xB000: {
+        int slot = ((addr >> 12) & 3) * 2;
+        set_chr_1k(slot, val * 2);
+        set_chr_1k(slot + 1, val * 2 + 1);
+        break;
+    }
+    case 0xC000: sun4_nt[0] = val; break;
+    case 0xD000: sun4_nt[1] = val; break;
+    case 0xE000: {
+        static const enum mirroring mir[4] = {
+            MIRROR_VERTICAL, MIRROR_HORIZONTAL, MIRROR_SINGLE_LOW, MIRROR_SINGLE_HIGH };
+        cart.mirroring = mir[val & 3];
+        sun4_rom_nt = (val >> 4) & 1;
+        break;
+    }
+    case 0xF000:
+        set_prg_16k(0, val & 0x0F);
+        mapper.prg_ram_disabled = !(val & 0x10);
+        break;
+    }
+}
+
+static void sun4_reset(void) {
+    sun4_nt[0] = sun4_nt[1] = 0;
+    sun4_rom_nt = 0;
+    set_prg_16k(0, 0);
+    set_prg_16k(1, -1);
+    set_chr_8k(0);
+    mapper.prg_ram_disabled = 0;
+    mapper.nt_read = sun4_nt_read;
+    mapper.nt_write = sun4_nt_write;
+}
+
 /* ---------------------------------------------------------------------- */
 
 /* ---- NSF expansion sound (nesdev wiki "NSF"). Header byte $7B lists
@@ -2294,6 +2372,7 @@ void mapper_init(void) {
                       "Bandai LZ93D50" : "Bandai FCG/LZ93D50";
         write_reg = bandai_write; bandai_reset();
         break;
+    case 68: mapper.name = "Sunsoft-4"; write_reg = sun4_write; sun4_reset(); break;
     case 112: mapper.name = "NTDEC 112"; write_reg = ntdec_write; ntdec_reset(); break;
     case 7:
         mapper.name = "AxROM"; write_reg = axrom_write;

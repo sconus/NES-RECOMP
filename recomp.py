@@ -289,6 +289,9 @@ MAPPERS = {
     19: dict(name="Namco 163", unit=1, fixed={3: -1}, power_on={0: 0, 1: 1, 2: 2, 3: -1}),
     # Konami VRC7: three 8 KB slots switch, $E000 is the last bank.
     85: dict(name="VRC7", unit=1, fixed={3: -1}, power_on={0: 0, 1: 1, 2: 2, 3: -1}),
+    # Sunsoft-4: 16 KB at $8000 switches, the last 16 KB is fixed.
+    68: dict(name="Sunsoft-4", unit=2, fixed={2: -2, 3: -1},
+             power_on={0: 0, 1: 1, 2: -2, 3: -1}),
     # Sunsoft FME-7: three 8 KB slots switch, $E000 is the last bank.
     69: dict(name="FME-7", unit=1, fixed={3: -1}, power_on={0: 0, 1: 1, 2: 2, 3: -1}),
     # Action 53 switches 16 or 32 KB with either half fixed, depending on a

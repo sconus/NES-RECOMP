@@ -517,3 +517,13 @@ result 60 tests/tqrom_switch.nes
 result 60 tests/bandai_fcg.nes
 result 60 tests/bandai_lz.nes
 result 60 tests/bandai_both.nes
+
+# --- PLAN-mappers3.md step 5: Sunsoft-4 (68). sunsoft4_switch.nes
+# (tests/make_sunsoft4_test.py) checks the PRG and 2 KB CHR banks, the
+# PRG RAM enable, mirroring, and nametables from CHR ROM ($C000/$D000,
+# bit 7 always set) in each mirroring, writes to them ignored.
+# sunsoft4_picture.nes draws its background only from CHR ROM
+# nametables, switching bank at a sprite 0 hit: red horizontal stripes
+# above, blue vertical stripes below (a regression picture).
+result 60 tests/sunsoft4_switch.nes
+frame 60 tests/sunsoft4_picture.nes

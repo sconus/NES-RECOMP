@@ -269,3 +269,5 @@ tests/tqrom_switch.nes	pass
 tests/bandai_fcg.nes	pass
 tests/bandai_lz.nes	pass
 tests/bandai_both.nes	pass
+tests/sunsoft4_switch.nes	pass
+tests/sunsoft4_picture.nes	frame:49224aa7

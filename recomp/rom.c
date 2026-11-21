@@ -43,6 +43,7 @@ static const struct mapper {
     { 41, "Caltron 6-in-1", 4, { NOT_FIXED, NOT_FIXED, NOT_FIXED, NOT_FIXED }, { 0, 1, 2, 3 },
       0x6000, 0x67FF },
     { 66, "GxROM", 4, { NOT_FIXED, NOT_FIXED, NOT_FIXED, NOT_FIXED }, { 0, 1, 2, 3 }, -1, -1 },
+    { 68, "Sunsoft-4", 2, { NOT_FIXED, NOT_FIXED, -2, -1 }, { 0, 1, -2, -1 }, -1, -1 },
     { 69, "FME-7", 1, { NOT_FIXED, NOT_FIXED, NOT_FIXED, -1 }, { 0, 1, 2, -1 }, -1, -1 },
     { 71, "Camerica", 2, { NOT_FIXED, NOT_FIXED, -2, -1 }, { 0, 1, -2, -1 }, -1, -1 },
     { 79, "NINA-03/06", 4, { NOT_FIXED, NOT_FIXED, NOT_FIXED, NOT_FIXED }, { 0, 1, 2, 3 },

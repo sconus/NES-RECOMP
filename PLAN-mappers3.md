@@ -370,7 +370,7 @@ Not verified: GitHub's Windows run (it starts with the push to main).
 Battle Rush is the real check, yours to try in the app; as a Datach
 game, whatever needs a scanned card won't work.
 
-### 5. Sunsoft-4: 68
+### 5. Sunsoft-4: 68 (done)
 - 16 KB at `$8000`, the last 16 KB fixed, four 2 KB graphics banks, and
   its special feature: the background's name tables can come from
   graphics ROM (two 1 KB banks) instead of the console's RAM. The
@@ -382,6 +382,60 @@ game, whatever needs a scanned card won't work.
   graphics ROM, switched mid-way.
 - Breaks: name tables from RAM when they should be ROM, the wrong 1 KB
   bank, mirroring wrong.
+
+Done, following the nesdev wiki's page ("INES Mapper 068"):
+- **The registers** (`sun4_*` in `runtime/mapper.c`), each answering
+  through its whole 4 KB: `$8000-$BFFF` the four 2 KB CHR banks,
+  `$C000`/`$D000` the 1 KB CHR ROM banks used in place of the console's
+  first and second name table (bit 7 always taken as 1, so they're in
+  the last 128 KB of CHR ROM), `$E000` mirroring (bits 0-1) and name
+  tables from ROM (bit 4), `$F000` the PRG bank (bits 0-3) and the PRG
+  RAM enable (bit 4).
+- **Name tables from ROM** use the runtime's existing hooks
+  (`mapper.nt_read`, `mapper.nt_write`, made for MMC5). The mirroring
+  arranges the ROM tables the same way it arranges the console's RAM,
+  as the wiki says.
+- The recompiler tables: 16 KB at `$8000` switches, the last 16 KB
+  fixed.
+
+What the wiki leaves open, and the choices here:
+- **Writes to a ROM name table** change nothing (it's ROM).
+- **Power-on:** every register 0, except that the PRG RAM starts
+  enabled; the header's mirroring holds until `$E000` is written.
+- **Reads of disabled PRG RAM** give 0, as everywhere in this runtime;
+  the wiki says open bus.
+- Nantettatte!! Baseball's extra ROM and licensing timer aren't here,
+  as planned.
+
+Checks: `make_sunsoft4_test.py` writes two ROMs. `sunsoft4_switch.nes`
+(status codes in the docstring) checks the PRG and CHR banks, each
+register's whole 4 KB, the PRG RAM enable, mirroring of the console's
+RAM, the ROM name tables in all four mirrorings, bit 7, writes to a ROM
+name table ignored and the console's RAM kept underneath; it passes.
+`sunsoft4_picture.nes` draws its background only from ROM name tables
+(the console's RAM is never written) and switches the `$C000` bank at a
+sprite 0 hit: red horizontal stripes above line 112, blue vertical
+stripes below. The picture is as intended (looked at, and kept as a
+regression picture); with the console's RAM instead it would be black.
+
+Breaks, in scratch copies: 15 of 15 caught by the switch test, each with
+its own FAIL code: `$C000` switching with `$F000`, the PRG bank from the
+wrong bits, the RAM enable ignored, CHR banks in 1 KB units, the CHR
+registers reversed, registers only at `$x000`, bit 7 not set, ROM name
+tables never used, ROM name tables from bit 3, ROM name tables ignoring
+mirroring, `$C000` and `$D000` swapped, writes to ROM name tables going
+into the console's RAM, the one-screen tables swapped, mirroring
+swapped, the name-table hooks missing. The picture changed too for
+seven of them (the fixed bank, the CHR units, and the five that stop
+the right ROM name table from showing).
+
+Results: `tests/check_same_c.py` and `make test-recomp` pass;
+`tests/same_c.txt` gained the two ROMs, and the exit status, the C and
+the printed lines are the same for all 406 earlier files (31 lines
+changed only in the listing's hash).
+
+Not verified: GitHub's Windows run (it starts with the push to main).
+After Burner is the real check, yours to try in the app.
 
 ### 6. The suite, the README, the notes
 - The new test ROMs in `tests/suite.txt`; the README's mapper list;
