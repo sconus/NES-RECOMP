@@ -38,6 +38,11 @@ int video_audio_queued(void);           /* samples waiting, or -1 */
 uint8_t video_buttons(int player);
 /* Backspace held: rewind (PLAN-savestates.md step 3). */
 int video_rewind_held(void);
+/* ` (backquote) held: fast-forward (step 4). Frames come `n` times as
+   often (1: normal); a frame not drawn still reads the keys and waits. */
+int video_fast_held(void);
+void video_set_speed(int n);
+void video_skip(void);
 
 /* The mouse, as of the last video_present, for a paddle or a Zapper: *x
    and *y from 0 at the window's left or top edge to 1 at its right or

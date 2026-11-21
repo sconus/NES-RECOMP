@@ -262,6 +262,17 @@ static int rewind_test_on;
 static long rewind_test_n, rewind_test_m;
 static int rewind_phase;                /* 0 forward, 1 back, 2 forward again */
 static long rewind_steps, rewind_last, rewind_kept;
+
+/* Fast-forward (step 4): ` held in the window runs up to 4 times as
+   fast, drawing one frame in 4 and making no sound. The game itself
+   runs exactly as usual: --hold-fast (headless) holds the key the
+   whole run, and --prints-out F writes each frame's fingerprint
+   (picture, RAM, sound, code counts) to F, so a run with it and one
+   without can be compared frame by frame. */
+#define FAST_SPEED 4
+static int hold_fast, fast_forwarding;
+static long fast_frames;
+static FILE *prints_out;
 static long state_test_n, state_test_m;
 static int state_test_phase;            /* 0 before the save, 1 after, 2 after the load */
 static uint64_t sound_hash;             /* this frame's samples so far */
@@ -297,10 +308,11 @@ static void drain_sound(void) {
     apu_catch_up();
     int n;
     while ((n = apu_take_samples(buf, 4096)) > 0) {
-        if (state_test_on || rewind_test_on)
+        if (state_test_on || rewind_test_on || prints_out)
             sound_hash = fnv(sound_hash, buf, (size_t)n * sizeof buf[0]);
         if (wav_path) wav_write(buf, n);
-        if (speakers && !rewinding) video_queue_audio(buf, n);  /* rewind is silent */
+        if (speakers && !rewinding && !fast_forwarding)
+            video_queue_audio(buf, n);  /* rewind and fast-forward are silent */
         record_audio(buf, n);
     }
 }
@@ -876,8 +888,35 @@ static void frame_done(const uint16_t *ppu_fb) {
     if (audio_stats && ppu.frame % 60 == 0)
         fprintf(stderr, "frame %llu: %d samples queued\n",
                 (unsigned long long)ppu.frame, video_audio_queued());
-    if (!headless) video_present(message_frames ? with_message(fb) : fb);
+    /* Fast-forward: not while rewinding. */
+    int fast = !rewinding && (hold_fast || (!headless && video_fast_held()));
+    if (fast != fast_forwarding) {
+        if (!fast && !headless)                 /* in the terminal too */
+            fprintf(stderr, "frame %llu: FAST-FORWARDED %ld frames\n",
+                    (unsigned long long)ppu.frame, fast_frames);
+        if (!headless) video_set_speed(fast ? FAST_SPEED : 1);
+        if (speakers) video_restart_audio();    /* no old sound left over */
+        fast_frames = 0;
+    }
+    fast_forwarding = fast;
+    if (fast) {
+        snprintf(message, sizeof message, "%dX >>", FAST_SPEED);
+        message_frames = FAST_SPEED + 1;
+    }
+    int draw = !fast || fast_frames++ % FAST_SPEED == 0;
+    if (!headless) {
+        if (draw) video_present(message_frames ? with_message(fb) : fb);
+        else video_skip();
+    }
     if (message_frames) message_frames--;
+    if (prints_out) {
+        uint64_t p[4] = {
+            fnv(FNV_START, fb, 256 * 240 * sizeof fb[0]),
+            fnv(fnv(FNV_START, ram, sizeof ram), cart.prg_ram, cart.prg_ram_alloc),
+            sound_hash, code_since() };
+        sound_hash = FNV_START;
+        fwrite(p, sizeof p, 1, prints_out);
+    }
     if (state_test_on) state_test_frame(fb);
     if (rewind_test_on) rewind_test_frame(fb);
     if (cart.mapper == MAPPER_FDS) fds_frame();
@@ -917,7 +956,8 @@ static void frame_done(const uint16_t *ppu_fb) {
     }
     /* Headless runs stop as soon as a $6000 test reports its result
        (but the state test runs its own frames). */
-    if (headless && !state_test_on && !rewind_test_on && test_rom_finished()) finish_run(fb);
+    if (headless && !state_test_on && !rewind_test_on && !prints_out && test_rom_finished())
+        finish_run(fb);
     /* Status $81 means "press reset, at least 100 ms from now": in
        headless runs, press it 10 frames (about 170 ms) later. */
     const uint8_t *r = cart.prg_ram;
@@ -973,6 +1013,8 @@ static void usage(const char *prog) {
         "                     10 seconds; 0: no rewind)\n"
         "  --rewind-test N M  play N + M frames, rewind M, play forward again, and\n"
         "                     check every frame (headless)\n"
+        "  --hold-fast        hold the fast-forward key the whole run (for tests)\n"
+        "  --prints-out F     write each frame's fingerprint to F (for tests)\n"
         "  --state-out F      with --state-test: write the state to F (and F.prints)\n"
         "                     and stop there, without loading it\n"
         "  --state-in F       with --state-test: load F at the start and check the\n"
@@ -1058,6 +1100,11 @@ int main(int argc, char **argv) {
                 usage(argv[0]);
         }
         else if (!strcmp(a, "--state-out") && more) state_out = argv[++i];
+        else if (!strcmp(a, "--hold-fast")) hold_fast = 1;
+        else if (!strcmp(a, "--prints-out") && more) {
+            prints_out = fopen(argv[++i], "wb");
+            if (!prints_out) { fprintf(stderr, "can't write %s\n", argv[i]); return 1; }
+        }
         else if (!strcmp(a, "--rewind-frames") && more) {
             rewind_frames = atoi(argv[++i]);
             if (rewind_frames < 0) usage(argv[0]);
@@ -1170,7 +1217,7 @@ int main(int argc, char **argv) {
     if (wav_path) wav_open(wav_path);
     /* (Muted, or with no window, the sound is made from when a recording
        starts: start_recording.) */
-    sound_on = wav_path || speakers || state_test_on || rewind_test_on;
+    sound_on = wav_path || speakers || state_test_on || rewind_test_on || prints_out;
     if (sound_on) apu_enable_sound();
     if (record_path) start_recording(record_path);
     ppu_schedule();

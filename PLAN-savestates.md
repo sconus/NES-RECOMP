@@ -370,12 +370,48 @@ Tried in a live window (mmc3_split.nes): Backspace rewinds, and letting go
 prints "REWOUND from frame N" in the terminal.
 
 ### 4. Fast-forward
+- (Done on **`**, not Tab: Tab is PLAN-zapper2.md's Zapper switch.)
 - Hold **Tab** to run as fast as the computer allows (capped at 4x),
   drawing only some of the frames and skipping the sound.
 - Check: a headless run with fast-forward held the whole time must give
   the same fingerprints as a normal run: going faster must never change
   the game.
 - Break: a frame's input dropped during fast-forward.
+
+**Where step 4 ended (2026-11-21).** Hold **`** (backquote, left of 1;
+the user's choice, as Tab is planned for the Zapper switch in
+PLAN-zapper2.md) to run 4 times as fast: the window's frame clock waits
+a quarter as long (video_set_speed), one frame in 4 is drawn (the others
+only read the keys and wait: video_skip), no sound is queued, and "4X >>"
+shows top left; letting go prints "FAST-FORWARDED N frames" in the
+terminal. Not while rewinding (Backspace wins). The game runs exactly
+as usual: all of it is decided in frame_done, after the frame is made.
+
+The check: `--hold-fast` holds the key for a whole headless run, and
+`--prints-out F` writes each frame's fingerprint (picture, RAM, sound,
+code counts); `make test-states` runs every game for N + 120 frames
+with and without it and compares the files frame by frame (runs with
+`--prints-out` go their full length even when a test ROM reports its
+result). All 240 the same. `make test-all` as before (230 of 231,
+nestest exact), same C.
+
+Breaks, each in a scratch copy over the whole suite:
+
+| broken | games that caught it |
+| --- | --- |
+| a frame's input dropped on frames not drawn | 23 (the games with input scripts) |
+| the sound not taken while fast-forwarding | 240 |
+| the FDS's frame work (`fds_frame`) skipped on frames not drawn | **0: a gap** |
+
+The gap: `fds_frame` only counts down the half-second between taking a
+disk out and putting the next side in, which only the window's disk
+keys do (fds_key); input scripts put a disk in at once. A script word
+for "the disk key" would let a test cover it.
+
+Tried in a live window (mmc3_split.nes): holding the key ran 528 frames
+fast and printed "FAST-FORWARDED 528 frames". The key also counts as
+SDL's NONUSBACKSLASH, since on a Mac's ISO keyboard (with § left of 1)
+SDL swaps the two.
 
 ### 5. The app, Windows, the README
 - The app needs no change for the keys, but its help text lists them.

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Save states and rewind over the whole suite (PLAN-savestates.md steps 1-3).
+"""Save states, rewind and fast-forward over the whole suite
+(PLAN-savestates.md steps 1-4).
 
 For every ROM in tests/suite.txt (with its input script and options):
 recompile it, then run it headless with --state-test N M: N frames,
@@ -19,6 +20,10 @@ and plays forward again; every frame on the way must be the right one
 and match the first time through. Once with the usual ring (600
 frames), once with a ring of 50, so it fills and rewind stops at the
 oldest frame kept.
+
+And fast-forward (step 4): the same frames played with the key held
+the whole run (--hold-fast) must come out exactly as without it, frame
+by frame (--prints-out: picture, RAM, sound, code counts).
 
     python3 tests/check_states.py            every ROM
     python3 tests/check_states.py mmc3       only names matching
@@ -94,7 +99,25 @@ def run_one(test, cflags, libs, rt_objs):
             return test, "fail: " + rw + (" (rewind, ring of 50)" if ring else " (rewind)")
     m = re.search(r"\(\d+ kept, (\d+) bytes\)", rewind_run(rw_cmd))
     test["rewind_bytes"] = int(m.group(1)) if m else 0
-    return test, line + "; from a file in a new run; rewind"
+    # Fast-forward held the whole run: the same frames, frame by frame.
+    plain = cmd[:at] + ["--frames", str(int(cmd[at + 1]) + M)] + cmd[at + 3:]
+    prints = []
+    for extra in ([], ["--hold-fast"]):
+        out = os.path.join(OUT, ident + (".fast" if extra else ".plain") + ".prints")
+        try:
+            run_tests.sh(plain + extra + ["--prints-out", out], cwd=ROOT, timeout=120)
+        except run_tests.subprocess.TimeoutExpired:
+            return test, "fail: timed out (fast-forward)"
+        prints.append(open(out, "rb").read() if os.path.exists(out) else b"")
+    if not prints[0]:
+        return test, "fail: no frames noted (fast-forward)"
+    if prints[0] != prints[1]:
+        n = min(len(prints[0]), len(prints[1])) // 32
+        k = next((i for i in range(n) if prints[0][i * 32:i * 32 + 32] != prints[1][i * 32:i * 32 + 32]), n)
+        return test, "fail: fast-forward changed the game: frame %d differs (%d frames, %d)" % (
+            k + 1, len(prints[0]) // 32, len(prints[1]) // 32)
+    return test, line + "; from a file in a new run; rewind; fast-forward (%d frames)" % (
+        len(prints[0]) // 32)
 
 
 def rewind_run(cmd):
@@ -196,7 +219,7 @@ def main():
             sizes.append(int(m.group(1)))
         print("%s  %s  %s" % ("ok  " if ok else "FAIL", t["name"], result))
     print("\n%d of %d ROMs load their state and run on the same, in one run,"
-          " from a file in a new one, and rewind" % (len(tests) - failed, len(tests)))
+          " from a file in a new one, rewind, and fast-forward" % (len(tests) - failed, len(tests)))
     print()
     for line in refusals(tests):
         print(line)

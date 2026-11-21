@@ -27,7 +27,7 @@ static int window_scale;                /* the last whole-step size, for video_s
 static SDL_Renderer *renderer;
 static SDL_Texture *texture;
 static uint64_t next_frame_at;           /* performance-counter ticks */
-static uint64_t ticks_per_frame;
+static uint64_t ticks_per_frame_1x;    /* at normal speed */
 static const char *window_title;
 
 /* ---- sound -------------------------------------------------------------
@@ -137,9 +137,9 @@ void video_init(int scale, const char *title) {
     if (!texture) sdl_fail("SDL_CreateTexture");
     atexit(SDL_Quit);
 
-    ticks_per_frame = SDL_GetPerformanceFrequency() * FRAMES_PER_SEC_DEN /
+    ticks_per_frame_1x = SDL_GetPerformanceFrequency() * FRAMES_PER_SEC_DEN /
                       FRAMES_PER_SEC_NUM;
-    next_frame_at = SDL_GetPerformanceCounter() + ticks_per_frame;
+    next_frame_at = SDL_GetPerformanceCounter() + ticks_per_frame_1x;
 }
 
 static int mouse_seen;                  /* the mouse has moved over the window */
@@ -223,6 +223,14 @@ static const struct { SDL_Scancode key; uint8_t button; } keymap[2][8] = {
       { SDL_SCANCODE_E,      BTN_START },  { SDL_SCANCODE_Q,     BTN_SELECT } },
 };
 
+int video_fast_held(void) {
+    /* The key left of 1. On a Mac's ISO keyboard (where it is §), SDL
+       reports it as the key beside left Shift, and the other way round,
+       so either counts. */
+    const Uint8 *k = SDL_GetKeyboardState(NULL);
+    return k[SDL_SCANCODE_GRAVE] || k[SDL_SCANCODE_NONUSBACKSLASH];
+}
+
 int video_rewind_held(void) {
     return SDL_GetKeyboardState(NULL)[SDL_SCANCODE_BACKSPACE] != 0;
 }
@@ -269,8 +277,14 @@ void video_crosshair(void) {
     if (cross) SDL_SetCursor(cross);
 }
 
+/* 1, or 4 while fast-forwarding: the frames come that much sooner. */
+static int speed = 1;
+
+void video_set_speed(int n) { speed = n < 1 ? 1 : n; }
+
 static void wait_for_next_frame(void) {
     uint64_t now = SDL_GetPerformanceCounter();
+    uint64_t ticks_per_frame = ticks_per_frame_1x / (uint64_t)speed;
     if (now < next_frame_at) {
         uint64_t ms = (next_frame_at - now) * 1000 /
                       SDL_GetPerformanceFrequency();
@@ -309,6 +323,12 @@ static void draw_rec(void) {
                 SDL_Rect p = { x0 + 7 + g * 4 + i % 3, y0 + i / 3, 1, 1 };
                 SDL_RenderFillRect(renderer, &p);
             }
+}
+
+/* A frame not drawn (fast-forward): the keys and the clock still. */
+void video_skip(void) {
+    handle_events();
+    wait_for_next_frame();
 }
 
 void video_present(const uint16_t *fb) {
