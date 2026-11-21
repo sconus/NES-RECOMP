@@ -59,12 +59,16 @@ mapper). So the same address can hold different code at different times:
 
 Supported mappers: 0 NROM, 1 MMC1, 2 UxROM, 3 CNROM, 4 MMC3 (with its
 scanline IRQ), 5 MMC5 (with its sound and vertical split), 7 AxROM,
-9 MMC2, 10 MMC4, 11 Color Dreams, 19 Namco 163 (with its sound),
-21/22/23/25 Konami VRC2 and VRC4 (with VRC4's IRQ), 24/26 Konami VRC6
-(with its sound), 28 Action 53, 34 BNROM, 66 GxROM, 69 Sunsoft FME-7
-(with the 5B's sound), 85 Konami VRC7 (with its FM sound, partly
-approximate). `python3 tests/romlist.py <folder>` shows which
-mapper a ROM uses.
+9 MMC2, 10 MMC4, 11 Color Dreams, 16 Bandai FCG-1/2 and LZ93D50 (with
+the IRQ counter and the 24C02 EEPROM, kept in `<rom>.sav`), 19 Namco 163
+(with its sound), 21/22/23/25 Konami VRC2 and VRC4 (with VRC4's IRQ),
+24/26 Konami VRC6 (with its sound), 28 Action 53, 34 BNROM, 41 Caltron
+6-in-1, 66 GxROM, 68 Sunsoft-4 (with name tables from CHR ROM),
+69 Sunsoft FME-7 (with the 5B's sound), 71 Camerica/Codemasters
+(BF9093, BF9097), 79 AVE NINA-03/06, 85 Konami VRC7 (with its FM sound,
+partly approximate), 112 NTDEC/Asder, 119 TQROM (MMC3 with CHR RAM
+beside its CHR ROM), 172 TXC 22211, 228 Active Enterprises.
+`python3 tests/romlist.py <folder>` shows which mapper a ROM uses.
 
 ### The rest of the console (`runtime/`)
 
@@ -527,7 +531,11 @@ iNES 1.0, as the wiki says. iNES 1.0 files behave as they always have.
   - VRC7a or VRC7b (85: 2, 1);
   - Namco 163's loudness (19: none, 12, 16.5 or 18.75 dB);
   - NEC's MMC3 (4: 4), the older chip of `--mmc3-rev A`, which the
-    option can still change.
+    option can still change;
+  - Camerica's BF9097 (71: 1), with its one-screen mirroring from the
+    start;
+  - Bandai's FCG-1/2 or LZ93D50 alone (16: 4, 5), where with none both
+    register ranges are decoded.
 
   NINA-001 (34: 1) is refused. Other submappers run as submapper 0,
   with a warning.
@@ -809,6 +817,17 @@ own. Each `tests/make_*.py` writes a small ROM into `tests/`:
 - `make_vrc4_test.py`: one ROM per VRC4 mapper number (21, 23, 25):
   banking, swap mode, mirroring and the IRQ in both modes, through both
   address wirings each number covers.
+- The boards of `PLAN-mappers3.md`, one generator each, writing its
+  registers as the nesdev wiki describes them and reporting a status
+  code for each thing that's wrong: `make_camerica_test.py` (71),
+  `make_nina_test.py` (79), `make_caltron_test.py` (41),
+  `make_ae_test.py` (228, with Action 52's empty chip socket and the
+  reset button), `make_txc_test.py` (172), `make_ntdec_test.py` (112),
+  `make_tqrom_test.py` (119), `make_bandai_test.py` (16: three ROMs,
+  the IRQ checked to the cycle, the EEPROM), with
+  `check_bandai_save.py` for the EEPROM kept across restarts, and
+  `make_sunsoft4_test.py` (68, with a picture drawn only from ROM name
+  tables).
 - `make_ram_test.py`: NES 2.0 RAM sizes: no PRG RAM, 2 KB repeated,
   no CHR at all, MMC1 with 32 and 16 KB of banked PRG RAM, and 16 KB of
   CHR RAM. They report on screen (`text`), since a RAM test can't count
@@ -882,6 +901,7 @@ or display-only `read_joy3` tests are left out of the suite, and so is
 - [x] Test ROM runner with a recorded baseline
 - [x] Mappers 0, 1, 2, 3, 4, 7, 34, with banked recompilation
 - [x] Mappers 5, 9, 10, 11, 21, 22, 23, 25, 28, 66
+- [x] Mappers 16, 41, 68, 71, 79, 112, 119, 172, 228
 - [x] IRQs (MMC3 scanline counter) and battery saves
 - [x] APU: sound through the speakers or a WAV file, frame and DMC IRQs
 - [x] The reset button
@@ -915,12 +935,13 @@ or display-only `read_joy3` tests are left out of the suite, and so is
 `PLAN.md`, `PLAN-mappers.md`, `PLAN-sound.md`, `PLAN-cycles.md`,
 `PLAN-render.md`, `PLAN-mappers2.md`, `PLAN-expansion.md`,
 `PLAN-input.md`, `PLAN-nsf.md`, `PLAN-paddle.md`, `PLAN-zapper.md`,
-`PLAN-nes2.md`, `PLAN-split.md`, `PLAN-fds.md`, `PLAN-gui.md` and
-`PLAN-standalone.md` have the
+`PLAN-nes2.md`, `PLAN-split.md`, `PLAN-fds.md`, `PLAN-gui.md`,
+`PLAN-standalone.md` and `PLAN-mappers3.md` have the
 step-by-step notes for each stage (graphics, mappers, sound, per-cycle
 timing, rendering, more mappers, expansion sound, controllers, NSF
 music, the paddle, the Zapper and four players, NES 2.0 headers, MMC5's
-split, the Famicom Disk System, the app, the standalone app), including how each timing value was tuned, what
+split, the Famicom Disk System, the app, the standalone app, the
+mappers of v2), including how each timing value was tuned, what
 was tried for what still fails, and where the documentation left a
 choice to make.
 

@@ -437,11 +437,68 @@ changed only in the listing's hash).
 Not verified: GitHub's Windows run (it starts with the push to main).
 After Burner is the real check, yours to try in the app.
 
-### 6. The suite, the README, the notes
+### 6. The suite, the README, the notes (done)
 - The new test ROMs in `tests/suite.txt`; the README's mapper list;
   where the stage ended, with the results and speed.
 - The app needs no change: it builds whatever the recompiler accepts.
 - A release (2.1) is a separate decision, after this.
+
+Done:
+- `tests/suite.txt` has every test ROM of this stage (added step by
+  step): 12 ROMs for the nine boards, 11 status checks and one picture,
+  and `tests/check_bandai_save.py` runs in `make test-ppu`.
+- The README lists the nine new mappers, the two new submapper cases
+  (71: 1 and 16: 4/5), the new test generators, a checklist line and
+  this plan.
+- The app needed no change: it has no mapper list of its own, and shows
+  the recompiler's "not supported" message, which is built from the
+  recompiler's table.
+
+## Where the stage ended
+
+All nine of your mappers are in: 71, 79, 41 (step 1), 228, 172
+(step 2), 112, 119 (step 3), 16 (step 4) and 68 (step 5), each on main
+with its own commit (f349d39, 871cb96, 836abc1, 759c3e2, c7c4925).
+
+- **Tests:** `make test-all` 230 of 231 (test28 as always, as before
+  the stage), nestest exact, 33 pictures and 8 sounds checked; the
+  save, app and recording checks pass. The 395 files the stage started
+  with, and every file added since, recompile to the same C, byte for
+  byte, and `recomp.py` and the C recompiler agree on every ROM.
+- **Breaks:** 95, all caught by their own FAIL codes in the end (14,
+  19, 19, 28 and 15 by step). Several first runs found gaps in the
+  tests, not in the mappers; each was fixed and every break run again.
+- **Windows:** green for steps 1 to 4 (runs 29 to 34); step 5's run
+  (35) was still going when this was written.
+- **Speed:** nes15, 6000 headless frames: about 5.2 s, against 5.5 s
+  for v2.0 built the same way (four runs each; the difference is noise).
+  Still about 19 times faster than a real console. The new hooks
+  (`write_6000`, `read_6000`, `reset`) are only called for boards that
+  set them.
+- **New runtime hooks:** `mapper.write_6000` (registers at
+  `$6000-$7FFF`: 41, 16), `mapper.reset` (the reset button: 228) and
+  `mapper.read_6000` (reads at `$6000-$7FFF`: 16's EEPROM).
+
+What the documentation left open, and is chosen here (each step's notes
+say more): 112's fixed banks and units (as the MMC3), 172's power-on,
+228's empty socket (the third chip, as Mesen), the Bandai EEPROM's
+protocol (the 24C02's own), Sunsoft-4's power-on and ROM name-table
+writes.
+
+Not done, as planned or found along the way:
+- Bandai's X24C01 EEPROM (submapper 1 / mapper 159), the Datach
+  barcode reader (157) and 153's RAM; Battle Rush's card features won't
+  work.
+- 112's extra CHR register at `$C000` that some emulators have and the
+  wiki doesn't list; the first thing to look at if Chik Bik Ji Jin's
+  graphics are wrong.
+- Sunsoft-4's licensing ROM (Nantettatte!! Baseball).
+- Taking `low_regs` away from 79 or 41 isn't caught by their tests.
+
+The real check is your games, in the app: Cosmic Spacehead, Blackjack,
+Deathbots, Dudes with Attitude, Caltron 6 in 1, Chik Bik Ji Jin, 1991
+Du Ma Racing, Action 52, Cheetahmen II, High Speed, Battle Rush and
+After Burner. A 2.1 release is your call, after a green Windows run.
 
 ## Not in this plan
 - The Datach barcode reader (mapper 157) and its cards.
