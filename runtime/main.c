@@ -242,8 +242,13 @@ static int start_scale;
 /* --state-test N M (PLAN-savestates.md): run N frames and half of one, save a state,
    run M more noting a fingerprint of each (the picture, the RAM, the
    sound, how the code ran), load the state and run the same M frames again: every
-   fingerprint must match. */
+   fingerprint must match. With --state-out F the state is written to the
+   file F and the fingerprints to F.prints, and the run ends there; a
+   later run with --state-in F loads F at the start and checks the same
+   M frames against F.prints (step 2: the state survives quitting). */
 static int state_test_on;
+static const char *state_out, *state_in;
+static int state_test_loaded;           /* --state-in: the load was done */
 static long state_test_n, state_test_m;
 static int state_test_phase;            /* 0 before the save, 1 after, 2 after the load */
 static uint64_t sound_hash;             /* this frame's samples so far */
@@ -630,7 +635,8 @@ static int message_frames;
 void runtime_state_message(const char *text) {
     snprintf(message, sizeof message, "%s", text);
     message_frames = 60;
-    if (headless) fprintf(stderr, "frame %llu: %s\n", (unsigned long long)ppu.frame, text);
+    /* In the terminal too, window or not, so a run shows what happened. */
+    fprintf(stderr, "frame %llu: %s\n", (unsigned long long)ppu.frame, text);
 }
 
 void runtime_state_saved(void) {
@@ -639,6 +645,7 @@ void runtime_state_saved(void) {
 
 void runtime_state_loaded(void) {
     if (state_test_on) (void)code_since();
+    state_test_loaded = 1;
     video_restart_audio();          /* the old sound mustn't play over the new */
     last_frame = NULL;
 }
@@ -660,8 +667,69 @@ void runtime_state_key(int what) {
     state_request(what);
 }
 
+/* The four slots: <rom>.state1 to .state4, beside the battery save
+   (--files-at P: P.state1 ...). Cmd+1 to Cmd+4 pick one. */
+static char slot_path[1100], slot_label[16];
+
+static void use_slot(int n) {
+    snprintf(slot_path, sizeof slot_path, "%s.state%d", files_at, n);
+    snprintf(slot_label, sizeof slot_label, "SLOT %d", n);
+    state_use_file(slot_path, slot_label);
+}
+
+void runtime_state_slot(int n) {
+    if (cart.mapper == MAPPER_NSF || n < 1 || n > 4) return;
+    use_slot(n);
+    runtime_state_message(slot_label);
+}
+
+/* The game's file, as a checksum: a state only loads in the game it
+   was saved from. */
+static uint64_t game_checksum(const char *path) {
+    uint64_t h = FNV_START;
+    FILE *f = fopen(path, "rb");
+    if (!f) return h;
+    uint8_t buf[65536];
+    size_t n;
+    while ((n = fread(buf, 1, sizeof buf, f)) > 0) h = fnv(h, buf, n);
+    fclose(f);
+    return h;
+}
+
+static void prints_path(char *out, size_t size, const char *state_file) {
+    snprintf(out, size, "%s.prints", state_file);
+}
+
+static void write_prints(void) {
+    char path[1100];
+    prints_path(path, sizeof path, state_out);
+    FILE *f = fopen(path, "wb");
+    if (!f || fwrite(fingerprint, sizeof fingerprint[0], (size_t)state_test_m, f)
+                  != (size_t)state_test_m) {
+        fprintf(stderr, "state test: can't write %s\n", path);
+        exit(1);
+    }
+    fclose(f);
+}
+
+static void read_prints(void) {
+    char path[1100];
+    prints_path(path, sizeof path, state_in);
+    FILE *f = fopen(path, "rb");
+    if (!f || fread(fingerprint, sizeof fingerprint[0], (size_t)state_test_m, f)
+                  != (size_t)state_test_m) {
+        fprintf(stderr, "state test: can't read %s\n", path);
+        exit(1);
+    }
+    fclose(f);
+}
+
 static void state_test_frame(const uint16_t *fb) {
     long f = (long)ppu.frame;
+    if (state_in && !state_test_loaded) {
+        fprintf(stderr, "state test: FAIL: the state didn't load\n");
+        exit(1);
+    }
     if (state_test_phase == 0 && state_held()) state_test_phase = 1;
     if (state_test_phase == 0) {
         /* Half a frame on (about line 130 of the picture): a state
@@ -692,6 +760,12 @@ static void state_test_frame(const uint16_t *fb) {
         fingerprint[k].sound = snd;
         fingerprint[k].code = code;
         if (k == state_test_m - 1) {
+            if (state_out) {
+                write_prints();
+                fprintf(stderr, "state test: saved to %s (state of %zu bytes)\n",
+                        state_out, state_size());
+                exit(0);
+            }
             state_request(STATE_LOAD);
             state_test_phase = 2;
         }
@@ -800,6 +874,10 @@ static void usage(const char *prog) {
         "  --input FILE       scripted button presses (see README.md)\n"
         "  --state-test N M   run N frames, save a state, run M more, load it and\n"
         "                     check the M frames come out the same (headless)\n"
+        "  --state-out F      with --state-test: write the state to F (and F.prints)\n"
+        "                     and stop there, without loading it\n"
+        "  --state-in F       with --state-test: load F at the start and check the\n"
+        "                     frames against F.prints\n"
         "  --scale N          window size, N times 256x240 (default 3)\n"
         "  --mmc3-rev A|B     which MMC3 chip to act like (default B)\n"
         "  --port1 pad|vaus|zapper  what controller port 1 holds (default\n"
@@ -880,6 +958,8 @@ int main(int argc, char **argv) {
             if (state_test_n < 1 || state_test_m < 1 || state_test_m > STATE_TEST_MAX)
                 usage(argv[0]);
         }
+        else if (!strcmp(a, "--state-out") && more) state_out = argv[++i];
+        else if (!strcmp(a, "--state-in") && more) state_in = argv[++i];
         else if (!strcmp(a, "--mmc3-rev") && more) {
             char r = (char)toupper((unsigned char)argv[++i][0]);
             if (r != 'A' && r != 'B') usage(argv[0]);
@@ -935,6 +1015,10 @@ int main(int argc, char **argv) {
         fprintf(stderr, "--state-test needs --headless, and a game, not an NSF\n");
         return 1;
     }
+    if ((state_out || state_in) && (!state_test_on || (state_out && state_in))) {
+        fprintf(stderr, "--state-out and --state-in go with --state-test, one at a time\n");
+        return 1;
+    }
     if ((screenshot_path || dump_text) && !stop_after_frames) {
         fprintf(stderr, "--screenshot and --dump-text need --frames N\n");
         return 1;
@@ -977,6 +1061,18 @@ int main(int argc, char **argv) {
     if (record_path) start_recording(record_path);
     ppu_schedule();
     apu_schedule();
+    /* Save states: the slots (the window's), or the state test's file. */
+    if (cart.mapper != MAPPER_NSF) {
+        state_set_game(game_checksum(rom_path));
+        if (state_out || state_in) state_use_file(state_out ? state_out : state_in, "STATE");
+        else if (!state_test_on) use_slot(1);
+    }
+    if (state_in) {
+        read_prints();
+        state_test_phase = 2;
+        sound_hash = FNV_START;
+        state_request(STATE_LOAD);      /* before the first instruction runs */
+    }
 
     recomp_run(start);
     fprintf(stderr, "stopped. result bytes $02=%02X $03=%02X\n", ram[2], ram[3]);

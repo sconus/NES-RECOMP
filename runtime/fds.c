@@ -269,7 +269,7 @@ int fds_sound_read(uint16_t addr) {
 enum { BOOT_LOAD = 1, LOAD_FILES, WRITE_FILE, CHECK_FILE_COUNT, ADJUST_FILE_COUNT,
        SET_FILE_COUNT1, SET_FILE_COUNT, GET_DISK_INFO };
 
-static struct {
+static struct fds {
     uint8_t *image;                 /* the sides as they are now */
     uint8_t *orig;                  /* as the image file holds them */
     int sides, side;                /* side in the drive */
@@ -683,7 +683,7 @@ static void file_routine(int code) {
 #define GAP 122
 #define BYTE_DOTS 448
 
-static struct {
+static struct drive {
     uint8_t *stream;
     size_t len, room;
     int side;                       /* the side the stream is of, or -1 */
@@ -1024,18 +1024,21 @@ void fds_reset(void) {
    reads (with what the head wrote to it), and the sound channel. The
    image file's own copy (fds.orig) never changes. */
 void fds_state(struct state_io *s) {
-    uint8_t *image = fds.image, *orig = fds.orig, *stream = drive.stream;
-    state_part(s, "fds", &fds, sizeof fds);
+    /* The buffers are this run's, not the state's. */
+    static const struct state_ptr fds_ptrs[] = {
+        STATE_PTR(struct fds, image, STATE_RUN),
+        STATE_PTR(struct fds, orig, STATE_RUN),
+    };
+    static const struct state_ptr drive_ptrs[] = {
+        STATE_PTR(struct drive, stream, STATE_RUN),
+    };
+    state_struct(s, "fds", &fds, sizeof fds, fds_ptrs, 2);
     state_part(s, "fds.image", fds.image, (size_t)fds.sides * SIDE_BYTES);
     state_part(s, "fds.sound", &fs, sizeof fs);
+    state_part(s, "fds.sound_on", &fds_sound_on, sizeof fds_sound_on);
     size_t max = GAP_START + SIDE_BYTES + (SIDE_BYTES / 3) * (3 + GAP) + GAP;
-    state_part(s, "fds.drive", &drive, sizeof drive);
-    if (state_reading(s)) {
-        /* The buffers are this run's, not the state's. */
-        fds.image = image; fds.orig = orig;
-        if (!stream) stream = malloc(max);
-        drive.stream = stream;
-    }
+    state_struct(s, "fds.drive", &drive, sizeof drive, drive_ptrs, 1);
+    if (state_reading(s) && !drive.stream) drive.stream = malloc(max);
     size_t got;
     state_part_sized(s, "fds.stream", drive.stream, drive.len, max, &got);
 }

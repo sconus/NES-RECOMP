@@ -3,4 +3,6 @@ tests/roms/
 .DS_Store
 *.missed
 *.sav
+*.state[1-4]
+*.state[1-4].new
 *.wav

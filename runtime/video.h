@@ -22,6 +22,8 @@ void runtime_snap_key(void);
 /* Cmd+S saves a state, Cmd+L loads it (Ctrl on Windows; state.h's
    STATE_SAVE, STATE_LOAD), through runtime_state_key in main.c. */
 void runtime_state_key(int what);
+/* Cmd+1 to Cmd+4 (Ctrl on Windows): which slot saves and loads use. */
+void runtime_state_slot(int n);
 /* Empty the sound queue and start again from silence (after a load). */
 void video_restart_audio(void);
 /* Text in the runtime's 5x7 font (nsf.c), 6 pixels a character, with

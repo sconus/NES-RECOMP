@@ -182,10 +182,11 @@ static void handle_events(void) {
         if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_ESCAPE) exit(0);
         if (e.type == SDL_KEYDOWN && (e.key.keysym.mod & CMD_KEY) && !e.key.repeat) {
             /* Cmd+= / Cmd+-: a whole step bigger or smaller; Cmd+F: full
-               screen; Cmd+S / Cmd+L: save / load a state. (Plain keys
-               stay the controllers'.) */
+               screen; Cmd+S / Cmd+L: save / load a state; Cmd+1 to
+               Cmd+4: which slot. (Plain keys stay the controllers'.) */
             SDL_Keycode k = e.key.keysym.sym;
-            if (k == SDLK_s) runtime_state_key(STATE_SAVE);
+            if (k >= SDLK_1 && k <= SDLK_4) runtime_state_slot(k - SDLK_0);
+            else if (k == SDLK_s) runtime_state_key(STATE_SAVE);
             else if (k == SDLK_l) runtime_state_key(STATE_LOAD);
             else if (k == SDLK_EQUALS || k == SDLK_PLUS || k == SDLK_KP_PLUS) resize_step(1);
             else if (k == SDLK_MINUS || k == SDLK_KP_MINUS) resize_step(-1);

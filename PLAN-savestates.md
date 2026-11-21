@@ -110,7 +110,9 @@ name and a size (`runtime/state.c`); this is the order they're in.
 - `fds.c` (`fds_state`, FDS only): `struct fds` (the RAM adapter, the
   side in the drive, the timer IRQ), the sides as the program has
   written them (`fds.image`), the drive (`drive`, and its bit stream up
-  to `drive.len`), the sound channel (`fs`).
+  to `drive.len`), the sound channel (`fs`), and whether its sound is on
+  (`fds_sound_on`, $4023 bit 1; found in step 2: it is shared between
+  files, and step 1's `nm` listing took only each file's own variables).
 
 **Not saved, and why**
 - Settings, fixed at start: `trace_on`, `check_cycles`, `port_device`,
@@ -238,6 +240,70 @@ was caught by 3 ROMs then, 8 mid-frame, so the test saves mid-frame.
   in one run, load in a fresh one): the fingerprints must match.
 - Breaks: a state from another ROM accepted, a pointer offset off by a
   bank, an old version number accepted.
+
+**Where step 2 ended (2026-11-20).** A state file is a 40-byte header
+(the magic word `NESRECOMP STATE`, format version 1, a checksum of the
+game's file, the state's size) and then the state, which now holds no
+addresses: `state_struct()` (state.c) saves a struct with its pointer
+fields zeroed and, for each pointer into the console's memory, a
+buffer number and an offset (`<name>.pointers`); the buffers are
+`REGION_PRG`, `_CHR`, `_PRG_RAM`, `_NAMETABLES`, `_MMC5_RAM`,
+`_TQROM_RAM`. Pointers that are the run's own (the board's functions,
+its name, the cartridge's and the FDS's buffers) keep this run's value.
+Such pointers are in `struct mapper` (banks, `ram6000`: data; 14
+functions and the name: the run's), `struct cart`, `ppu.fetch_chr`,
+`ee.mem`, `fds` and `drive`.
+
+Cmd+1 to Cmd+4 pick a slot ("SLOT 2"); Cmd+S and Cmd+L save and load it,
+as `<rom>.state1` to `.state4` beside the battery save (with
+`--files-at P`, `P.state1`...; the app's folder). Messages: "SLOT 2
+SAVED", "SLOT 2 LOADED", "SLOT 2 IS EMPTY", "SLOT 2 IS ANOTHER GAME'S",
+"SLOT 2 IS AN OLDER FORMAT", "SLOT 2 ISN'T A STATE", "SLOT 2 NOT SAVED". A
+file is written beside and then renamed, so a failed write never spoils
+a good state. A refused file is checked whole (header, then every part)
+before anything is copied in.
+
+The check: `make test-states` now also runs every game twice more,
+`--state-test N M --state-out F` (save to a file, note the
+fingerprints in F.prints, quit) and `--state-test N M --state-in F` (a
+fresh run loads F before the first instruction and must match). All
+240 pass, in one run and in a new one. Then five files that must be
+refused: another game's, version 0, a wrong magic word, one byte short,
+one byte too many; all refused. States are 178 KB to 347 KB. `make
+test-all` is as before (230 of 231, nestest exact), and the C is the
+same (`make test-same-c`, `make test-recomp`).
+
+The new-run test found a variable step 1 missed: `fds_sound_on`
+(the FDS's $4023 sound switch), shared between files, which the `nm`
+listing of each file's own variables didn't show. Listing the shared
+ones too found no other.
+
+Breaks, each in a scratch copy, counting only "differs after loading"
+and "not refused" failures:
+
+| broken | caught by |
+| --- | --- |
+| another game's state accepted | the refusal check |
+| an older format number accepted | the refusal check |
+| a file one byte too long accepted | the refusal check |
+| a pointer's offset off by a bank (8 KB) | 62 ROMs |
+| `mapper.ram6000` kept as this run's | 1 (mmc5_split) |
+| the CHR banks 0-3 kept as this run's | 3 |
+| the PRG banks kept as this run's | 8 |
+| `fds_sound_on` left out | 1 (fds_demo) |
+| the CHR banks 4-7 kept as this run's | **0: a gap** |
+| `ppu.fetch_chr` kept as this run's | 0: can't matter |
+
+`ppu.fetch_chr` is set again right before each use (ppu.c, the tile
+fetch), so it holds nothing between instructions; it stays in the
+state anyway. CHR slots 4-7 are a real gap: no game in the suite shows
+tiles from those slots with banks other than the power-on ones when
+the state is saved. A test ROM that switches the sprite banks (MMC3's
+$8000 = 2-5) every frame would close it.
+
+Tried in a live window (mmc3_split.nes): Cmd+S and Cmd+1 to Cmd+3 wrote
+slots 1, 2 and 3 (178 KB each, header right). Slot files are in
+.gitignore, like .sav and .missed.
 
 ### 3. Rewind
 - While playing, a state is kept every frame in a ring of memory (first

@@ -1993,7 +1993,7 @@ static struct {
     uint64_t time;                  /* cycle the counter is valid at */
 } bandai;
 
-static struct {
+static struct eeprom {
     uint8_t *mem;                   /* 256 bytes, or NULL: no EEPROM */
     int mode, next, bits, ack;
     uint8_t shift, addr, byte;
@@ -2339,6 +2339,10 @@ static void check_submapper(void) {
 }
 
 void mapper_init(void) {
+    /* The boards' own memory a bank may point into (a state file holds
+       "which buffer, which offset"). */
+    state_region(REGION_MMC5_RAM, mmc5_ram, sizeof mmc5_ram);
+    state_region(REGION_TQROM_RAM, tqrom_ram, sizeof tqrom_ram);
     /* Power-on layout for every board: ROM laid out from the start and
        repeated to fill 32 KB (so 16 KB NROM appears twice). Each mapper's
        reset may then change it. */
@@ -2487,14 +2491,33 @@ void mapper_write(uint16_t addr, uint8_t val) {
    wiring, the Namco 163's gain, the 5B's DAC table, the low-address
    hooks. NSFs get no save states. */
 #define BOARD(var) state_part(s, "mapper." #var, &var, sizeof var)
+/* struct mapper's banks are pointers into the console's memory; its
+   functions and name are the board's, set up by mapper_init. */
+#define DATA(f) STATE_PTR(struct mapper, f, STATE_DATA)
+#define RUN(f) STATE_PTR(struct mapper, f, STATE_RUN)
+static const struct state_ptr mapper_ptrs[] = {
+    DATA(prg[0]), DATA(prg[1]), DATA(prg[2]), DATA(prg[3]),
+    DATA(chr[0]), DATA(chr[1]), DATA(chr[2]), DATA(chr[3]),
+    DATA(chr[4]), DATA(chr[5]), DATA(chr[6]), DATA(chr[7]),
+    DATA(ram6000),
+    RUN(a12), RUN(catch_up), RUN(schedule), RUN(chr_fetched), RUN(ppu_phase),
+    RUN(write_6000), RUN(read_6000), RUN(reset), RUN(nt_read), RUN(nt_write),
+    RUN(scanline), RUN(bg_tile), RUN(audio_step), RUN(name),
+};
+#undef DATA
+#undef RUN
+static const struct state_ptr ee_ptrs[] = { STATE_PTR(struct eeprom, mem, STATE_DATA) };
+
 void mapper_state(struct state_io *s) {
-    state_part(s, "mapper", &mapper, sizeof mapper);
+    state_struct(s, "mapper", &mapper, sizeof mapper, mapper_ptrs,
+                 (int)(sizeof mapper_ptrs / sizeof mapper_ptrs[0]));
     BOARD(caltron_outer); BOARD(caltron_inner);
     BOARD(txc); BOARD(a53); BOARD(vrc); BOARD(mmc2);
     BOARD(mmc5); BOARD(m5a); BOARD(vrc6); BOARD(fme); BOARD(n163);
     BOARD(vrc7); BOARD(mmc1); BOARD(mmc3);
     BOARD(ntdec_select); BOARD(ntdec_r);
-    BOARD(bandai); BOARD(ee);
+    BOARD(bandai);
+    state_struct(s, "mapper.ee", &ee, sizeof ee, ee_ptrs, 1);
     BOARD(sun4_nt); BOARD(sun4_rom_nt);
     if (cart.mapper == 5) BOARD(mmc5_ram);
     if (tqrom) BOARD(tqrom_ram);

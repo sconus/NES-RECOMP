@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Save states over the whole suite (PLAN-savestates.md step 1).
+"""Save states over the whole suite (PLAN-savestates.md steps 1-2).
 
 For every ROM in tests/suite.txt (with its input script and options):
 recompile it, then run it headless with --state-test N M: N frames,
@@ -7,6 +7,12 @@ save a state, M more frames noting a fingerprint of each (picture, RAM,
 sound), load the state, the same M frames again. Every fingerprint must
 match. N is a third of the suite's frame count (at most 600), so the
 state is taken mid-run, not at power-on, and inside the input script.
+
+Then the same across two runs (step 2): one run saves the state to a
+file and notes the fingerprints (--state-out), quits, and a fresh run
+loads the file at the start (--state-in) and must match them. Last, a
+few state files that must be refused: one from another game, one with
+an older format number, one that isn't a state, one cut short.
 
     python3 tests/check_states.py            every ROM
     python3 tests/check_states.py mmc3       only names matching
@@ -17,6 +23,7 @@ so the suite's own files don't change.
 import concurrent.futures
 import os
 import re
+import shutil
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -56,16 +63,78 @@ def run_one(test, cflags, libs, rt_objs):
         cmd += ["--input", os.path.join(ROOT, test["script"])]
     # Options for the runner itself (--translated) aren't the program's.
     cmd += [a for a in test["args"] if a != "--ram-stats"]
+    test["cmd"] = cmd
+    line = state_run(cmd)
+    if not line.startswith("pass"):
+        return test, "fail: " + line + " (in one run)"
+    # Across two runs: save to a file and quit, then load it in a new run.
+    state_file = os.path.join(OUT, ident + ".state")
+    test["state_file"] = state_file
+    for f in (state_file, state_file + ".prints"):
+        if os.path.exists(f):
+            os.remove(f)
+    out = state_run(cmd + ["--state-out", state_file])
+    if not out.startswith("saved"):
+        return test, "fail: " + out + " (saving to a file)"
+    two = state_run(cmd + ["--state-in", state_file])
+    if not two.startswith("pass"):
+        return test, "fail: " + two + " (loading in a new run)"
+    return test, line + "; and from a file in a new run"
+
+
+def state_run(cmd, want=None):
+    """The program's "state test:" line, or what went wrong. With `want`,
+    the line of a refused load must name it."""
     try:
         r = run_tests.sh(cmd, cwd=ROOT, timeout=120)
     except run_tests.subprocess.TimeoutExpired:
-        return test, "fail: timed out"
+        return "timed out"
+    if want is not None:
+        return "refused" if (want in r.stderr and "the state didn't load" in r.stderr) \
+            else "not refused: " + r.stderr[-300:]
     m = re.search(r"state test: (.*)", r.stderr)
     if not m:
         stop = re.search(r"stopped: (.*)", r.stderr)
-        return test, "fail: " + (stop.group(1) if stop else "no state test result")
+        return stop.group(1) if stop else "no state test result"
     line = m.group(1)
-    return test, line if line.startswith("pass") else "fail: " + line
+    return line[len("FAIL: "):] if line.startswith("FAIL: ") else line
+
+
+def refusals(tests):
+    """State files that must be refused, whole: from another game, an
+    older format, not a state at all, cut short."""
+    good = [t for t in tests if t.get("state_file") and os.path.exists(t["state_file"])]
+    roms = {}
+    for t in good:
+        roms.setdefault(t["cmd"][1], t)
+    if len(roms) < 2:
+        return ["fail: need two games with state files to check refusals"]
+    a, b = list(roms.values())[:2]
+    data = open(a["state_file"], "rb").read()
+    bad = os.path.join(OUT, "refused.state")
+    cases = [
+        ("from another game", a["state_file"], b, "IS ANOTHER GAME'S"),
+        ("an older format", data[:16] + (0).to_bytes(4, "little") + data[20:], a,
+         "IS AN OLDER FORMAT"),
+        ("not a state", b"NESRECOMP STATX\n" + data[16:], a, "ISN'T A STATE"),
+        ("cut short", data[:-1], a, "ISN'T A STATE"),
+        ("one byte too many", data + b"\0", a, "ISN'T A STATE"),
+    ]
+    out = []
+    for what, src, test, want in cases:
+        if isinstance(src, bytes):
+            with open(bad, "wb") as f:
+                f.write(src)
+            path = bad
+        else:
+            path = src
+        # The fingerprints are read before the load: any will do.
+        if path != a["state_file"]:
+            shutil.copyfile(a["state_file"] + ".prints", path + ".prints")
+        r = state_run(test["cmd"] + ["--state-in", path], want=want)
+        out.append(("ok  " if r == "refused" else "FAIL") + "  a state " + what +
+                   ": " + r)
+    return out
 
 
 def main():
@@ -99,7 +168,12 @@ def main():
         if m:
             sizes.append(int(m.group(1)))
         print("%s  %s  %s" % ("ok  " if ok else "FAIL", t["name"], result))
-    print("\n%d of %d ROMs load their state and run on the same" % (len(tests) - failed, len(tests)))
+    print("\n%d of %d ROMs load their state and run on the same, in one run"
+          " and from a file in a new one" % (len(tests) - failed, len(tests)))
+    print()
+    for line in refusals(tests):
+        print(line)
+        failed += line.startswith("FAIL")
     if sizes:
         print("state size: %d to %d bytes" % (min(sizes), max(sizes)))
     sys.exit(1 if failed else 0)
