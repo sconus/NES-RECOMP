@@ -249,6 +249,19 @@ static int start_scale;
 static int state_test_on;
 static const char *state_out, *state_in;
 static int state_test_loaded;           /* --state-in: the load was done */
+
+/* Rewind (step 3): Backspace held in the window goes back a frame each
+   frame, silently. --rewind-test N M plays N + M frames noting each
+   frame's fingerprint, rewinds M frames (or as far as the ring goes),
+   then plays forward again to frame N + M: every frame shown, going
+   back and forward, must be the frame it should be and match the
+   first time through. */
+static int rewind_frames = 600;         /* 10 seconds; --rewind-frames */
+static int rewinding;                   /* going back this frame */
+static int rewind_test_on;
+static long rewind_test_n, rewind_test_m;
+static int rewind_phase;                /* 0 forward, 1 back, 2 forward again */
+static long rewind_steps, rewind_last, rewind_kept;
 static long state_test_n, state_test_m;
 static int state_test_phase;            /* 0 before the save, 1 after, 2 after the load */
 static uint64_t sound_hash;             /* this frame's samples so far */
@@ -277,14 +290,17 @@ static uint64_t code_since(void) {
 
 /* Hand the APU's finished samples to the speakers, the WAV file and the
    recording. */
+static int rewind_held(void);
+
 static void drain_sound(void) {
     int16_t buf[4096];
     apu_catch_up();
     int n;
     while ((n = apu_take_samples(buf, 4096)) > 0) {
-        if (state_test_on) sound_hash = fnv(sound_hash, buf, (size_t)n * sizeof buf[0]);
+        if (state_test_on || rewind_test_on)
+            sound_hash = fnv(sound_hash, buf, (size_t)n * sizeof buf[0]);
         if (wav_path) wav_write(buf, n);
-        if (speakers) video_queue_audio(buf, n);
+        if (speakers && !rewinding) video_queue_audio(buf, n);  /* rewind is silent */
         record_audio(buf, n);
     }
 }
@@ -640,7 +656,12 @@ void runtime_state_message(const char *text) {
 }
 
 void runtime_state_saved(void) {
-    if (state_test_on) (void)code_since();
+    if (state_test_on || rewind_test_on) (void)code_since();
+}
+
+void runtime_state_rewound(void) {
+    if (rewind_test_on) (void)code_since();
+    last_frame = NULL;
 }
 
 void runtime_state_loaded(void) {
@@ -724,6 +745,60 @@ static void read_prints(void) {
     fclose(f);
 }
 
+static int rewind_held(void) {
+    if (rewind_test_on) return rewind_phase == 1;
+    return !headless && video_rewind_held();
+}
+
+static void rewind_test_frame(const uint16_t *fb) {
+    long f = (long)ppu.frame, end = rewind_test_n + rewind_test_m;
+    uint64_t pic = fnv(FNV_START, fb, 256 * 240 * sizeof fb[0]);
+    uint64_t mem = fnv(fnv(FNV_START, ram, sizeof ram), cart.prg_ram, cart.prg_ram_alloc);
+    uint64_t snd = sound_hash, code = code_since();
+    sound_hash = FNV_START;
+    if (f < 0 || f >= STATE_TEST_MAX) { fprintf(stderr, "rewind test: frame %ld is outside the test\n", f); exit(1); }
+    if (rewind_phase == 0) {
+        fingerprint[f].picture = pic; fingerprint[f].ram = mem;
+        fingerprint[f].sound = snd; fingerprint[f].code = code;
+        if (f == end) {
+            rewind_phase = 1;
+            rewind_kept = state_rewind_frames();
+            /* States are kept from frame 1 (the end of the first frame)
+               to the frame before this one, at most rewind_frames. */
+            long want = end - 1 < rewind_frames ? end - 1 : rewind_frames;
+            if (rewind_kept != want) {
+                fprintf(stderr, "rewind test: FAIL: %ld frames kept, not %ld\n", rewind_kept, want);
+                exit(1);
+            }
+            rewind_last = f;
+        }
+        return;
+    }
+    /* Going back, each frame is the one before, until the oldest kept
+       (then it stays); going forward again, the one after. */
+    long expect = rewind_phase == 1 ? end - rewind_steps : rewind_last + 1;
+    long oldest = end - rewind_kept + 1;
+    if (rewind_phase == 1 && expect < oldest) expect = oldest;
+    const char *what = f != expect ? "frame number" :
+                       fingerprint[f].picture != pic ? "picture" :
+                       fingerprint[f].ram != mem ? "RAM" :
+                       fingerprint[f].sound != snd ? "sound" :
+                       fingerprint[f].code != code ? "count of code run translated" : NULL;
+    if (what) {
+        fprintf(stderr, "rewind test: FAIL: %s, %s (frame %ld, wanted %ld)\n",
+                rewind_phase == 1 ? "going back" : "going forward again", what, f, expect);
+        exit(1);
+    }
+    rewind_last = f;
+    if (rewind_phase == 1 && rewind_steps == rewind_test_m) rewind_phase = 2;
+    if (rewind_phase == 2 && f == end) {
+        fprintf(stderr, "rewind test: pass: %ld frames back to frame %ld and forward again"
+                        " (%ld kept, %zu bytes)\n", rewind_test_m, end - rewind_test_m < oldest ?
+                        oldest : end - rewind_test_m, rewind_kept, state_rewind_bytes());
+        exit(0);
+    }
+}
+
 static void state_test_frame(const uint16_t *fb) {
     long f = (long)ppu.frame;
     if (state_in && !state_test_loaded) {
@@ -804,6 +879,7 @@ static void frame_done(const uint16_t *ppu_fb) {
     if (!headless) video_present(message_frames ? with_message(fb) : fb);
     if (message_frames) message_frames--;
     if (state_test_on) state_test_frame(fb);
+    if (rewind_test_on) rewind_test_frame(fb);
     if (cart.mapper == MAPPER_FDS) fds_frame();
     /* Buttons for the next frame: the script, plus the keyboard. */
     while (script_pos < script_len && script[script_pos].frame <= (long)ppu.frame) {
@@ -841,7 +917,7 @@ static void frame_done(const uint16_t *ppu_fb) {
     }
     /* Headless runs stop as soon as a $6000 test reports its result
        (but the state test runs its own frames). */
-    if (headless && !state_test_on && test_rom_finished()) finish_run(fb);
+    if (headless && !state_test_on && !rewind_test_on && test_rom_finished()) finish_run(fb);
     /* Status $81 means "press reset, at least 100 ms from now": in
        headless runs, press it 10 frames (about 170 ms) later. */
     const uint8_t *r = cart.prg_ram;
@@ -850,6 +926,25 @@ static void frame_done(const uint16_t *ppu_fb) {
         if (++reset_wait == 10) { cpu_request_reset(); reset_wait = 0; }
     } else {
         reset_wait = 0;
+    }
+    /* Rewind: keep this frame, or go one back (at the next instruction
+       boundary, like a save or a load). */
+    if (state_rewind_on()) {
+        int back = rewind_held();
+        if (back) {
+            if (rewind_test_on) rewind_steps++;
+            if (!rewinding && speakers) video_restart_audio();
+            snprintf(message, sizeof message, "<< REWIND");
+            message_frames = 2;
+        }
+        /* In the terminal too: from which frame back to which. */
+        static unsigned long long rewind_from;
+        if (back && !rewinding) rewind_from = (unsigned long long)ppu.frame;
+        if (!back && rewinding)
+            fprintf(stderr, "frame %llu: REWOUND from frame %llu\n",
+                    (unsigned long long)ppu.frame, rewind_from);
+        rewinding = back;
+        state_rewind_request(back ? STATE_BACK : STATE_KEEP);
     }
 }
 
@@ -874,6 +969,10 @@ static void usage(const char *prog) {
         "  --input FILE       scripted button presses (see README.md)\n"
         "  --state-test N M   run N frames, save a state, run M more, load it and\n"
         "                     check the M frames come out the same (headless)\n"
+        "  --rewind-frames N  how many frames Backspace can go back (default 600,\n"
+        "                     10 seconds; 0: no rewind)\n"
+        "  --rewind-test N M  play N + M frames, rewind M, play forward again, and\n"
+        "                     check every frame (headless)\n"
         "  --state-out F      with --state-test: write the state to F (and F.prints)\n"
         "                     and stop there, without loading it\n"
         "  --state-in F       with --state-test: load F at the start and check the\n"
@@ -959,6 +1058,17 @@ int main(int argc, char **argv) {
                 usage(argv[0]);
         }
         else if (!strcmp(a, "--state-out") && more) state_out = argv[++i];
+        else if (!strcmp(a, "--rewind-frames") && more) {
+            rewind_frames = atoi(argv[++i]);
+            if (rewind_frames < 0) usage(argv[0]);
+        }
+        else if (!strcmp(a, "--rewind-test") && i + 2 < argc) {
+            rewind_test_on = 1;
+            rewind_test_n = strtol(argv[++i], NULL, 10);
+            rewind_test_m = strtol(argv[++i], NULL, 10);
+            if (rewind_test_n < 1 || rewind_test_m < 1 ||
+                rewind_test_n + rewind_test_m >= STATE_TEST_MAX) usage(argv[0]);
+        }
         else if (!strcmp(a, "--state-in") && more) state_in = argv[++i];
         else if (!strcmp(a, "--mmc3-rev") && more) {
             char r = (char)toupper((unsigned char)argv[++i][0]);
@@ -1015,6 +1125,10 @@ int main(int argc, char **argv) {
         fprintf(stderr, "--state-test needs --headless, and a game, not an NSF\n");
         return 1;
     }
+    if (rewind_test_on && (!headless || state_test_on || cart.mapper == MAPPER_NSF)) {
+        fprintf(stderr, "--rewind-test needs --headless and a game, and not --state-test\n");
+        return 1;
+    }
     if ((state_out || state_in) && (!state_test_on || (state_out && state_in))) {
         fprintf(stderr, "--state-out and --state-in go with --state-test, one at a time\n");
         return 1;
@@ -1056,7 +1170,7 @@ int main(int argc, char **argv) {
     if (wav_path) wav_open(wav_path);
     /* (Muted, or with no window, the sound is made from when a recording
        starts: start_recording.) */
-    sound_on = wav_path || speakers || state_test_on;
+    sound_on = wav_path || speakers || state_test_on || rewind_test_on;
     if (sound_on) apu_enable_sound();
     if (record_path) start_recording(record_path);
     ppu_schedule();
@@ -1066,6 +1180,9 @@ int main(int argc, char **argv) {
         state_set_game(game_checksum(rom_path));
         if (state_out || state_in) state_use_file(state_out ? state_out : state_in, "STATE");
         else if (!state_test_on) use_slot(1);
+        /* Rewind in the window, and in its test; at most 64 MB of changes. */
+        if ((!headless || rewind_test_on) && rewind_frames > 1)
+            state_rewind_setup(rewind_frames, (size_t)64 << 20);
     }
     if (state_in) {
         read_prints();

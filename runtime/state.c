@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <zlib.h>
 #include "state.h"
 #include "rt.h"
 #include "event.h"
@@ -201,17 +202,27 @@ static void all_parts(struct state_io *s) {
 
 /* Into the held block. Returns 0 (keeping the block as it was) if a
    part can't be saved: a pointer into none of the known buffers. */
-static int save(void) {
-    struct state_io s = { SAVE, NULL, 0, 0, 0, NULL };
+/* Into *buf (grown as needed, *room bytes now), *len bytes. */
+static int save_into(uint8_t **buf, size_t *room, size_t *len) {
+    struct state_io s = { SAVE, *buf, 0, *room, 0, NULL };
     all_parts(&s);
+    *buf = s.buf;
+    *room = s.room;
+    *len = s.len;
     if (s.bad) {
         fprintf(stderr, "can't save the state: part \"%s\" points outside the console\n", s.bad);
-        free(s.buf);
         return 0;
     }
+    return 1;
+}
+
+static int save(void) {
+    uint8_t *buf = NULL;
+    size_t room = 0, len;
+    if (!save_into(&buf, &room, &len)) { free(buf); return 0; }
     free(held);
-    held = s.buf;
-    held_len = s.len;
+    held = buf;
+    held_len = len;
     return 1;
 }
 
@@ -305,10 +316,185 @@ static void say(const char *fmt) {
     runtime_state_message(text);
 }
 
+/* ---- rewind (step 3) ----
+
+   A state every frame, for the last few seconds. A state is 178 KB to
+   347 KB, but from one frame to the next only a few KB of it change, so
+   the ring keeps one whole state (the newest, `top`) and, for each
+   frame before it, what changed: the XOR of that frame's state and the
+   one after, with its runs of zero bytes (nothing changed) packed.
+   Stepping back is XORing the newest change into `top` and dropping
+   it; when the ring is full, the oldest change is dropped, and the
+   oldest frame left is the furthest back rewind goes.
+
+   A change is a list of runs: 4 bytes of how many bytes are the same,
+   4 bytes of how many differ, then the XOR of those that differ; then
+   squeezed by zlib at its fastest (the picture being drawn, 120 KB of
+   the state, mostly changes when the game scrolls). */
+
+struct change { uint8_t *bytes; size_t len, old_len, packed_len; };
+
+static struct {
+    int on, frames;                     /* the most frames kept (top included) */
+    size_t max_bytes;                   /* the most the changes may take */
+    uint8_t *top, *now;                 /* the newest state; a scratch one */
+    size_t top_len, top_room, now_len, now_room;
+    int have_top;
+    struct change *ring;                /* changes[0] is the oldest */
+    int count, first;                   /* changes kept; where the oldest is */
+    size_t bytes;                       /* the changes' bytes */
+    uint8_t *pack, *unz;                /* scratch for packing, unsqueezing */
+    size_t pack_room, unz_room;
+} rw;
+
+void state_rewind_setup(int frames, size_t max_bytes) {
+    rw.on = frames > 1;
+    rw.frames = frames;
+    rw.max_bytes = max_bytes;
+    rw.ring = calloc((size_t)frames, sizeof rw.ring[0]);
+}
+
+static void pack_put(size_t *at, const void *p, size_t n) {
+    if (*at + n > rw.pack_room) {
+        rw.pack_room = (*at + n) * 2;
+        rw.pack = realloc(rw.pack, rw.pack_room);
+        if (!rw.pack) { fprintf(stderr, "out of memory for rewind\n"); exit(1); }
+    }
+    memcpy(rw.pack + *at, p, n);
+    *at += n;
+}
+
+/* a XOR b over the longer one's length (the shorter one padded with 0). */
+static size_t pack_xor(const uint8_t *a, size_t a_len, const uint8_t *b, size_t b_len) {
+    size_t n = a_len > b_len ? a_len : b_len, at = 0, i = 0;
+#define BYTE(p, len, k) ((k) < (len) ? (p)[k] : 0)
+    while (i < n) {
+        uint32_t same = 0, differ = 0;
+        while (i < n && BYTE(a, a_len, i) == BYTE(b, b_len, i)) { i++; same++; }
+        size_t start = i;
+        /* Short runs of sameness inside a changed stretch aren't worth
+           a new run (8 bytes): keep going until 8 in a row are the same. */
+        while (i < n) {
+            size_t j = i;
+            while (j < n && j < i + 8 && BYTE(a, a_len, j) == BYTE(b, b_len, j)) j++;
+            if (j == n || j == i + 8) break;
+            i = j + 1;
+        }
+        differ = (uint32_t)(i - start);
+        pack_put(&at, &same, 4);
+        pack_put(&at, &differ, 4);
+        for (size_t k = start; k < i; k++) {
+            uint8_t x = BYTE(a, a_len, k) ^ BYTE(b, b_len, k);
+            pack_put(&at, &x, 1);
+        }
+    }
+#undef BYTE
+    return at;
+}
+
+/* top ^= change, then top is old_len bytes long. */
+static void unpack_xor(const struct change *zc) {
+    /* Unsqueeze it first. */
+    if (zc->packed_len > rw.unz_room) {
+        rw.unz_room = zc->packed_len;
+        rw.unz = realloc(rw.unz, rw.unz_room);
+        if (!rw.unz) { fprintf(stderr, "out of memory for rewind\n"); exit(1); }
+    }
+    uLongf got = (uLongf)zc->packed_len;
+    if (uncompress(rw.unz, &got, zc->bytes, (uLong)zc->len) != Z_OK || got != zc->packed_len) {
+        fprintf(stderr, "rewind: a kept frame is damaged\n");
+        exit(1);
+    }
+    struct change unz = { rw.unz, zc->packed_len, zc->old_len, 0 };
+    const struct change *c = &unz;
+    if (c->old_len > rw.top_room) {
+        rw.top = realloc(rw.top, c->old_len);
+        rw.top_room = c->old_len;
+    }
+    if (c->old_len > rw.top_len) memset(rw.top + rw.top_len, 0, c->old_len - rw.top_len);
+    size_t at = 0, i = 0;
+    while (at < c->len) {
+        uint32_t same, differ;
+        memcpy(&same, c->bytes + at, 4);
+        memcpy(&differ, c->bytes + at + 4, 4);
+        at += 8;
+        i += same;
+        for (uint32_t k = 0; k < differ; k++, i++)
+            if (i < rw.top_room) rw.top[i] ^= c->bytes[at + k];
+        at += differ;
+    }
+    rw.top_len = c->old_len;
+}
+
+static void drop_oldest(void) {
+    struct change *c = &rw.ring[rw.first];
+    rw.bytes -= c->len;
+    free(c->bytes);
+    c->bytes = NULL;
+    rw.first = (rw.first + 1) % rw.frames;
+    rw.count--;
+}
+
+/* This frame's state onto the ring. */
+static void rewind_keep(void) {
+    if (!save_into(&rw.now, &rw.now_room, &rw.now_len)) return;
+    if (rw.have_top) {
+        if (rw.count == rw.frames - 1) drop_oldest();
+        /* The change takes `now` back to `top`. */
+        size_t n = pack_xor(rw.now, rw.now_len, rw.top, rw.top_len);
+        struct change *c = &rw.ring[(rw.first + rw.count) % rw.frames];
+        uLongf z = compressBound((uLong)n);
+        c->bytes = malloc(z);
+        if (!c->bytes || compress2(c->bytes, &z, rw.pack, (uLong)n, 1) != Z_OK) {
+            fprintf(stderr, "out of memory for rewind\n");
+            exit(1);
+        }
+        c->bytes = realloc(c->bytes, z ? z : 1);
+        c->packed_len = n;
+        n = z;
+        c->len = n;
+        c->old_len = rw.top_len;
+        rw.count++;
+        rw.bytes += n;
+        while (rw.bytes > rw.max_bytes && rw.count > 1) drop_oldest();
+    }
+    /* now becomes top (swap the buffers: no copy). */
+    uint8_t *t = rw.top; size_t tr = rw.top_room;
+    rw.top = rw.now; rw.top_room = rw.now_room; rw.top_len = rw.now_len;
+    rw.now = t; rw.now_room = tr;
+    rw.have_top = 1;
+}
+
+/* One frame back: drop the newest state, load the one before it. At the
+   oldest, load it again (rewind stops there). Returns 0 if nothing is kept. */
+static int rewind_back(void) {
+    if (!rw.have_top) return 0;
+    if (rw.count > 0) {
+        struct change *c = &rw.ring[(rw.first + rw.count - 1) % rw.frames];
+        unpack_xor(c);
+        rw.bytes -= c->len;
+        free(c->bytes);
+        c->bytes = NULL;
+        rw.count--;
+    }
+    return load_block(rw.top, rw.top_len);
+}
+
+int state_rewind_on(void) { return rw.on; }
+int state_rewind_frames(void) { return rw.have_top ? rw.count + 1 : 0; }
+size_t state_rewind_bytes(void) { return rw.bytes + (rw.have_top ? rw.top_len : 0); }
+
 /* ---- the safe point ---- */
 
 static int wanted;
 static uint64_t wanted_at;
+static int rewind_wanted;               /* STATE_KEEP or STATE_BACK */
+
+void state_rewind_request(int what) {
+    if (!rw.on) return;
+    rewind_wanted = what;
+    schedule_event(cycles);
+}
 
 void state_request_at(int what, uint64_t when) {
     wanted = what;
@@ -318,12 +504,19 @@ void state_request_at(int what, uint64_t when) {
 
 void state_request(int what) { state_request_at(what, cycles); }
 
-int state_wanted(void) { return wanted != 0; }
-uint64_t state_wanted_at(void) { return wanted_at; }
+int state_wanted(void) { return wanted != 0 || rewind_wanted != 0; }
+uint64_t state_wanted_at(void) { return rewind_wanted ? cycles : wanted_at; }
 int state_held(void) { return held != NULL; }
 size_t state_size(void) { return held ? held_len : 0; }
 
 int state_service(void) {
+    if (rewind_wanted) {
+        int r = rewind_wanted;
+        rewind_wanted = 0;
+        if (r == STATE_KEEP) rewind_keep();
+        else if (rewind_back()) runtime_state_rewound();
+        return 1;
+    }
     int what = wanted;
     if (!what || cycles < wanted_at) return 0;
     wanted = 0;

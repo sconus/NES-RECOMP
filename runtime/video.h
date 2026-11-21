@@ -36,6 +36,8 @@ int video_audio_queued(void);           /* samples waiting, or -1 */
 /* A controller's buttons (player 0-3) from the keyboard (players 0 and
    1 only) and game controllers, as of the last video_present. */
 uint8_t video_buttons(int player);
+/* Backspace held: rewind (PLAN-savestates.md step 3). */
+int video_rewind_held(void);
 
 /* The mouse, as of the last video_present, for a paddle or a Zapper: *x
    and *y from 0 at the window's left or top edge to 1 at its right or

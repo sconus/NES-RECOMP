@@ -223,6 +223,10 @@ static const struct { SDL_Scancode key; uint8_t button; } keymap[2][8] = {
       { SDL_SCANCODE_E,      BTN_START },  { SDL_SCANCODE_Q,     BTN_SELECT } },
 };
 
+int video_rewind_held(void) {
+    return SDL_GetKeyboardState(NULL)[SDL_SCANCODE_BACKSPACE] != 0;
+}
+
 uint8_t video_buttons(int player) {
     const Uint8 *keys = SDL_GetKeyboardState(NULL);
     uint8_t b = 0;

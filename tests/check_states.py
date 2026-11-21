@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Save states over the whole suite (PLAN-savestates.md steps 1-2).
+"""Save states and rewind over the whole suite (PLAN-savestates.md steps 1-3).
 
 For every ROM in tests/suite.txt (with its input script and options):
 recompile it, then run it headless with --state-test N M: N frames,
@@ -13,6 +13,12 @@ file and notes the fingerprints (--state-out), quits, and a fresh run
 loads the file at the start (--state-in) and must match them. Last, a
 few state files that must be refused: one from another game, one with
 an older format number, one that isn't a state, one cut short.
+
+And rewind (step 3): --rewind-test N M plays N + M frames, rewinds M,
+and plays forward again; every frame on the way must be the right one
+and match the first time through. Once with the usual ring (600
+frames), once with a ring of 50, so it fills and rewind stops at the
+oldest frame kept.
 
     python3 tests/check_states.py            every ROM
     python3 tests/check_states.py mmc3       only names matching
@@ -79,7 +85,28 @@ def run_one(test, cflags, libs, rt_objs):
     two = state_run(cmd + ["--state-in", state_file])
     if not two.startswith("pass"):
         return test, "fail: " + two + " (loading in a new run)"
-    return test, line + "; and from a file in a new run"
+    # Rewind: the same command, with --rewind-test in place of --state-test.
+    at = cmd.index("--state-test")
+    rw_cmd = cmd[:at] + ["--rewind-test", cmd[at + 1], cmd[at + 2]] + cmd[at + 3:]
+    for ring in ([], ["--rewind-frames", "50"]):
+        rw = rewind_run(rw_cmd + ring)
+        if not rw.startswith("pass"):
+            return test, "fail: " + rw + (" (rewind, ring of 50)" if ring else " (rewind)")
+    m = re.search(r"\(\d+ kept, (\d+) bytes\)", rewind_run(rw_cmd))
+    test["rewind_bytes"] = int(m.group(1)) if m else 0
+    return test, line + "; from a file in a new run; rewind"
+
+
+def rewind_run(cmd):
+    try:
+        r = run_tests.sh(cmd, cwd=ROOT, timeout=120)
+    except run_tests.subprocess.TimeoutExpired:
+        return "timed out"
+    m = re.search(r"rewind test: (.*)", r.stderr)
+    if not m:
+        return "no rewind test result"
+    line = m.group(1)
+    return line[len("FAIL: "):] if line.startswith("FAIL: ") else line
 
 
 def state_run(cmd, want=None):
@@ -168,14 +195,18 @@ def main():
         if m:
             sizes.append(int(m.group(1)))
         print("%s  %s  %s" % ("ok  " if ok else "FAIL", t["name"], result))
-    print("\n%d of %d ROMs load their state and run on the same, in one run"
-          " and from a file in a new one" % (len(tests) - failed, len(tests)))
+    print("\n%d of %d ROMs load their state and run on the same, in one run,"
+          " from a file in a new one, and rewind" % (len(tests) - failed, len(tests)))
     print()
     for line in refusals(tests):
         print(line)
         failed += line.startswith("FAIL")
     if sizes:
         print("state size: %d to %d bytes" % (min(sizes), max(sizes)))
+    rw = sorted(t.get("rewind_bytes", 0) for t in tests if t.get("rewind_bytes"))
+    if rw:
+        print("rewind memory (up to 600 frames kept, %d of them rewound): %d to %d bytes (median %d)" %
+              (M, rw[0], rw[-1], rw[len(rw) // 2]))
     sys.exit(1 if failed else 0)
 
 

@@ -86,6 +86,20 @@ int state_held(void);
 /* How big the held state is, in bytes (0: none). */
 size_t state_size(void);
 
+/* Rewind (step 3): a state every frame, for the last `frames` frames,
+   in at most `max_bytes` of changes (see state.c). Off until set up. */
+void state_rewind_setup(int frames, size_t max_bytes);
+int state_rewind_on(void);
+/* From frame_done: at the next instruction boundary, keep this frame's
+   state (STATE_KEEP), or go one frame back (STATE_BACK). */
+enum { STATE_KEEP = 3, STATE_BACK = 4 };
+void state_rewind_request(int what);
+/* How many frames are kept (0: none), and in how many bytes. */
+int state_rewind_frames(void);
+size_t state_rewind_bytes(void);
+/* main.c: right after a step back was loaded. */
+void runtime_state_rewound(void);
+
 /* main.c: told what happened ("STATE SAVED", ...), to show it. */
 void runtime_state_message(const char *text);
 /* main.c: right after a save. */

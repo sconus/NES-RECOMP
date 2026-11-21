@@ -319,6 +319,56 @@ slots 1, 2 and 3 (178 KB each, header right). Slot files are in
 - Breaks: the ring stepping back one frame too many or too few, the
   oldest frame overwritten wrongly when the ring is full.
 
+**Where step 3 ended (2026-11-20).** In the window, a state is kept
+at the end of every frame, for the last 600 frames (10 seconds), and
+holding **Backspace** goes back one frame per frame, shown, silent, with
+"<< REWIND" top left; let go and the game carries on from there. At the
+oldest frame kept, rewind stops. (Headless runs keep no states, except
+in the test.)
+
+Measured first: a state is 178 KB to 347 KB, and a full copy every
+frame would be 107-208 MB for 10 seconds. So the ring (state.c) keeps
+one whole state, the newest, and for every frame before it only what
+changed: the XOR of the two states, with its unchanged stretches
+packed out. That was still ~95 KB a frame on a scrolling game, because
+the state holds the PPU's picture (120 KB, needed: the Zapper and
+pixels drawn with rendering off read last frame's picture), so each
+change is also squeezed by zlib at its fastest (zlib is already in the
+runtime for screenshots, on Mac and Windows). Now: about 3 KB a frame;
+10 seconds of mmc3_split.nes (everything scrolling) is 1.9 MB, and the
+suite's games use 0.2 to 1 MB. It costs 0.2 to 0.3 ms a frame (of 16.7).
+Stepping back XORs the newest change into the whole state and drops it.
+
+The check: `--rewind-test N M` plays N + M frames noting each frame's
+fingerprint, rewinds M frames, plays forward to frame N + M again; each
+frame shown, going back and forward again, must be the frame it should
+be (by number) and match the first pass (picture, RAM, sound, code
+counts), and the ring must hold exactly as many frames as it should.
+In `make test-states` for all 240 games, with the 600-frame ring and
+with `--rewind-frames 50` (so it fills and stops at the oldest). All
+pass. `make test-all` as before (230 of 231, nestest exact), same C.
+
+Breaks, each in a scratch copy over the whole suite:
+
+| broken | games that caught it |
+| --- | --- |
+| stepping back two frames at a time | 240 |
+| not stepping back (one too few) | 240 |
+| a full ring keeping one frame too many | 240 |
+| a full ring dropping two of the oldest | 232 |
+| each changed stretch losing its last byte | 238 |
+| a change missing the state's very last byte | 0 (that byte, the paddle's shift register, never changes in the suite) |
+| a state's earlier length not put back | **0: a gap** |
+
+The gap: a state's size changes only when sound samples are waiting
+at the end of a frame or the FDS drive rebuilds its bit stream, and
+neither happens between two kept frames in the suite. If it did go
+wrong, the load would refuse the state (its parts wouldn't fit) and
+rewind would stop, not load a wrong game.
+
+Tried in a live window (mmc3_split.nes): Backspace rewinds, and letting go
+prints "REWOUND from frame N" in the terminal.
+
 ### 4. Fast-forward
 - Hold **Tab** to run as fast as the computer allows (capped at 4x),
   drawing only some of the frames and skipping the sound.
