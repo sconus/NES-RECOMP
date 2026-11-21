@@ -74,7 +74,7 @@ test-ppu: $(RECOMP)
 	python3 tests/run_tests.py
 	python3 tests/check_bandai_save.py
 
-test-all: test test-ppu test-app test-record
+test-all: test test-ppu test-app test-record test-states
 
 # --- save states (runtime/state.c, PLAN-savestates.md) -----------------
 test-states: $(RECOMP)

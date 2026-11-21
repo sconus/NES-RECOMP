@@ -171,15 +171,26 @@ def shot(name, frame=0, size=None):
     return read_png(path)
 
 
-def glyph_pixels(font, s, cx, y, sx=1, sy=1):
-    """The pixels of a line of text, centred on cx, as the app draws it."""
+def lower_glyph(ch):
+    """A glyph of app.c's lower_font (drawn where text_lower is set)."""
+    src = open(os.path.join(ROOT, "app", "app.c")).read()
+    m = re.search(r"\{ '%s', \{ ([^}]*) \} \}" % re.escape(ch), src)
+    return [int(v, 16) for v in m.group(1).split(",")]
+
+
+def glyph_pixels(font, s, cx, y, sx=1, sy=1, lower=False):
+    """The pixels of a line of text, centred on cx, as the app draws it
+    (with `lower`, as with text_lower set: only the ` is used so far)."""
     x0 = cx - (len(s) * 6 * sx - sx) // 2
     on = set()
     for i, ch in enumerate(s):
         o = ord(ch.upper()) if ch.isalpha() else ord(ch)
-        if o < 0x20 or o > 0x5F:
-            o = ord("?")
-        g = font[o - 0x20]
+        if lower and ch == "`":
+            g = lower_glyph(ch)
+        else:
+            if o < 0x20 or o > 0x5F:
+                o = ord("?")
+            g = font[o - 0x20]
         for r in range(7):
             for c in range(5):
                 if g[r] & (0x10 >> c):
@@ -764,7 +775,13 @@ def main():
                                   ("R", "RESET"), ("V", "RECORD"), ("ESC", "QUIT")]),
             ("card_music", "MUSIC PLAYER", [("LEFT", "LAST SONG"), ("RIGHT", "NEXT SONG"),
                                             ("R", "RESTART"), ("M", "MUTE"), ("V", "RECORD"),
-                                            ("ESC", "QUIT")])):
+                                            ("ESC", "QUIT")]),
+            # After a game's controls: save states, rewind, fast-forward
+            # (PLAN-savestates.md step 5), as each keyboard names the keys.
+            ("card_states", "SAVE AND REWIND",
+             [("CTRL+S" if WIN else "CMD+S", "SAVE"), ("CTRL+L" if WIN else "CMD+L", "LOAD"),
+              ("CTRL+1-4" if WIN else "CMD+1-4", "SLOT 1-4"),
+              ("BKSPACE" if WIN else "DELETE", "REWIND"), ("` KEY", "FAST X4")])):
         img = screen(name, "--show", name)
         # Nine rows fit only under a title of one height (PLAN-standalone
         # step 6 added V).
@@ -773,7 +790,7 @@ def main():
         top = 12 if small else 20
         d_set = set()
         for i, (k, v) in enumerate(rows):
-            w_set |= glyph_pixels(font, k, at(k, sx + 9), sy + top + i * 8)
+            w_set |= glyph_pixels(font, k, at(k, sx + 9), sy + top + i * 8, lower=True)
             d_set |= glyph_pixels(font, v, at(v, sx + 57), sy + top + i * 8)
         bad = screen_text(img, w_set, d_set)
         check("the %s card" % title.lower(), not bad, "%d pixel(s) differ" % bad)

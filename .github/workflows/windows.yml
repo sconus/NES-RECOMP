@@ -78,6 +78,9 @@ jobs:
       - name: The runtime on Windows - the test ROM suite (tests/suite.txt)
         run: python tests/run_tests.py
 
+      - name: Save states, rewind and fast-forward on Windows (tests/check_states.py)
+        run: python tests/check_states.py
+
       - name: Recording on Windows (Media Foundation), read back
         run: python tests/check_record_win.py
 

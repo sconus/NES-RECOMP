@@ -420,6 +420,26 @@ SDL swaps the two.
 - The README: the keys, where states are kept, what a state holds.
 - A release (2.1) is a separate decision, after this.
 
+**Where step 5 ended (2026-11-21).**
+- The app: a second card after a game's controls card, "SAVE AND
+  REWIND" (the controls card's nine rows fill the TV's 116x86 screen),
+  2.5 seconds, a key moves on: CMD+S SAVE, CMD+L LOAD, CMD+1-4 SLOT
+  1-4, DELETE REWIND (the Mac's Backspace key says "delete"), ` KEY
+  FAST X4; on Windows CTRL+ and BKSPACE. The app font's ` is now a
+  three-pixel tick (it was two pixels, hard to see). Checked
+  pixel by pixel in `tests/check_app.py` like the other cards; a break
+  (REWIND spelt REWND) fails it by 55 pixels. Not checked by a test: the
+  order on screen (controls card, this card, the game).
+- Windows: `tests/check_states.py` is a step of
+  `.github/workflows/windows.yml`, after the test ROM suite. Its first
+  run is the push of this step.
+- `make test-all` now includes `make test-states`.
+- The README: the keys, where slots are kept, what a state holds, how
+  files are refused, rewind's memory, fast-forward, and what
+  `make test-states` checks.
+- `make test-all` passes (230 of 231 as always, nestest exact, the three
+  cards, 240 of 240 for states, rewind and fast-forward); same C.
+
 ## Not in this plan
 - A pause menu with buttons for all this (the next plan: it's where
   save, load, rewind and reset will live for people using a controller).

@@ -154,7 +154,7 @@ static void text(const char *s, int cx, int y, int scale, uint32_t colour, int o
    set; otherwise a letter is drawn as its capital. Each row: 5 bits, the
    leftmost 0x10. */
 static const struct { char ch; unsigned char rows[7]; } lower_font[] = {
-    { '`', { 0x08, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00 } },
+    { '`', { 0x10, 0x08, 0x04, 0x00, 0x00, 0x00, 0x00 } },
     { 'a', { 0x00, 0x00, 0x0E, 0x01, 0x0F, 0x11, 0x0F } },
     { 'b', { 0x10, 0x10, 0x16, 0x19, 0x11, 0x11, 0x1E } },
     { 'c', { 0x00, 0x00, 0x0E, 0x10, 0x10, 0x11, 0x0E } },
@@ -484,6 +484,19 @@ static const char *const card_game[][2] = {
     { "RETURN", "START" }, { "R.SHIFT", "SELECT" }, { "M", "MUTE" },
     { "R", "RESET" }, { "V", "RECORD" }, { "ESC", "QUIT" }, { NULL, NULL },
 };
+/* The second card, after a game's controls (PLAN-savestates.md step 5):
+   save states, rewind, fast-forward. The keys as each keyboard names
+   them: the Mac's Backspace key says "delete". */
+static const char *const card_states[][2] = {
+#ifdef _WIN32
+    { "CTRL+S", "SAVE" }, { "CTRL+L", "LOAD" }, { "CTRL+1-4", "SLOT 1-4" },
+    { "BKSPACE", "REWIND" },
+#else
+    { "CMD+S", "SAVE" }, { "CMD+L", "LOAD" }, { "CMD+1-4", "SLOT 1-4" },
+    { "DELETE", "REWIND" },
+#endif
+    { "` KEY", "FAST X4" }, { NULL, NULL },
+};
 static const char *const card_music[][2] = {
     { "LEFT", "LAST SONG" }, { "RIGHT", "NEXT SONG" }, { "R", "RESTART" },
     { "M", "MUTE" }, { "V", "RECORD" }, { "ESC", "QUIT" }, { NULL, NULL },
@@ -496,25 +509,31 @@ static void text_at(const char *s, int x, int y, uint32_t colour) {
     text(s, x + ((int)strlen(s) * 6 - 1) / 2, y, 1, colour, 1);
 }
 
-static void draw_card(long n, int music) {
+/* which: CARD_GAME, CARD_MUSIC or CARD_STATES. */
+enum { CARD_GAME, CARD_MUSIC, CARD_STATES };
+static void draw_card(long n, int which) {
     draw_room(n, 0);
     uint32_t white = ink(INK_TEXT), dim = ink(INK_MANE_HI);
     int y = ART_SCREEN_Y;
-    const char *const (*rows)[2] = music ? card_music : card_game;
+    int music = which == CARD_MUSIC;
+    const char *title = music ? "MUSIC PLAYER" : which == CARD_STATES ? "SAVE AND REWIND" : "CONTROLS";
+    const char *const (*rows)[2] = music ? card_music : which == CARD_STATES ? card_states : card_game;
     int n_rows = 0;
     while (rows[n_rows][0]) n_rows++;
     /* Nine rows (the game's, with V) only fit under a title of one
        height. */
     int top = 20;
     if (n_rows > 8) {
-        text(music ? "MUSIC PLAYER" : "CONTROLS", SCREEN_CX, y + 2, 1, white, 1);
+        text(title, SCREEN_CX, y + 2, 1, white, 1);
         top = 12;
     } else
-        text_xy(music ? "MUSIC PLAYER" : "CONTROLS", SCREEN_CX, y + 3, 1, 2, white, 1);
+        text_xy(title, SCREEN_CX, y + 3, 1, 2, white, 1);
+    text_lower = 1;                     /* the ` key */
     for (int i = 0; rows[i][0]; i++) {
         text_at(rows[i][0], CARD_KEY_X, y + top + i * 8, white);
         text_at(rows[i][1], CARD_DO_X, y + top + i * 8, dim);
     }
+    text_lower = 0;
 }
 
 static void draw_play(long n, const char *name) {
@@ -675,8 +694,9 @@ static int screenshot(const char *path, long frame, int w, int h) {
     else if (!strcmp(shot_opts.show, "needcc_clicked")) draw_needcc(frame, 1);
     else if (!strcmp(shot_opts.show, "play")) draw_play(frame, name);
     else if (!strcmp(shot_opts.show, "about")) draw_about(frame);
-    else if (!strcmp(shot_opts.show, "card")) draw_card(frame, 0);
-    else if (!strcmp(shot_opts.show, "card_music")) draw_card(frame, 1);
+    else if (!strcmp(shot_opts.show, "card")) draw_card(frame, CARD_GAME);
+    else if (!strcmp(shot_opts.show, "card_music")) draw_card(frame, CARD_MUSIC);
+    else if (!strcmp(shot_opts.show, "card_states")) draw_card(frame, CARD_STATES);
     else draw_drop(frame);
     present(out, w, h);
     int r = save_png(path, out, w, h);
@@ -736,6 +756,7 @@ static int open_code(void) {
 }
 static long card_until;
 static int card_is_music;
+static int card_page;                   /* a game's: 0 the controls, 1 save and rewind */
 static char prefs[PATH_MAX];            /* app-prefs.txt in the build folder */
 
 /* The game window's size: whole steps of 256x240, kept between runs. */
@@ -1120,7 +1141,7 @@ int main(int argc, char **argv) {
                     if (open_code()) { screen = S_CODE; show_code = 1; }
                 }
                 else if (screen == S_ABOUT || screen == S_HOOD) screen = S_DROP;  /* any key leaves it */
-                else if (screen == S_CARD) card_until = 0;  /* any key skips it */
+                else if (screen == S_CARD) card_until = 0;  /* any key: the next card, or the game */
                 else if (e.key.keysym.sym == SDLK_i &&
                          (screen == S_DROP || screen == S_ERROR || screen == S_DONE ||
                           screen == S_STOPPED || screen == S_NEEDCC))
@@ -1173,6 +1194,7 @@ int main(int argc, char **argv) {
                 if (rf) { if (fread(h, 1, 5, rf) != 5) h[0] = 0; fclose(rf); }
                 card_is_music = !memcmp(h, "NESM\x1a", 5);
                 card_until = n + CARD_FRAMES;
+                card_page = 0;
                 screen = S_CARD;
             }
             else if (st == B_FAILED) {
@@ -1180,6 +1202,10 @@ int main(int argc, char **argv) {
                 screen = failed_screen(&job);
                 install_clicked = 0;
             }
+        }
+        if (screen == S_CARD && n >= card_until && !card_is_music && card_page == 0) {
+            card_page = 1;                  /* then save and rewind */
+            card_until = n + CARD_FRAMES;
         }
         if (screen == S_CARD && n >= card_until) {
             /* Play it, with this window out of the way, at the size the
@@ -1231,7 +1257,7 @@ int main(int argc, char **argv) {
         case S_DONE: draw_done(n, shown_name); break;
         case S_PLAY: draw_play(n, shown_name); break;
         case S_ABOUT: draw_about(n); break;
-        case S_CARD: draw_card(n, card_is_music); break;
+        case S_CARD: draw_card(n, card_is_music ? CARD_MUSIC : card_page ? CARD_STATES : CARD_GAME); break;
         default: draw_drop(n);
         }
         n++;

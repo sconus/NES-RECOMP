@@ -178,6 +178,41 @@ Sound plays through the speakers unless you pass `--mute` (or press M).
 | P | Save a picture of the screen |
 | Escape | Quit |
 
+**Save states, rewind and fast-forward.** (Ctrl in place of Cmd on
+Windows.)
+
+| Key | Does |
+|---|---|
+| Cmd+S | Save the whole game, as it is this moment, in the slot |
+| Cmd+L | Load the slot: the game carries on from where it was saved |
+| Cmd+1 to Cmd+4 | Pick the slot (slot 1 to start with) |
+| Backspace (held; "delete" on a Mac) | Rewind, a frame at a time, up to 10 seconds back |
+| `` ` `` (held; the key left of 1) | Fast-forward, 4 times as fast |
+
+- A slot is a file next to the ROM, `game.nes.state1` to `.state4`
+  (with the app, in its folder, beside the battery save). It survives
+  quitting, and a game rebuilt later (after `--missed` found more code,
+  say) still loads it: a state holds only the console, not the code.
+- A state is everything about the console that changes while a game
+  runs: the CPU, the 2 KB of RAM, the cartridge's RAM, the picture
+  chip's memory and registers (and the picture being drawn), the sound
+  chip and any sound chip on the cartridge, the mapper's registers and
+  IRQ counters, the controllers, and, for the Disk System, the disk as
+  the game has written it. 178 to 347 KB. The full list, file by file,
+  is in `PLAN-savestates.md`.
+- Each file starts with a header naming the format and the game (a
+  checksum of its file). A state from another game, from an older
+  format, or damaged is refused whole, with a message on the picture
+  ("SLOT 2 IS ANOTHER GAME'S"); a game is never loaded half-way.
+- Rewind keeps a state every frame: the newest whole, and for each
+  frame before it only what changed, squeezed (about 3 KB a frame, so
+  10 seconds is 1 to 2 MB). It's silent while going back. Fast-forward
+  draws one frame in 4 and is silent too; the game itself runs exactly
+  as usual.
+- Saves, loads, rewinds and fast-forwards are also written in the
+  Terminal ("frame 411: SLOT 1 SAVED"). Music files (NSF) have none of
+  these.
+
 **Recording.** V starts a recording and V again stops it; a small red
 REC shows in the window's corner meanwhile (it isn't in the movie).
 Each recording is one `.mov` in `~/Movies/NES RECOMP/`, named by the
@@ -725,6 +760,7 @@ and the newer NSF2 and NSFe formats.
     make test       # CPU: nestest, cycle-exact
     make test-ppu   # everything in tests/suite.txt (needs the ROM clone)
     make test-record  # recording movies (tests/check_record.py)
+    make test-states  # save states, rewind, fast-forward (tests/check_states.py)
     make test-all   # all of these, and the app's checks
 
 `make test` also runs `--test-gamepads`, which plugs in virtual game
@@ -736,6 +772,16 @@ instructions against a reference log: registers, flags, stack pointer and
 cycle count. It also checks that every instruction took as many cycles as
 its cycle map says (the per-cycle bus activity `recomp.py` generates for
 each opcode, used for exact DMA and interrupt timing).
+
+`make test-states` runs every game in the suite (but the music files)
+with its input script and checks, by a fingerprint of every frame (the
+picture, the RAM, the sound, and how many instructions ran as C):
+that a state saved mid-frame and loaded again plays the same 120 frames,
+in one run and from a file in a fresh one; that five bad state files
+are refused; that rewinding 120 frames shows each frame as it was and
+plays forward the same, with the usual ring of states and with a small
+one that fills up; and that a run with fast-forward held throughout is
+the same, frame by frame, as one without.
 
 `make test-ppu` (the name is from when it was only PPU tests) runs
 `tests/run_tests.py`. It recompiles each ROM in
