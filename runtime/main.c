@@ -1224,6 +1224,8 @@ static void usage(const char *prog) {
         "  --mute             no sound from the speakers (M toggles it)\n"
         "  --volume N         the speakers' volume, 1 to 10 (default 10)\n"
         "  --sound-off        start with the sound off (as M; M or the menu turn it on)\n"
+        "  --pairing-for mac|windows  the menu's pairing help for that system\n"
+        "                     (default: the one this was built for; for tests)\n"
         "  --speaker-out F    write what the speakers get to F (raw 16-bit, for tests)\n"
         "  --audio-stats      print the sound queue depth once a second\n"
         "  --remember-size F  on exit, write the window's size and the volume to F\n"
@@ -1319,6 +1321,12 @@ int main(int argc, char **argv) {
             if (volume < 1 || volume > 10) { fprintf(stderr, "--volume: 1 to 10\n"); return 1; }
         }
         else if (!strcmp(a, "--sound-off")) sound_off = 1;
+        else if (!strcmp(a, "--pairing-for") && more) {
+            const char *w = argv[++i];
+            if (!strcmp(w, "mac")) menu_set_pairing(0);
+            else if (!strcmp(w, "windows")) menu_set_pairing(1);
+            else { fprintf(stderr, "--pairing-for: mac or windows\n"); return 1; }
+        }
         else if (!strcmp(a, "--speaker-out") && more) {
             speaker_out = fopen(argv[++i], "wb");
             char bp[1100];

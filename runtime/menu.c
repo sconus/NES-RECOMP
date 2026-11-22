@@ -31,7 +31,7 @@
 
 /* The CONTROLLERS page (PLAN-controllers.md): in the same box, its
    lines, then what each slot holds. */
-#define CTRL_LIST_Y 110                     /* "1 XBOX WIRELESS CONTROLLER" */
+#define CTRL_LIST_Y 123                     /* "1 XBOX WIRELESS CONTROLLER" */
 #define CTRL_LIST_H 12
 #define CTRL_LIST_CHARS 25                  /* of the name */
 
@@ -89,12 +89,161 @@ static const char *const item_names[ITEM_COUNT] = {
     "QUIT",
 };
 
-/* The pages: the menu itself, CONTROLLERS, and its button test. */
-enum { PAGE_MAIN, PAGE_CONTROLLERS, PAGE_TEST };
-enum { CTRL_TEST, CTRL_BACK, CTRL_COUNT };
-static const char *const ctrl_names[CTRL_COUNT] = { "BUTTON TEST", "BACK" };
+/* The pages: the menu itself, CONTROLLERS, its button test, PAIRING
+   HELP and one of its pages of steps. */
+enum { PAGE_MAIN, PAGE_CONTROLLERS, PAGE_TEST, PAGE_PAIRING, PAGE_PAIR_TEXT };
+enum { CTRL_TEST, CTRL_PAIRING, CTRL_BACK, CTRL_COUNT };
+static const char *const ctrl_names[CTRL_COUNT] = { "BUTTON TEST", "PAIRING HELP", "BACK" };
 
-static int wanted, is_open, cursor, page, ctrl_cursor;
+/* Pairing help (PLAN-controllers.md step 2): how to pair a pad with the
+   system this was built for (menu_set_pairing picks the other, for the
+   tests). Each page is its title, then lines of at most PAIR_CHARS, in
+   the button test's bigger box. Checked on 2026-11-22 against Apple's
+   (support.apple.com/111101, 111100, and the Mac's "Connect a Bluetooth
+   device"), Xbox Support's "connect your Xbox controller to PC",
+   PlayStation's DualSense and DualShock 4 pages, and Nintendo's "How to
+   Pair the Nintendo Switch Pro Controller" (a_id 22417), which covers
+   only its own consoles. README.md has the same steps. */
+#define PAIR_LINE_X 16
+#define PAIR_LINE_Y 34
+#define PAIR_LINE_H 10
+#define PAIR_CHARS 37
+#define PAIR_LINES 17
+enum { PAIR_XBOX, PAIR_PS, PAIR_SWITCH, PAIR_CONSOLE, PAIR_BACK, PAIR_COUNT };
+static const char *const pair_names[PAIR_COUNT] = {
+    "XBOX", "PLAYSTATION", "SWITCH PRO", "ON A CONSOLE TOO?", "BACK",
+};
+static const char *const pair_mac_xbox[] = {
+    "XBOX ON A MAC",
+    "1. PRESS THE XBOX BUTTON TO TURN THE",
+    "   CONTROLLER ON.",
+    "2. HOLD THE PAIR BUTTON ON ITS TOP",
+    "   EDGE FOR 3 SECONDS, UNTIL THE XBOX",
+    "   BUTTON FLASHES FAST.",
+    "3. APPLE MENU > SYSTEM SETTINGS >",
+    "   BLUETOOTH.",
+    "4. POINT AT XBOX WIRELESS CONTROLLER",
+    "   IN THE LIST AND CLICK CONNECT.",
+    "",
+    "ONLY PADS WITH BLUETOOTH PAIR: THE",
+    "PLASTIC AROUND THEIR XBOX BUTTON IS",
+    "PART OF THE FRONT, NOT THE TOP.",
+    NULL,
+};
+static const char *const pair_win_xbox[] = {
+    "XBOX ON WINDOWS",
+    "1. PRESS THE XBOX BUTTON TO TURN THE",
+    "   CONTROLLER ON.",
+    "2. HOLD THE PAIR BUTTON ON ITS TOP",
+    "   EDGE FOR 3 SECONDS, UNTIL THE XBOX",
+    "   BUTTON FLASHES FAST.",
+    "3. START > SETTINGS > BLUETOOTH &",
+    "   DEVICES > ADD DEVICE > BLUETOOTH",
+    "   (WINDOWS 10: SETTINGS > DEVICES >",
+    "   ADD BLUETOOTH OR OTHER DEVICE).",
+    "4. PICK XBOX WIRELESS CONTROLLER.",
+    "",
+    "OR PLUG IT IN WITH A USB CABLE THAT",
+    "CARRIES DATA: NO PAIRING. PADS WITH",
+    "NO BLUETOOTH WORK THAT WAY, OR WITH",
+    "AN XBOX WIRELESS ADAPTER.",
+    NULL,
+};
+static const char *const pair_mac_ps[] = {
+    "PLAYSTATION ON A MAC",
+    "1. IF THE CONTROLLER IS ON, HOLD PS",
+    "   UNTIL IT TURNS OFF. UNPLUG ANY",
+    "   CABLE.",
+    "2. PS5 (DUALSENSE): HOLD CREATE AND",
+    "   PS UNTIL THE LIGHT BAR FLASHES.",
+    "   PS4 (DUALSHOCK 4): SHARE AND PS.",
+    "   BOTH ARE LEFT OF THE TOUCH PAD.",
+    "3. APPLE MENU > SYSTEM SETTINGS >",
+    "   BLUETOOTH.",
+    "4. POINT AT THE CONTROLLER IN THE",
+    "   LIST AND CLICK CONNECT.",
+    "",
+    "OR PLUG IT IN WITH A USB CABLE THAT",
+    "CARRIES DATA: IT PAIRS BY ITSELF.",
+    NULL,
+};
+static const char *const pair_win_ps[] = {
+    "PLAYSTATION ON WINDOWS",
+    "1. IF THE CONTROLLER IS ON, HOLD PS",
+    "   UNTIL IT TURNS OFF. UNPLUG ANY",
+    "   CABLE.",
+    "2. PS5 (DUALSENSE): HOLD CREATE AND",
+    "   PS UNTIL THE LIGHT BAR FLASHES.",
+    "   PS4 (DUALSHOCK 4): SHARE AND PS.",
+    "   BOTH ARE LEFT OF THE TOUCH PAD.",
+    "3. START > SETTINGS > BLUETOOTH &",
+    "   DEVICES > ADD DEVICE > BLUETOOTH.",
+    "4. PICK THE CONTROLLER.",
+    "",
+    "OR PLUG IT IN WITH A USB CABLE.",
+    NULL,
+};
+static const char *const pair_mac_switch[] = {
+    "SWITCH PRO ON A MAC",
+    "1. HOLD THE SMALL SYNC BUTTON ON THE",
+    "   TOP EDGE, NEXT TO THE CABLE",
+    "   SOCKET, FOR A SECOND OR MORE.",
+    "2. APPLE MENU > SYSTEM SETTINGS >",
+    "   BLUETOOTH.",
+    "3. POINT AT PRO CONTROLLER IN THE",
+    "   LIST AND CLICK CONNECT.",
+    "",
+    "NINTENDO'S HELP ONLY COVERS ITS OWN",
+    "CONSOLES, AND APPLE'S ONLY XBOX AND",
+    "PLAYSTATION, SO THESE STEPS AREN'T",
+    "OFFICIAL.",
+    NULL,
+};
+static const char *const pair_win_switch[] = {
+    "SWITCH PRO ON WINDOWS",
+    "1. HOLD THE SMALL SYNC BUTTON ON THE",
+    "   TOP EDGE, NEXT TO THE CABLE",
+    "   SOCKET, FOR A SECOND OR MORE.",
+    "2. START > SETTINGS > BLUETOOTH &",
+    "   DEVICES > ADD DEVICE > BLUETOOTH.",
+    "3. PICK PRO CONTROLLER.",
+    "",
+    "NINTENDO'S HELP ONLY COVERS ITS OWN",
+    "CONSOLES, SO THESE STEPS AREN'T",
+    "OFFICIAL.",
+    NULL,
+};
+static const char *const pair_console[] = {
+    "BACK ON A CONSOLE",
+    "PAIRING WITH THIS COMPUTER CAN TAKE",
+    "THE CONTROLLER OFF ITS CONSOLE. TO",
+    "PLAY THERE AGAIN:",
+    "",
+    "XBOX: SYNC IT TO THE CONSOLE AGAIN,",
+    "WITH A USB CABLE OR THE CONSOLE'S",
+    "PAIR BUTTON. SERIES X/S PADS: PRESS",
+    "PAIR TWICE QUICKLY TO GO BACK.",
+    "PLAYSTATION: PLUG IT INTO THE",
+    "CONSOLE WITH A USB CABLE, PRESS PS.",
+    "SWITCH PRO: PLUG IT INTO THE DOCK, OR",
+    "ON THE SWITCH: CONTROLLERS > CHANGE",
+    "GRIP AND ORDER, THEN HOLD SYNC.",
+    "",
+    "THEN PAIR IT HERE AGAIN NEXT TIME.",
+    NULL,
+};
+static const char *const *const pair_pages[2][PAIR_BACK] = {
+    { pair_mac_xbox, pair_mac_ps, pair_mac_switch, pair_console },
+    { pair_win_xbox, pair_win_ps, pair_win_switch, pair_console },
+};
+#define PAIR_FOOT "TO GO BACK: B, ESC OR HOME"
+#ifdef _WIN32
+static int pair_windows = 1;
+#else
+static int pair_windows = 0;
+#endif
+
+static int wanted, is_open, cursor, page, ctrl_cursor, pair_cursor, pair_page;
 
 #define MAX_KEYS 64
 static struct { int key; const char *path; } keys[MAX_KEYS];
@@ -103,6 +252,7 @@ static int key_count, key_at;
 void menu_request(void) { wanted = 1; }
 int menu_wanted(void) { return wanted; }
 int menu_is_open(void) { return is_open; }
+void menu_set_pairing(int windows) { pair_windows = windows; }
 int menu_mode(void) { return !is_open ? 0 : page == PAGE_TEST ? 2 : 1; }
 
 void menu_key(int key, const char *path) {
@@ -238,13 +388,37 @@ static void draw_controllers(uint16_t *out) {
     }
 }
 
+static const char *pairing_title(void) {
+    return pair_windows ? "PAIRING HELP (WINDOWS)" : "PAIRING HELP (MAC)";
+}
+
+static void draw_pairing(uint16_t *out) {
+    for (int i = 0; i < PAIR_COUNT; i++)
+        draw_text_5x7(out, MENU_ITEM_X, MENU_ITEM_Y + i * MENU_LINE_H, pair_names[i],
+                      i == pair_cursor ? INK_PICKED : INK_ITEM);
+    draw_text_5x7(out, MENU_CURSOR_X, MENU_ITEM_Y + pair_cursor * MENU_LINE_H, ">", INK_CURSOR);
+}
+
+static void draw_pair_text(uint16_t *out) {
+    const char *const *t = pair_pages[pair_windows][pair_page];
+    box(out, TEST_BOX_X - 1, TEST_BOX_Y - 1, TEST_BOX_W + 2, TEST_BOX_H + 2, INK_EDGE);
+    box(out, TEST_BOX_X, TEST_BOX_Y, TEST_BOX_W, TEST_BOX_H, INK_BOX);
+    centred(out, TEST_TITLE_Y, t[0], INK_TITLE);
+    for (int i = 1; t[i] && i <= PAIR_LINES; i++)
+        draw_text_5x7(out, PAIR_LINE_X, PAIR_LINE_Y + (i - 1) * PAIR_LINE_H, t[i], INK_ITEM);
+    centred(out, TEST_FOOT_Y, PAIR_FOOT, INK_ITEM);
+}
+
 static void draw(uint16_t *out, const uint16_t *fb) {
     for (int i = 0; i < 256 * 240; i++) out[i] = darker(fb[i]);
     if (page == PAGE_TEST) { draw_test(out); return; }
+    if (page == PAGE_PAIR_TEXT) { draw_pair_text(out); return; }
     box(out, MENU_BOX_X - 1, MENU_BOX_Y - 1, MENU_BOX_W + 2, MENU_BOX_H + 2, INK_EDGE);
     box(out, MENU_BOX_X, MENU_BOX_Y, MENU_BOX_W, MENU_BOX_H, INK_BOX);
-    centred(out, MENU_TITLE_Y, page == PAGE_CONTROLLERS ? "CONTROLLERS" : "PAUSED", INK_TITLE);
+    centred(out, MENU_TITLE_Y, page == PAGE_CONTROLLERS ? "CONTROLLERS" :
+            page == PAGE_PAIRING ? pairing_title() : "PAUSED", INK_TITLE);
     if (page == PAGE_CONTROLLERS) { draw_controllers(out); return; }
+    if (page == PAGE_PAIRING) { draw_pairing(out); return; }
     for (int i = 0; i < ITEM_COUNT; i++) {
         int y = MENU_ITEM_Y + i * MENU_LINE_H;
         char line[32];
@@ -288,12 +462,38 @@ static void back_to_main(void) {
     fprintf(stderr, "frame %llu: MENU\n", runtime_frame());
 }
 
+static void to_controllers(void) {
+    page = PAGE_CONTROLLERS;
+    fprintf(stderr, "frame %llu: CONTROLLERS\n", runtime_frame());
+}
+
+static void to_pairing(void) {
+    page = PAGE_PAIRING;
+    fprintf(stderr, "frame %llu: %s\n", runtime_frame(), pairing_title());
+}
+
+static void press_pairing(int key) {
+    if (page == PAGE_PAIR_TEXT) {           /* a page of steps: any of these go back */
+        if (key == MENU_OK || key == MENU_BACK || key == MENU_LEAVE) to_pairing();
+        return;
+    }
+    switch (key) {
+    case MENU_UP:   pair_cursor = (pair_cursor + PAIR_COUNT - 1) % PAIR_COUNT; break;
+    case MENU_DOWN: pair_cursor = (pair_cursor + 1) % PAIR_COUNT; break;
+    case MENU_BACK: case MENU_LEAVE: to_controllers(); break;
+    case MENU_OK:
+        if (pair_cursor == PAIR_BACK) { to_controllers(); break; }
+        page = PAGE_PAIR_TEXT;
+        pair_page = pair_cursor;
+        fprintf(stderr, "frame %llu: %s\n", runtime_frame(), pair_pages[pair_windows][pair_page][0]);
+        break;
+    }
+}
+
 static void press_controllers(int key) {
+    if (page == PAGE_PAIRING || page == PAGE_PAIR_TEXT) { press_pairing(key); return; }
     if (page == PAGE_TEST) {
-        if (key == MENU_LEAVE) {
-            page = PAGE_CONTROLLERS;
-            fprintf(stderr, "frame %llu: CONTROLLERS\n", runtime_frame());
-        }
+        if (key == MENU_LEAVE) to_controllers();
         return;                             /* every other button only lights up */
     }
     switch (key) {
@@ -302,7 +502,10 @@ static void press_controllers(int key) {
     case MENU_BACK: case MENU_LEAVE: back_to_main(); break;
     case MENU_OK:
         if (ctrl_cursor == CTRL_BACK) back_to_main();
-        else {
+        else if (ctrl_cursor == CTRL_PAIRING) {
+            pair_cursor = PAIR_XBOX;
+            to_pairing();
+        } else {
             page = PAGE_TEST;
             test_poll(1);                   /* buttons held now aren't presses */
             fprintf(stderr, "frame %llu: BUTTON TEST\n", runtime_frame());
@@ -326,9 +529,8 @@ static int press(int key, int *chosen) {
     case MENU_BACK: case MENU_LEAVE: *chosen = ITEM_RESUME; return 0;
     case MENU_OK:
         if (cursor == ITEM_CONTROLLERS) {
-            page = PAGE_CONTROLLERS;
             ctrl_cursor = CTRL_TEST;
-            fprintf(stderr, "frame %llu: CONTROLLERS\n", runtime_frame());
+            to_controllers();
             break;
         }
         if (cursor == ITEM_SLOT) {          /* OK on the slot: the next one */

@@ -26,6 +26,9 @@ int menu_is_open(void);
 int menu_mode(void);
 /* A key for the menu (MENU_SHOT: save the menu's picture to `path`). */
 void menu_key(int key, const char *path);
+/* Which system's pairing help to show: 0 the Mac's, 1 Windows'
+   (default: the one this was built for; --pairing-for, for the tests). */
+void menu_set_pairing(int windows);
 /* From frame_done: the menu, until it closes. `fb` is the frame shown. */
 void menu_run(const uint16_t *fb);
 

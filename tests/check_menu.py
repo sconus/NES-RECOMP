@@ -25,6 +25,10 @@ menu lines ("100 menu down ok", see runtime/main.c).
   terminal names each fresh press, not one held as the test opened;
   only leave (Esc, Home) gets off the test page, not B or the others;
   and the game doesn't move meanwhile.
+- PAIRING HELP (PLAN-controllers.md step 2): its list and each page of
+  steps, pixel by pixel, for the Mac and for Windows (--pairing-for);
+  without the option, the system this runs on; every page fits its box;
+  the terminal names each page; and the game doesn't move meanwhile.
 
 How the menu changes nothing over the whole suite is in
 tests/check_states.py.
@@ -58,7 +62,13 @@ def check(what, ok, why=""):
 def layout():
     src = open(os.path.join(ROOT, "runtime", "menu.c")).read()
     d = {k: int(v, 0) for k, v in
-         re.findall(r"#define ((?:MENU|INK|TEST|CTRL)_\w+) (0x[0-9A-F]+|\d+)", src)}
+         re.findall(r"#define ((?:MENU|INK|TEST|CTRL|PAIR)_\w+) (0x[0-9A-F]+|\d+)", src)}
+    d["pages"] = {name: re.findall(r'"((?:[^"\\]|\\.)*)"', body) for name, body in
+                  re.findall(r"static const char \*const (pair_\w+)\[\] = \{(.*?)NULL,\n\};",
+                             src, re.S)}
+    d["pair_names"] = re.findall(r'"([^"]*)"', src.split("pair_names[PAIR_COUNT] = {", 1)[1]
+                                 .split("};", 1)[0])
+    d["PAIR_FOOT"] = re.search(r'#define PAIR_FOOT "([^"]*)"', src).group(1)
     d["parts"] = {name: tuple(map(int, xywh)) for name, *xywh in
                   re.findall(r"\{ PART_(\w+), (\d+), (\d+), (\d+), (\d+) \}", src)}
     return d
@@ -128,7 +138,7 @@ def expected_controllers(L, fnt, cursor, names):
     want = {}
     frame_box(want, L, L["MENU_BOX_X"], L["MENU_BOX_Y"], L["MENU_BOX_W"], L["MENU_BOX_H"])
     centred(want, fnt, "CONTROLLERS", L["MENU_TITLE_Y"], L["INK_TITLE"])
-    for i, item in enumerate(["BUTTON TEST", "BACK"]):
+    for i, item in enumerate(["BUTTON TEST", "PAIRING HELP", "BACK"]):
         for p in text_pixels(fnt, item, L["MENU_ITEM_X"], L["MENU_ITEM_Y"] + i * L["MENU_LINE_H"]):
             want[p] = L["INK_PICKED"] if i == cursor else L["INK_ITEM"]
     for p in text_pixels(fnt, ">", L["MENU_CURSOR_X"], L["MENU_ITEM_Y"] + cursor * L["MENU_LINE_H"]):
@@ -169,6 +179,89 @@ def expected_test(L, fnt, pads):
                     want[(x + px + xx, py + pyy + yy)] = ink
     centred(want, fnt, "TO LEAVE: ESC, HOME, OR HOLD SEL+START", L["TEST_FOOT_Y"], L["INK_ITEM"])
     return want
+
+
+def expected_pairing(L, fnt, title, cursor):
+    """The PAIRING HELP list, in the menu's box."""
+    want = {}
+    frame_box(want, L, L["MENU_BOX_X"], L["MENU_BOX_Y"], L["MENU_BOX_W"], L["MENU_BOX_H"])
+    centred(want, fnt, title, L["MENU_TITLE_Y"], L["INK_TITLE"])
+    for i, item in enumerate(L["pair_names"]):
+        for p in text_pixels(fnt, item, L["MENU_ITEM_X"], L["MENU_ITEM_Y"] + i * L["MENU_LINE_H"]):
+            want[p] = L["INK_PICKED"] if i == cursor else L["INK_ITEM"]
+    for p in text_pixels(fnt, ">", L["MENU_CURSOR_X"], L["MENU_ITEM_Y"] + cursor * L["MENU_LINE_H"]):
+        want[p] = L["INK_CURSOR"]
+    return want
+
+
+def expected_pair_text(L, fnt, page):
+    """A page of steps: its title, then its lines, in the bigger box."""
+    want = {}
+    frame_box(want, L, L["TEST_BOX_X"], L["TEST_BOX_Y"], L["TEST_BOX_W"], L["TEST_BOX_H"])
+    centred(want, fnt, page[0], L["TEST_TITLE_Y"], L["INK_TITLE"])
+    for i, line in enumerate(page[1:]):
+        for p in text_pixels(fnt, line, L["PAIR_LINE_X"], L["PAIR_LINE_Y"] + i * L["PAIR_LINE_H"]):
+            want[p] = L["INK_ITEM"]
+    centred(want, fnt, L["PAIR_FOOT"], L["TEST_FOOT_Y"], L["INK_ITEM"])
+    return want
+
+
+PAIR_PAGES = {"mac": ["pair_mac_xbox", "pair_mac_ps", "pair_mac_switch", "pair_console"],
+              "windows": ["pair_win_xbox", "pair_win_ps", "pair_win_switch", "pair_console"]}
+
+
+def pairing_fits(L):
+    """Every page's lines fit the box, above its footer (checked once)."""
+    bad = []
+    for name, page in L["pages"].items():
+        long = [ln for ln in page[1:] if len(ln) > L["PAIR_CHARS"]]
+        if long or len(page) - 1 > L["PAIR_LINES"] or len(page[0]) * 6 > L["TEST_BOX_W"]:
+            bad.append("%s: %d lines, too long: %r" % (name, len(page) - 1, long))
+    last_y = L["PAIR_LINE_Y"] + (L["PAIR_LINES"] - 1) * L["PAIR_LINE_H"] + 7
+    if L["PAIR_LINE_X"] + L["PAIR_CHARS"] * 6 - 1 > L["TEST_BOX_X"] + L["TEST_BOX_W"] - 4:
+        bad.append("PAIR_CHARS wider than the box")
+    if last_y >= L["TEST_FOOT_Y"] - 2:
+        bad.append("PAIR_LINES runs into the footer")
+    check("pairing help: every page fits its box (%d pages)" % len(L["pages"]),
+          not bad and len(L["pages"]) == 7, "; ".join(bad) or "%d pages" % len(L["pages"]))
+
+
+def pairing(exe, rom, base, name, L, fnt):
+    here = "windows" if sys.platform == "win32" else "mac"
+    for system in ("mac", "windows", None):
+        tag = "%s.pair_%s" % (name, system or "default")
+        pics = [os.path.join(OUT, "%s.%d.raw" % (tag, k)) for k in range(5)]
+        keys = ["up up ok down ok",                 # CONTROLLERS, PAIRING HELP
+                "shot=%s ok shot=%s back" % (pics[0], pics[1]),   # the list, XBOX
+                "down ok shot=%s leave" % pics[2],  # PLAYSTATION (Esc goes back)
+                "down ok shot=%s ok" % pics[3],     # SWITCH PRO (OK goes back too)
+                "down ok shot=%s back" % pics[4],   # ON A CONSOLE TOO?
+                "down ok",                          # BACK: to CONTROLLERS
+                "back back"]
+        extra = ["--pairing-for", system] if system else []
+        err, rows = run(exe, rom, ["60 menu " + " ".join(keys)], base, 90, tag,
+                        os.path.join(OUT, tag), extra)
+        shown = system or here
+        title = "PAIRING HELP (%s)" % shown.upper()
+        pages = [L["pages"][p] for p in PAIR_PAGES[shown]]
+        what = system or "no --pairing-for, on %s" % here
+        why = picture_ok(pics[0], expected_pairing(L, fnt, title, 0))
+        why = why and "the list: " + why
+        for k, page in enumerate(pages):
+            if not why:
+                why = picture_ok(pics[k + 1], expected_pair_text(L, fnt, page))
+                why = why and "%s: %s" % (page[0], why)
+        check("%s: pairing help (%s): the list and its four pages" % (name, what), not why, why or "")
+        said = [ln[len("frame 60: "):] for ln in err.splitlines() if ln.startswith("frame 60:")]
+        want = (["MENU", "CONTROLLERS", title] +
+                [x for page in pages for x in (page[0], title)] +
+                ["CONTROLLERS", "MENU", "MENU CLOSED (RESUME)"])
+        check("%s: pairing help (%s): the terminal names each page" % (name, what),
+              said == want, repr(said))
+        if system is None:
+            _, plain = run(exe, rom, [], base, 90, name + ".pairplain", os.path.join(OUT, name + ".pp"))
+            check("%s: the pairing pages don't move the game" % name,
+                  len(rows) == 90 and rows == plain, "%d frames, differ from the plain run" % len(rows))
 
 
 def controllers(exe, rom, base, name, L, fnt):
@@ -390,6 +483,7 @@ def main():
     cflags, libs = run_tests.sdl_flags()
     rt_objs = run_tests.build_runtime(cflags)
     L, fnt = layout(), font()
+    pairing_fits(L)
     for rom, base in GAMES:
         name = os.path.basename(rom)
         exe = build(rom, cflags, libs, rt_objs)
@@ -466,6 +560,7 @@ def main():
                                        os.path.exists(files + ".state2")))
         sound_and_window(exe, rom, base, name, L, fnt)
         controllers(exe, rom, base, name, L, fnt)
+        pairing(exe, rom, base, name, L, fnt)
     print("\nall menu checks pass" if not failures else "\n%d menu check(s) failed" % failures)
     sys.exit(1 if failures else 0)
 

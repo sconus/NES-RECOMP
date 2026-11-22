@@ -224,6 +224,49 @@ Tried live on the Mac with an Xbox pad (2026-11-22): it works.
 - The pictures check, Mac and Windows pages. Break: the Windows text on
   a Mac build.
 
+**Where step 2 ended (2026-11-22).**
+- CONTROLLERS now has BUTTON TEST, PAIRING HELP, BACK (the slot list
+  moved down a line). PAIRING HELP (MAC), or (WINDOWS), lists XBOX,
+  PLAYSTATION, SWITCH PRO, ON A CONSOLE TOO? and BACK; each opens a page
+  of steps in the button test's bigger box (up to 17 lines of 37
+  characters). OK, B, Esc or Home on a page go back to the list. The
+  terminal names each page ("frame N: XBOX ON A MAC").
+- The steps were checked against: Apple's Xbox and PlayStation pages
+  (support.apple.com 111101, 111100) and its "Connect a Bluetooth
+  device with your Mac"; Xbox Support's "How do I connect my Xbox
+  controller to PC?" (Windows 11 and 10 paths, USB, re-syncing to the
+  console, Series X|S double press); PlayStation's DualSense and
+  DualShock 4 pages (Create/Share + PS, back to the console with a USB
+  cable); Nintendo's "How to Pair the Nintendo Switch Pro Controller"
+  (SYNC held a second or more; back on the Switch). Nintendo covers only
+  its consoles and Apple lists no Switch pads, so the Switch Pro page
+  says its steps aren't official.
+- `--pairing-for mac|windows` picks the other system's pages, for the
+  tests; without it, the one it was built for.
+- README.md: "Pairing a controller", with the same steps, and the
+  option.
+
+The checks (`tests/check_menu.py`), on each of its two games: the list
+and all four pages pixel by pixel for the Mac, for Windows, and with no
+option (the system it runs on); the terminal's page names for each; the
+game's frames the same as a plain run. Once: all seven pages fit the
+box. All pass; `make test-all` as before, the same C.
+
+Breaks, each in a scratch copy:
+
+| broken | FAIL lines |
+| --- | --- |
+| the Windows text on a Mac build | 4 |
+| PLAYSTATION shows the Switch page | 8 |
+| Esc on a page of steps does nothing | 12 |
+| a line too long for the box | 5 |
+| BACK on the list goes to the game's menu | 6 |
+| a page drawn a line lower | 6 |
+
+Not checked by a test: the steps themselves on a real pad (the Xbox
+ones are for you to try live), and the Windows pages on a real Windows
+build (step 5 adds the menu check to the Windows run).
+
 ### 3. Remapping the keyboard
 - KEYBOARD 1 and KEYBOARD 2 pages: each of the eight buttons with its
   key; OK on a line waits for a key (cancel with Esc or after 5 s);

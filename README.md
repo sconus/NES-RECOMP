@@ -295,6 +295,40 @@ In the menu the D-pad (or stick) moves, holding a direction repeats, A
 or Start chooses, and B or Home goes back to the game. A game that
 needs Select and Start held together for half a second can't have it.
 
+**Pairing a controller.** The game doesn't pair controllers; the
+system does. The pause menu's CONTROLLERS > PAIRING HELP shows these
+steps for the system it runs on (checked in November 2026 against
+Apple's, Xbox Support's, PlayStation's and Nintendo's help pages).
+
+- Xbox: press the Xbox button to turn the controller on, then hold the
+  pair button on its top edge for 3 seconds, until the Xbox button
+  flashes fast. Only pads with Bluetooth pair (the plastic around
+  their Xbox button is part of the front, not the top). On Windows a
+  USB cable that carries data works too, with no pairing, as does an
+  Xbox Wireless Adapter.
+- PlayStation: if the controller is on, hold PS until it turns off,
+  and unplug any cable. Then hold Create and PS (PS5 DualSense), or
+  Share and PS (PS4 DualShock 4), until the light bar flashes. A USB
+  cable works too (on a Mac it pairs by itself).
+- Switch Pro: hold the small SYNC button on the top edge, next to the
+  cable socket, for a second or more. Nintendo's help only covers its
+  own consoles, and Apple's only Xbox and PlayStation, so this isn't
+  official.
+
+Then, on a Mac: Apple menu > System Settings > Bluetooth, point at the
+controller in the list and click Connect. On Windows 11: Start >
+Settings > Bluetooth & devices > Add device > Bluetooth, and pick the
+controller (Windows 10: Settings > Devices > Add Bluetooth or other
+device).
+
+Pairing with the computer can take the controller off its console. To
+play there again: an Xbox pad syncs to the console again with a USB
+cable or the console's pair button (Series X|S pads: press pair twice
+quickly to go back); a PlayStation pad plugs into the console with a
+USB cable and you press PS; a Switch Pro plugs into the dock, or on the
+Switch: Controllers > Change Grip and Order, then hold SYNC. Then pair
+it with the computer again next time.
+
 The built program takes options after the ROM path:
 
     --headless         no window (for tests)
@@ -310,6 +344,8 @@ The built program takes options after the ROM path:
     --mute             no sound from the speakers (M toggles it)
     --volume N         the speakers' volume, 1 to 10 (default 10)
     --sound-off        start with the sound off (M or the menu turn it on)
+    --pairing-for mac|windows  the menu's pairing help for that system
+                       (default: the one it was built for; for tests)
     --audio-stats      print the sound queue depth once a second
     --input FILE       scripted button presses (below)
     --scale N          window size, N times 256x240 (default 3)
@@ -850,6 +886,8 @@ change at the new volume; and the size and volume written on exit.
 `make test-states` also opens the menu in every game and checks the
 frames are the same as without it. `--test-gamepads` checks the
 controller's menu buttons and shoulders with a pretend clock.
+The pairing help's pages are checked for both systems
+(`--pairing-for mac|windows`) and for the one it runs on.
 
 `make test-ppu` (the name is from when it was only PPU tests) runs
 `tests/run_tests.py`. It recompiles each ROM in
