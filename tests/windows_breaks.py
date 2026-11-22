@@ -70,6 +70,10 @@ from the copy by tools/make_windows_release.py) are in the release:
   - the version wrong;
   - Windows's UTF-8 setting left out of the games (a ROM named with
     accents then doesn't open).
+
+PLAN-controllers.md step 5's (checked with tests/check_menu.py) is in
+the pause menu's Windows half:
+  - the Mac's pairing help shown on Windows (its default system wrong).
 """
 import os
 import shlex
@@ -96,6 +100,7 @@ RUNTIME = [["tests/check_runtime_sys.py"],
 RECORD = [["tests/check_record_win.py"]]
 APP = [["tests/check_app.py"]]
 RELEASE = [["tests/check_release_windows.py"]]
+MENU = [["tests/check_menu.py"]]
 
 
 def wrong_rate(w):
@@ -112,7 +117,8 @@ def pc_compiler(w):
 
 
 BREAKS = [
-    ("no break: the copy as it is (must pass)", lambda w: None, SAME_C + RUNTIME + RECORD + APP + RELEASE),
+    ("no break: the copy as it is (must pass)", lambda w: None,
+     SAME_C + RUNTIME + RECORD + APP + RELEASE + MENU),
     ("the C written as text",
      lambda w: sub(w, "recomp/main.c", 'FILE *f = fopen(out, "wb");', 'FILE *f = fopen(out, "w");'), SAME_C),
     ("the listing written as text",
@@ -194,6 +200,9 @@ BREAKS = [
     ("release: Windows's UTF-8 setting left out of the games",
      lambda w: sub(w, "tools/make_windows_app.py", 'args += ["{objects}", "{zig}/prebuilt/game.res"]',
                    'args += ["{objects}"]'), RELEASE),
+    ("controllers: the Mac's pairing help shown on Windows",
+     lambda w: sub(w, "runtime/menu.c", "#ifdef _WIN32\nstatic int pair_windows = 1;",
+                   "#ifdef _WIN32\nstatic int pair_windows = 0;"), MENU),
 ]
 
 

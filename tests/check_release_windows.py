@@ -339,7 +339,8 @@ def main():
         points = ["NES RECOMP %s for Windows" % version, "Extract All", "Windows protected your PC",
                   '"More info"', '"Run anyway"', "%LOCALAPPDATA%\\NES RECOMP", "Videos\\NES RECOMP",
                   "Enter (Start)", "Esc opens the pause menu", "Alt+Space", rel.support_url(), "Windows 10 (version 1903",
-                  "licenses\\LLVM LICENSE.txt", "licenses\\MinGW-w64 LICENSE.txt"]
+                  "licenses\\LLVM LICENSE.txt", "licenses\\MinGW-w64 LICENSE.txt",
+                  "CONTROLLERS page", "PADS", "pair an Xbox"]
         miss = [p for p in points if p not in me]
         check("the read-me's points (%d)" % len(points), not miss, miss)
         check("the read-me has Windows's line ends", "\r\n" in me and "\n" not in me.replace("\r\n", ""), "")

@@ -64,6 +64,10 @@ USING IT
   a picture. Esc opens the pause menu: save and load, the volume, the
   window's size, quit. Game controllers work too (hold Select and Start
   for the menu; the shoulder buttons rewind and fast-forward).
+- The pause menu's CONTROLLERS page: a button test, to see which pad
+  is which player; changing the keys (KEYBOARD 1 and 2) and the pad
+  buttons (PADS), kept for the next game; and how to pair an Xbox,
+  PlayStation or Switch Pro controller with your Mac.
 - On the drop screen: I shows who made it (and D there opens the
   support page), H shows "under the hood"
   for the last game; there, C shows its code.

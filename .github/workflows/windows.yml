@@ -81,8 +81,17 @@ jobs:
       - name: Save states, rewind and fast-forward on Windows (tests/check_states.py)
         run: python tests/check_states.py
 
-      - name: The pause menu on Windows - pictures, save, load, reset, sound, window (tests/check_menu.py)
+      - name: The pause menu on Windows - pictures, save, load, reset, sound, window, controllers (tests/check_menu.py)
         run: python tests/check_menu.py
+
+      - name: Pictures of the Controllers pages as Windows draws them (tests/menu_pictures.py)
+        run: python tests/menu_pictures.py build/menu-pictures
+
+      - name: Those pictures, as a download (this run's page, Artifacts)
+        uses: actions/upload-artifact@v4
+        with:
+          name: controllers-pages-windows
+          path: build/menu-pictures/*.png
 
       - name: Recording on Windows (Media Foundation), read back
         run: python tests/check_record_win.py

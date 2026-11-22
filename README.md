@@ -490,6 +490,8 @@ it: you bring your own.
   real stages: checking the file, recompiling, compiling the game,
   building the runtime (once; reused after), linking.
 - **Then the keys** show for a couple of seconds (any key skips them),
+  then saving and rewinding, and where the keys and pad buttons are
+  changed (the pause menu's CONTROLLERS page, "MENU: KEYS+PADS");
   and the game opens in its own window while the app steps aside. Quit
   the game and the app comes back. In the game, V records a movie and P
   saves a picture (see "Recording" above).
@@ -943,6 +945,11 @@ and PADS pages; `make test-states` runs every game with an unusual
 without.
 The pairing help's pages are checked for both systems
 (`--pairing-for mac|windows`) and for the one it runs on.
+`python3 tests/menu_pictures.py` saves pictures of every CONTROLLERS
+page (in `build/menu-pictures`) to look at; the Windows run does the
+same on Windows and keeps them as a download on the run's page
+("controllers-pages-windows"), so Windows' pairing help can be seen as
+Windows draws it.
 
 `make test-ppu` (the name is from when it was only PPU tests) runs
 `tests/run_tests.py`. It recompiles each ROM in

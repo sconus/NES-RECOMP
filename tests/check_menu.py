@@ -32,6 +32,12 @@ menu lines ("100 menu down ok", see runtime/main.c).
   bringing the usual keys back (and the other player's key that
   clashed), a garbled file giving the usual keys; and a run with the
   changed file playing the same frames as without it.
+- PADS (PLAN-controllers.md step 4), pixel by pixel: as it opens,
+  waiting for a pad button, a button held as it started not taken, a
+  shoulder refused, a clash swapped, Esc and 5 seconds keeping the old
+  one, and the button test lighting by the new layout; the terminal
+  says each; the file written as changed and read back by a new run;
+  DEFAULTS; a file giving A the Home button; the game unmoved.
 - PAIRING HELP (PLAN-controllers.md step 2): its list and each page of
   steps, pixel by pixel, for the Mac and for Windows (--pairing-for);
   without the option, the system this runs on; every page fits its box;

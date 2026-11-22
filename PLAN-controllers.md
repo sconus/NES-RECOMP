@@ -437,6 +437,44 @@ layout kept after quitting and starting again.
   steps and `--controls`; the releases' READ ME FIRST says where to find
   it.
 
+**Where step 5 ended (2026-11-22).**
+- The app: the SAVE AND REWIND card (after a game's keys) has a ninth
+  line, "MENU  KEYS+PADS", saying where the keys and pad buttons
+  change. (CONTROLLERS itself is 11 letters; the card's column holds 9.)
+- Both releases' READ ME FIRST, under USING IT: the pause menu's
+  CONTROLLERS page (a button test, KEYBOARD 1 and 2, PADS, kept for the
+  next game, and how to pair an Xbox, PlayStation or Switch Pro pad
+  with your Mac / PC). Their checks look for it.
+- README: the app's "Then the keys" names the card's new line; the
+  tests section says how to get the pictures. (The page, the pairing
+  steps, `--controls` and the checks went in with steps 2 to 4.)
+- The Windows run: `tests/check_menu.py` there already checks every
+  CONTROLLERS page, Windows' pairing help without `--pairing-for`
+  included, and `tests/run_nestest.py` the two self-tests; new, it
+  saves pictures of every page as Windows draws them
+  (`tests/menu_pictures.py`) and keeps them as a download on the run's
+  page ("controllers-pages-windows"), and one more Windows break: the
+  Mac's pairing help shown on Windows.
+
+The checks:
+- `make test-app`: the card with its new line, pixel by pixel.
+- `make test-release`: the Mac zip's READ ME FIRST names the
+  CONTROLLERS page, PADS and pairing.
+- `tests/menu_pictures.py`, for the Mac and for Windows' pairing help:
+  9 of 9 pictures each.
+- No runtime change since step 4's `make test-all` (the C, the game
+  and the menu are as then); the menu checks pass.
+- Not run here: the Windows checks (the read-me's points, the new
+  break, the pictures): they run on the next push.
+
+Breaks, each in a scratch copy:
+
+| broken | caught by |
+| --- | --- |
+| the card without its new line | `make test-app`, 1 FAIL |
+| the Mac READ ME FIRST without the CONTROLLERS page | `make test-release`, 1 FAIL |
+| the pairing help for the other system by default (the Mac's side of the Windows break) | `make test-menu`, 4 FAILs |
+
 ## Not in this plan
 - Pairing from inside the app (it's the system's job).
 - Swapping which pad is player 1 or 2 (today: the order they connect).

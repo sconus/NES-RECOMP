@@ -488,7 +488,9 @@ static const char *const card_game[][2] = {
    save states, rewind, fast-forward. The keys as each keyboard names
    them: the Mac's Backspace key says "delete". Then a game controller's
    (PLAN-pause.md step 2): the shoulders, and Select+Start held for the
-   menu. */
+   menu. Last, where the keys and pads are changed: the pause menu's
+   CONTROLLERS page (PLAN-controllers.md step 5; CONTROLLERS itself
+   doesn't fit the column). */
 static const char *const card_states[][2] = {
 #ifdef _WIN32
     { "CTRL+S", "SAVE" }, { "CTRL+L", "LOAD" }, { "CTRL+1-4", "SLOT 1-4" },
@@ -498,7 +500,7 @@ static const char *const card_states[][2] = {
     { "DELETE", "REWIND" },
 #endif
     { "` KEY", "FAST X4" }, { "PAD LB", "REWIND" }, { "PAD RB", "FAST X4" },
-    { "SEL+ST", "MENU" }, { NULL, NULL },
+    { "SEL+ST", "MENU" }, { "MENU", "KEYS+PADS" }, { NULL, NULL },
 };
 static const char *const card_music[][2] = {
     { "LEFT", "LAST SONG" }, { "RIGHT", "NEXT SONG" }, { "R", "RESTART" },

@@ -119,7 +119,8 @@ def main():
                  "Privacy & Security", "Control-click", "Application Support/NES RECOMP",
                  "Movies/NES RECOMP", "MIT License", "SDL %s" % standalone.SDL_VERSION,
                  "For educational purposes only", "No games come with it",
-                 "SUPPORTING IT", "https://ko-fi.com/polygonlegends", "Esc opens the pause menu"]
+                 "SUPPORTING IT", "https://ko-fi.com/polygonlegends", "Esc opens the pause menu",
+                 "CONTROLLERS page", "PADS", "pair an Xbox"]
         missing = [w for w in wants if w not in rm]
         check("READ ME FIRST: the version, what it needs, opening it the first time, where things go, "
               "the licenses", not missing, "missing %s" % missing)

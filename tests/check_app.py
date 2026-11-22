@@ -783,7 +783,9 @@ def main():
               ("CTRL+1-4" if WIN else "CMD+1-4", "SLOT 1-4"),
               ("BKSPACE" if WIN else "DELETE", "REWIND"), ("` KEY", "FAST X4"),
               # and a controller's (PLAN-pause.md step 4)
-              ("PAD LB", "REWIND"), ("PAD RB", "FAST X4"), ("SEL+ST", "MENU")])):
+              ("PAD LB", "REWIND"), ("PAD RB", "FAST X4"), ("SEL+ST", "MENU"),
+              # and where keys and pads change (PLAN-controllers.md step 5)
+              ("MENU", "KEYS+PADS")])):
         img = screen(name, "--show", name)
         # Nine rows fit only under a title of one height (PLAN-standalone
         # step 6 added V).
