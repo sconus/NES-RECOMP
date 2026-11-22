@@ -11,13 +11,19 @@
 #define NESRECOMP_MENU_H
 #include <stdint.h>
 
-/* The menu's keys, from the window or an input script. */
-enum { MENU_UP = 1, MENU_DOWN, MENU_LEFT, MENU_RIGHT, MENU_OK, MENU_BACK, MENU_SHOT };
+/* The menu's keys, from the window or an input script. MENU_BACK (Z, a
+   pad's B) goes back a page; MENU_LEAVE (Esc, Home) too, and is the
+   only way off the button test, where every other button lights up.
+   MENU_VPAD (scripts only) sets a virtual controller's buttons. */
+enum { MENU_UP = 1, MENU_DOWN, MENU_LEFT, MENU_RIGHT, MENU_OK, MENU_BACK, MENU_SHOT,
+       MENU_LEAVE, MENU_VPAD };
 
 /* Open it at the end of this frame. */
 void menu_request(void);
 int menu_wanted(void);
 int menu_is_open(void);
+/* 0 closed, 1 open, 2 on the button test (gamepad_frame's menu_open). */
+int menu_mode(void);
 /* A key for the menu (MENU_SHOT: save the menu's picture to `path`). */
 void menu_key(int key, const char *path);
 /* From frame_done: the menu, until it closes. `fb` is the frame shown. */
@@ -37,6 +43,7 @@ int runtime_window(void);                   /* the size in steps, or 0: full scr
 void runtime_window_step(int d);            /* -1 smaller, +1 bigger (to FULL) */
 void runtime_window_toggle(void);           /* as Cmd+F */
 int runtime_headless(void);
+uint8_t runtime_keyboard_buttons(int player);  /* 0-1, as held, for the button test */
 unsigned long long runtime_frame(void);    /* the PPU's frame number */
 /* The menu's picture to the window (it waits for the next 60th of a
    second and reads the keys), or nothing headless. */

@@ -54,6 +54,8 @@ int video_audio_queued(void);           /* samples waiting, or -1 */
 /* A controller's buttons (player 0-3) from the keyboard (players 0 and
    1 only) and game controllers, as of the last video_present. */
 uint8_t video_buttons(int player);
+/* The keyboard's own (players 0-1), as held: the button test. */
+uint8_t video_keyboard_buttons(int player);
 /* Backspace (or a controller's left shoulder) held: rewind
    (PLAN-savestates.md step 3; PLAN-pause.md step 2). */
 int video_rewind_held(void);

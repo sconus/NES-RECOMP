@@ -24,7 +24,12 @@
      right shoulder held       fast-forward
    In the menu: the D-pad (or stick) moves, A or Start chooses, B or
    Home closes. Only presses made after it opened count, and buttons
-   held when it closes don't reach the game until let go. */
+   held when it closes don't reach the game until let go.
+
+   The menu's button test (PLAN-controllers.md step 1) lights each
+   button as it's pressed, so there no button moves or chooses: only
+   Home, or Select+Start held 0.5 s, leave it. Each controller's own
+   player lights (PlayStation and Switch pads have them) show its slot. */
 #include <SDL.h>
 #include <stdio.h>
 #include <string.h>
@@ -37,6 +42,7 @@
 #define SLOTS 4
 static SDL_GameController *slot[SLOTS];
 static int virtual_only;        /* the self-test ignores real controllers */
+static int started;             /* gamepad_init has run */
 
 #define MENU_HOLD_MS 500        /* Select+Start held this long: the menu */
 #define REPEAT_FIRST_MS 400     /* a direction held in the menu repeats */
@@ -67,6 +73,7 @@ static void open_device(int index) {
         if (slot[s]) continue;
         slot[s] = SDL_GameControllerOpen(index);
         memset(&pad[s], 0, sizeof pad[s]);
+        if (slot[s]) SDL_GameControllerSetPlayerIndex(slot[s], s);  /* its lights */
         return;
     }
 }
@@ -85,6 +92,7 @@ static void close_instance(SDL_JoystickID id) {
 int gamepad_init(void) {
     SDL_SetHint(SDL_HINT_GAMECONTROLLER_USE_BUTTON_LABELS, "0");
     if (SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER) != 0) return -1;
+    started = 1;
     for (int i = 0; i < SDL_NumJoysticks(); i++) open_device(i);
     return 0;
 }
@@ -147,7 +155,14 @@ void gamepad_frame(uint32_t now, int menu_open, struct pad_wants *w) {
         int combo = (b & (BTN_START | BTN_SELECT)) == (BTN_START | BTN_SELECT);
         if (!combo) pad[s].combo_on = pad[s].combo_used = 0;
         else if (!pad[s].combo_on) { pad[s].combo_on = 1; pad[s].combo_since = now; }
-        if (!menu_open) {
+        if (menu_open == 2) {
+            /* The button test: every button only lights up. A fresh
+               Select+Start held 0.5 s, or Home, leaves it. */
+            if (combo && !pad[s].combo_used && now - pad[s].combo_since >= MENU_HOLD_MS) {
+                pad[s].combo_used = 1;
+                want_key(w, MENU_LEAVE);
+            } else if (home_pressed) want_key(w, MENU_LEAVE);
+        } else if (!menu_open) {
             if (combo && !pad[s].combo_used && now - pad[s].combo_since >= MENU_HOLD_MS) {
                 pad[s].combo_used = 1;
                 w->open = s + 1;
@@ -170,7 +185,8 @@ void gamepad_frame(uint32_t now, int menu_open, struct pad_wants *w) {
                 if ((pressed & dirs[i].btn) || (repeat && (b & dirs[i].btn)))
                     want_key(w, dirs[i].key);
             if (pressed & (BTN_A | BTN_START)) want_key(w, MENU_OK);
-            if ((pressed & BTN_B) || home_pressed) want_key(w, MENU_BACK);
+            if (pressed & BTN_B) want_key(w, MENU_BACK);
+            if (home_pressed) want_key(w, MENU_LEAVE);
         }
         pad[s].prev = b;
         pad[s].prev_home = home;
@@ -220,6 +236,110 @@ static void press(int player, SDL_GameControllerButton b, int down) {
 
 static void tilt(int player, SDL_GameControllerAxis a, int v) {
     SDL_JoystickSetVirtualAxis(joy(player), a, (Sint16)v);
+}
+
+/* What a slot holds (gamepad.h), for the Controllers page. */
+static const char *brand(SDL_GameController *c) {
+    switch (SDL_GameControllerGetType(c)) {
+    case SDL_CONTROLLER_TYPE_XBOX360: return "XBOX 360";
+    case SDL_CONTROLLER_TYPE_XBOXONE: return "XBOX";
+    case SDL_CONTROLLER_TYPE_PS3: return "PS3";
+    case SDL_CONTROLLER_TYPE_PS4: return "PS4";
+    case SDL_CONTROLLER_TYPE_PS5: return "PS5";
+    case SDL_CONTROLLER_TYPE_NINTENDO_SWITCH_PRO: return "SWITCH PRO";
+    case SDL_CONTROLLER_TYPE_NINTENDO_SWITCH_JOYCON_LEFT:
+    case SDL_CONTROLLER_TYPE_NINTENDO_SWITCH_JOYCON_RIGHT:
+    case SDL_CONTROLLER_TYPE_NINTENDO_SWITCH_JOYCON_PAIR: return "JOY-CON";
+    case SDL_CONTROLLER_TYPE_AMAZON_LUNA: return "LUNA";
+    case SDL_CONTROLLER_TYPE_GOOGLE_STADIA: return "STADIA";
+    case SDL_CONTROLLER_TYPE_NVIDIA_SHIELD: return "SHIELD";
+    case SDL_CONTROLLER_TYPE_VIRTUAL: return "VIRTUAL";
+    default: return NULL;
+    }
+}
+
+void gamepad_info(int player, struct pad_info *p) {
+    memset(p, 0, sizeof *p);
+    SDL_GameController *c = player >= 0 && player < SLOTS ? slot[player] : NULL;
+    if (!c) return;
+    p->present = 1;
+    const char *n = SDL_GameControllerName(c);
+    snprintf(p->name, sizeof p->name, "%s", n ? n : "CONTROLLER");
+    for (char *q = p->name; *q; q++)
+        if (*q >= 'a' && *q <= 'z') *q -= 32;
+    p->brand = brand(c);
+    p->nes = read_pad(c);
+    p->lb = SDL_GameControllerGetButton(c, SDL_CONTROLLER_BUTTON_LEFTSHOULDER);
+    p->rb = SDL_GameControllerGetButton(c, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER);
+    p->home = SDL_GameControllerGetButton(c, SDL_CONTROLLER_BUTTON_GUIDE);
+}
+
+/* Virtual controllers for the tests (gamepad.h): "2:a+start". */
+static const struct { const char *name; unsigned bit; SDL_GameControllerButton b; } vbuttons[] = {
+    { "a", PAD_TEST_A, SDL_CONTROLLER_BUTTON_B },           /* by position, as read_pad */
+    { "b", PAD_TEST_B, SDL_CONTROLLER_BUTTON_A },
+    { "select", PAD_TEST_SELECT, SDL_CONTROLLER_BUTTON_BACK },
+    { "start", PAD_TEST_START, SDL_CONTROLLER_BUTTON_START },
+    { "up", PAD_TEST_UP, SDL_CONTROLLER_BUTTON_DPAD_UP },
+    { "down", PAD_TEST_DOWN, SDL_CONTROLLER_BUTTON_DPAD_DOWN },
+    { "left", PAD_TEST_LEFT, SDL_CONTROLLER_BUTTON_DPAD_LEFT },
+    { "right", PAD_TEST_RIGHT, SDL_CONTROLLER_BUTTON_DPAD_RIGHT },
+    { "lb", PAD_TEST_LB, SDL_CONTROLLER_BUTTON_LEFTSHOULDER },
+    { "rb", PAD_TEST_RB, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER },
+    { "home", PAD_TEST_HOME, SDL_CONTROLLER_BUTTON_GUIDE },
+};
+#define NVBUTTONS (sizeof vbuttons / sizeof vbuttons[0])
+
+int gamepad_parse_virtual(const char *spec, int *player, unsigned *buttons) {
+    if (spec[0] < '1' || spec[0] > '4' || spec[1] != ':') return 0;
+    *player = spec[0] - '1';
+    *buttons = 0;
+    const char *q = spec + 2;
+    if (!strcmp(q, "none")) return 1;
+    while (*q) {
+        size_t len = strcspn(q, "+");
+        size_t i;
+        for (i = 0; i < NVBUTTONS; i++)
+            if (strlen(vbuttons[i].name) == len && !strncmp(q, vbuttons[i].name, len)) break;
+        if (i == NVBUTTONS) return 0;
+        *buttons |= vbuttons[i].bit;
+        q += len;
+        if (*q == '+') q++;
+    }
+    return *buttons != 0;
+}
+
+void gamepad_virtual(int player, unsigned buttons) {
+    if (player < 0 || player >= SLOTS) return;
+    if (!started) {                 /* headless: virtual controllers only */
+        virtual_only = 1;
+        SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
+        if (gamepad_init() != 0) {
+            fprintf(stderr, "no game controller support: %s\n", SDL_GetError());
+            return;
+        }
+    }
+    /* Plugged in until one lands in this slot; the ones that filled the
+       free slots before it are unplugged again. */
+    int extra[SLOTS], nextra = 0;
+    while (!slot[player]) {
+        int had[SLOTS];
+        for (int s = 0; s < SLOTS; s++) had[s] = slot[s] != NULL;
+        if (attach() < 0) { fprintf(stderr, "can't attach a virtual controller\n"); return; }
+        int landed = -1;
+        for (int s = 0; s < SLOTS; s++) if (!had[s] && slot[s]) landed = s;
+        if (landed < 0) return;             /* all four taken */
+        if (landed != player) extra[nextra++] = landed;
+    }
+    for (int i = 0; i < nextra; i++) {
+        SDL_JoystickID id = SDL_JoystickInstanceID(joy(extra[i]));
+        for (int d = 0; d < SDL_NumJoysticks(); d++)
+            if (SDL_JoystickGetDeviceInstanceID(d) == id) { SDL_JoystickDetachVirtual(d); break; }
+    }
+    drain();
+    for (size_t i = 0; i < NVBUTTONS; i++)
+        press(player, vbuttons[i].b, (buttons & vbuttons[i].bit) != 0);
+    SDL_GameControllerUpdate();
 }
 
 /* The menu buttons (PLAN-pause.md step 2), on controller 1 with a
@@ -280,7 +400,7 @@ static void menu_checks(void) {
     press(0, SDL_CONTROLLER_BUTTON_B, 0);
     press(0, SDL_CONTROLLER_BUTTON_A, 1); at(3653, 1); KEY("B in the menu", MENU_BACK);
     press(0, SDL_CONTROLLER_BUTTON_A, 0);
-    press(0, SDL_CONTROLLER_BUTTON_GUIDE, 1); at(3670, 1); KEY("Home in the menu", MENU_BACK);
+    press(0, SDL_CONTROLLER_BUTTON_GUIDE, 1); at(3670, 1); KEY("Home in the menu", MENU_LEAVE);
     press(0, SDL_CONTROLLER_BUTTON_GUIDE, 0); at(3687, 1);
     press(0, SDL_CONTROLLER_BUTTON_DPAD_UP, 1); at(3704, 1); KEY("D-pad up in the menu", MENU_UP);
     press(0, SDL_CONTROLLER_BUTTON_DPAD_UP, 0); at(3721, 1);
@@ -339,6 +459,51 @@ static void menu_checks(void) {
     expect_wants("right shoulder", 0, 0, 1, 0, NULL);
     expect("right shoulder isn't a game button", 0, 0);
     press(0, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER, 0); at(7151, 0);
+
+    /* The button test (PLAN-controllers.md): buttons only light up. */
+    at(7200, 2); NOTHING("nothing held on the button test");
+    press(0, SDL_CONTROLLER_BUTTON_A, 1); at(7217, 2); NOTHING("B on the button test");
+    press(0, SDL_CONTROLLER_BUTTON_A, 0);
+    press(0, SDL_CONTROLLER_BUTTON_B, 1); at(7234, 2); NOTHING("A on the button test");
+    press(0, SDL_CONTROLLER_BUTTON_B, 0);
+    press(0, SDL_CONTROLLER_BUTTON_START, 1); at(7251, 2); NOTHING("Start on the button test");
+    press(0, SDL_CONTROLLER_BUTTON_START, 0);
+    press(0, SDL_CONTROLLER_BUTTON_DPAD_DOWN, 1); at(7268, 2); at(7800, 2);
+    NOTHING("D-pad held on the button test");
+    press(0, SDL_CONTROLLER_BUTTON_DPAD_DOWN, 0); at(7817, 2);
+    press(0, SDL_CONTROLLER_BUTTON_GUIDE, 1); at(7834, 2); KEY("Home on the button test", MENU_LEAVE);
+    press(0, SDL_CONTROLLER_BUTTON_GUIDE, 0); at(7851, 2);
+    press(0, START, 1); press(0, BACK, 1);
+    at(7900, 2); NOTHING("Select+Start just pressed on the button test");
+    at(8399, 2); NOTHING("Select+Start held 0.499 s on the button test");
+    at(8400, 2); KEY("Select+Start held 0.5 s on the button test", MENU_LEAVE);
+    at(8417, 1); at(8900, 2); NOTHING("Select+Start held on, back on the test");
+    press(0, START, 0); press(0, BACK, 0); at(8917, 1);
+    struct pad_info pi;
+    press(0, SDL_CONTROLLER_BUTTON_LEFTSHOULDER, 1); press(0, SDL_CONTROLLER_BUTTON_B, 1);
+    SDL_GameControllerUpdate();
+    gamepad_info(0, &pi);
+    if (!pi.present || pi.nes != BTN_A || !pi.lb || pi.rb || pi.home ||
+        !pi.brand || strcmp(pi.brand, "VIRTUAL") || strcmp(pi.name, "NESRECOMP VIRTUAL CONTROLLER")) {
+        printf("FAIL the button test's view of controller 1: present %d NES $%02X LB %d RB %d "
+               "Home %d, %s (%s)\n", pi.present, pi.nes, pi.lb, pi.rb, pi.home,
+               pi.brand ? pi.brand : "no brand", pi.name);
+        failures++;
+    }
+    press(0, SDL_CONTROLLER_BUTTON_LEFTSHOULDER, 0); press(0, SDL_CONTROLLER_BUTTON_B, 0);
+    at(9000, 0);
+    gamepad_info(2, &pi);
+    if (slot[2] == NULL && pi.present) { printf("FAIL an empty slot shows a controller\n"); failures++; }
+    {
+        int pl; unsigned bt;
+        if (!gamepad_parse_virtual("2:a+start+lb", &pl, &bt) || pl != 1 ||
+            bt != (PAD_TEST_A | PAD_TEST_START | PAD_TEST_LB) ||
+            gamepad_parse_virtual("5:a", &pl, &bt) || gamepad_parse_virtual("1:x", &pl, &bt) ||
+            !gamepad_parse_virtual("1:none", &pl, &bt) || bt) {
+            printf("FAIL reading the script's pad= words\n");
+            failures++;
+        }
+    }
 
     /* Controller 2 can open it too, and says so. */
     if (slot[1]) {

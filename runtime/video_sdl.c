@@ -222,7 +222,7 @@ static int pad_rewind, pad_fast;
 
 static void pad_frame(void) {
     struct pad_wants w;
-    gamepad_frame(SDL_GetTicks(), menu_is_open(), &w);
+    gamepad_frame(SDL_GetTicks(), menu_mode(), &w);
     pad_rewind = w.rewind;
     pad_fast = w.fast;
     if (w.open && !menu_is_open() && runtime_has_menu()) {
@@ -241,7 +241,7 @@ static void handle_events(void) {
         /* Esc: the pause menu (PLAN-pause.md), or, in it, back to the
            game. A music file has no menu: Esc quits it. */
         if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_ESCAPE && !e.key.repeat) {
-            if (menu_is_open()) menu_key(MENU_BACK, NULL);
+            if (menu_is_open()) menu_key(MENU_LEAVE, NULL);
             else if (!runtime_has_menu()) exit(0);
             else menu_request();
             continue;
@@ -331,6 +331,8 @@ static uint8_t keyboard_buttons(int player) {
             if (keys[keymap[player][i].key]) b |= keymap[player][i].button;
     return b;
 }
+
+uint8_t video_keyboard_buttons(int player) { return keyboard_buttons(player); }
 
 uint8_t video_buttons(int player) {
     uint8_t b = 0;

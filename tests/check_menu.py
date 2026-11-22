@@ -19,6 +19,12 @@ menu lines ("100 menu down ok", see runtime/main.c).
   the frame the menu closes; --volume does the same from the start; what
   was picked is written on exit (--remember-size), and the window's
   steps reach FULL (headless: a pretend window, 4X at most).
+- CONTROLLERS (PLAN-controllers.md step 1): its page, listing what each
+  slot holds, and the button test, pixel by pixel, with a virtual
+  controller in slot 2 (the script's pad= word) holding buttons; the
+  terminal names each fresh press, not one held as the test opened;
+  only leave (Esc, Home) gets off the test page, not B or the others;
+  and the game doesn't move meanwhile.
 
 How the menu changes nothing over the whole suite is in
 tests/check_states.py.
@@ -51,7 +57,10 @@ def check(what, ok, why=""):
 
 def layout():
     src = open(os.path.join(ROOT, "runtime", "menu.c")).read()
-    d = {k: int(v, 0) for k, v in re.findall(r"#define (MENU_\w+|INK_\w+) (0x[0-9A-F]+|\d+)", src)}
+    d = {k: int(v, 0) for k, v in
+         re.findall(r"#define ((?:MENU|INK|TEST|CTRL)_\w+) (0x[0-9A-F]+|\d+)", src)}
+    d["parts"] = {name: tuple(map(int, xywh)) for name, *xywh in
+                  re.findall(r"\{ PART_(\w+), (\d+), (\d+), (\d+), (\d+) \}", src)}
     return d
 
 
@@ -89,7 +98,7 @@ def expected_box(L, fnt, cursor, slot, info, sound="10", window="3X"):
     for p in text_pixels(fnt, title, 128 - (len(title) * 6 - 1) // 2, L["MENU_TITLE_Y"]):
         want[p] = L["INK_TITLE"]
     items = ["RESUME", "SAVE STATE", "LOAD STATE", "SLOT  < %d >" % slot, "RESET",
-             "SOUND < %s >" % sound, "WINDOW < %s >" % window, "QUIT"]
+             "SOUND < %s >" % sound, "WINDOW < %s >" % window, "CONTROLLERS", "QUIT"]
     for i, name in enumerate(items):
         y = L["MENU_ITEM_Y"] + i * L["MENU_LINE_H"]
         for p in text_pixels(fnt, name, L["MENU_ITEM_X"], y):
@@ -100,6 +109,104 @@ def expected_box(L, fnt, cursor, slot, info, sound="10", window="3X"):
     for p in text_pixels(fnt, ">", L["MENU_CURSOR_X"], L["MENU_ITEM_Y"] + cursor * L["MENU_LINE_H"]):
         want[p] = L["INK_CURSOR"]
     return want
+
+
+def frame_box(want, L, x0, y0, w, h):
+    for y in range(y0 - 1, y0 + h + 1):
+        for x in range(x0 - 1, x0 + w + 1):
+            inside = x0 <= x < x0 + w and y0 <= y < y0 + h
+            want[(x, y)] = L["INK_BOX"] if inside else L["INK_EDGE"]
+
+
+def centred(want, fnt, s, y, ink):
+    for p in text_pixels(fnt, s, 128 - (len(s) * 6 - 1) // 2, y):
+        want[p] = ink
+
+
+def expected_controllers(L, fnt, cursor, names):
+    """The CONTROLLERS page; names[i] is slot i's (None: empty)."""
+    want = {}
+    frame_box(want, L, L["MENU_BOX_X"], L["MENU_BOX_Y"], L["MENU_BOX_W"], L["MENU_BOX_H"])
+    centred(want, fnt, "CONTROLLERS", L["MENU_TITLE_Y"], L["INK_TITLE"])
+    for i, item in enumerate(["BUTTON TEST", "BACK"]):
+        for p in text_pixels(fnt, item, L["MENU_ITEM_X"], L["MENU_ITEM_Y"] + i * L["MENU_LINE_H"]):
+            want[p] = L["INK_PICKED"] if i == cursor else L["INK_ITEM"]
+    for p in text_pixels(fnt, ">", L["MENU_CURSOR_X"], L["MENU_ITEM_Y"] + cursor * L["MENU_LINE_H"]):
+        want[p] = L["INK_CURSOR"]
+    for i, n in enumerate(names):
+        line = "%d %s" % (i + 1, n[:L["CTRL_LIST_CHARS"]]) if n else "%d -" % (i + 1)
+        for p in text_pixels(fnt, line, L["MENU_CURSOR_X"], L["CTRL_LIST_Y"] + i * L["CTRL_LIST_H"]):
+            want[p] = L["INK_ITEM"]
+    return want
+
+
+def expected_test(L, fnt, pads):
+    """The button test; pads[i] for controllers 1-4 and keyboards 1-2:
+    None (empty), or (label, the lit parts' names)."""
+    want = {}
+    frame_box(want, L, L["TEST_BOX_X"], L["TEST_BOX_Y"], L["TEST_BOX_W"], L["TEST_BOX_H"])
+    centred(want, fnt, "BUTTON TEST", L["TEST_TITLE_Y"], L["INK_TITLE"])
+    for i, pad in enumerate(pads):
+        x = L["TEST_COL1"] if i % 2 else L["TEST_COL0"]
+        y = L["TEST_ROW0"] + (i // 2) * L["TEST_ROW_H"]
+        label = pad[0] if pad else "%d -" % (i + 1)
+        lit = pad[1] if pad else ()
+        for p in text_pixels(fnt, label, x, y):
+            want[p] = L["INK_PICKED"] if lit else L["INK_ITEM"]
+        if not pad:
+            for p in text_pixels(fnt, "NO CONTROLLER", x, y + L["TEST_PAD_DY"] + L["TEST_BODY_Y"] + 13):
+                want[p] = L["INK_NONE"]
+            continue
+        py = y + L["TEST_PAD_DY"]
+        for yy in range(L["TEST_BODY_H"]):
+            for xx in range(L["TEST_BODY_W"]):
+                want[(x + L["TEST_BODY_X"] + xx, py + L["TEST_BODY_Y"] + yy)] = L["INK_BODY"]
+        for name, (px, pyy, w, h) in L["parts"].items():
+            ink = (L["INK_LIT"] if name in lit else
+                   L["INK_OFF_OUT"] if pyy < L["TEST_BODY_Y"] else L["INK_OFF"])
+            for yy in range(h):
+                for xx in range(w):
+                    want[(x + px + xx, py + pyy + yy)] = ink
+    centred(want, fnt, "TO LEAVE: ESC, HOME, OR HOLD SEL+START", L["TEST_FOOT_Y"], L["INK_ITEM"])
+    return want
+
+
+def controllers(exe, rom, base, name, L, fnt):
+    files = os.path.join(OUT, name + ".ctrl")
+    page, test, held, after = (os.path.join(OUT, name + x + ".raw")
+                               for x in (".ctrl", ".test", ".held", ".after"))
+    keys = ["up up ok",                         # CONTROLLERS (above QUIT)
+            "pad=2:none shot=%s" % page,        # a virtual controller in slot 2
+            "pad=2:a ok",                       # A held as the test opens
+            "pad=2:a+b",                        # B pressed, A still held
+            "pad=2:none pad=2:a+start+lb",      # let go, then pressed: lit
+            "shot=%s" % test,
+            "ok back up down left right",       # these only light up (no keyboard
+            "shot=%s" % held,                   # headless): still the test page
+            "pad=2:home leave",                 # Esc: back to CONTROLLERS
+            "shot=%s" % after,
+            "back back"]
+    err, rows = run(exe, rom, ["60 menu " + " ".join(keys)], base, 90, name + ".ctrl", files)
+    virt = "NESRECOMP VIRTUAL CONTROLLER"
+    why = picture_ok(page, expected_controllers(L, fnt, 0, [None, virt, None, None]))
+    check("%s: the CONTROLLERS page, a controller in slot 2" % name, not why, why or "")
+    keyb = ("KEYBOARD 1", ()), ("KEYBOARD 2", ())
+    want = expected_test(L, fnt, [None, ("2 VIRTUAL", ("A", "START", "LB")), None, None] + list(keyb))
+    why = picture_ok(test, want)
+    check("%s: the button test, A, Start and LB lit on controller 2" % name, not why, why or "")
+    why = picture_ok(held, want)
+    check("%s: OK, back and the arrows don't leave the button test" % name, not why, why or "")
+    why = picture_ok(after, expected_controllers(L, fnt, 0, [None, virt, None, None]))
+    check("%s: leave goes back to CONTROLLERS" % name, not why, why or "")
+    said = [ln for ln in err.splitlines() if ln.startswith(("frame 60:", "controller ", "keyboard "))]
+    check("%s: the terminal names each fresh press (not A held as it opened)" % name,
+          said == ["frame 60: MENU", "frame 60: CONTROLLERS", "frame 60: BUTTON TEST",
+                   "controller 2: B", "controller 2: START", "controller 2: A", "controller 2: LB",
+                   "controller 2: HOME", "frame 60: CONTROLLERS", "frame 60: MENU CLOSED (RESUME)"],
+          repr(said))
+    _, plain = run(exe, rom, [], base, 90, name + ".ctrlplain", os.path.join(OUT, name + ".cp"))
+    check("%s: the controllers' pages don't move the game" % name,
+          len(rows) == 90 and rows == plain, "%d frames, differ from the plain run" % len(rows))
 
 
 def read_raw(path):
@@ -357,6 +464,7 @@ def main():
               "state1 %s, state2 %s" % (os.path.exists(files + ".state1"),
                                        os.path.exists(files + ".state2")))
         sound_and_window(exe, rom, base, name, L, fnt)
+        controllers(exe, rom, base, name, L, fnt)
     print("\nall menu checks pass" if not failures else "\n%d menu check(s) failed" % failures)
     sys.exit(1 if failures else 0)
 

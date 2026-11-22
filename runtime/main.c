@@ -512,12 +512,18 @@ static void at_exit(void) {
        780 reset        press the reset button, as R does
        800 menu down ok   the pause menu (PLAN-pause.md): open it at the
                         end of frame 800 and press its keys in turn: up,
-                        down, left, right, ok, back; shot=FILE saves its
-                        picture (FILE.png, or the raw palette indexes).
+                        down, left, right, ok, back, leave (as Esc: the
+                        way off the button test); shot=FILE saves its
+                        picture (FILE.png, or the raw palette indexes);
+                        pad=2:a+start holds those buttons on a virtual
+                        controller in slot 2, plugged in if need be (a,
+                        b, select, start, up, down, left, right, lb, rb,
+                        home, or none; PLAN-controllers.md).
                         A menu line leaves the buttons as they are; if its
                         keys don't close the menu, it closes after them. */
 #define MAX_MENU_LINES 64
-static struct { long frame; int n; int key[16]; char *path[16]; } menu_lines[MAX_MENU_LINES];
+#define MENU_LINE_KEYS 32
+static struct { long frame; int n; int key[MENU_LINE_KEYS]; char *path[MENU_LINE_KEYS]; } menu_lines[MAX_MENU_LINES];
 static int menu_line_count, menu_line_pos;     /* not in a state: a load doesn't repeat them */
 
 static void menu_script_line(const char *path, int lineno, long frame) {
@@ -529,11 +535,26 @@ static void menu_script_line(const char *path, int lineno, long frame) {
     }
     int n = 0;
     char *tok;
-    while ((tok = strtok(NULL, " \t\r\n")) && n < 16) {
+    while ((tok = strtok(NULL, " \t\r\n"))) {
         int k = 0;
+        if (n == MENU_LINE_KEYS) {      /* not dropped without a word */
+            fprintf(stderr, "%s:%d: more than %d menu keys\n", path, lineno, MENU_LINE_KEYS);
+            exit(1);
+        }
         char *file = NULL;
         if (!strncmp(tok, "shot=", 5)) { k = MENU_SHOT; file = strdup(tok + 5); }
-        else
+        else if (!strcmp(tok, "leave")) k = MENU_LEAVE;
+        else if (!strncmp(tok, "pad=", 4)) {
+            int pl;
+            unsigned bt;
+            if (!gamepad_parse_virtual(tok + 4, &pl, &bt)) {
+                fprintf(stderr, "%s:%d: pad= needs a slot and buttons, as pad=2:a+start: '%s'\n",
+                        path, lineno, tok);
+                exit(1);
+            }
+            k = MENU_VPAD;
+            file = strdup(tok + 4);
+        } else
             for (int i = 0; i < 6; i++)
                 if (!strcmp(tok, names[i])) k = MENU_UP + i;
         if (!k) {
@@ -844,6 +865,7 @@ void runtime_menu_save(void) { runtime_state_key(STATE_SAVE); }
 void runtime_menu_load(void) { runtime_state_key(STATE_LOAD); }
 void runtime_menu_reset(void) { cpu_request_reset(); }
 int runtime_headless(void) { return headless; }
+uint8_t runtime_keyboard_buttons(int player) { return headless ? 0 : video_keyboard_buttons(player); }
 unsigned long long runtime_frame(void) { return (unsigned long long)ppu.frame; }
 void runtime_menu_present(const uint16_t *pic) { video_present(pic); }
 int runtime_has_menu(void) { return cart.mapper != MAPPER_NSF; }
