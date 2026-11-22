@@ -225,6 +225,32 @@ def sound_and_window(exe, rom, base, name, L, fnt):
     start, _ = speakers("start5", [], ["--volume", "5"])
     check("%s: --volume 5 from the start" % name, start == scaled(full, 5),
           "%d samples, %d differ" % (len(start), sum(a != b for a, b in zip(start, scaled(full, 5)))))
+    # The blip: each change in the menu plays one at the new volume (none
+    # for OFF), so it can be heard with the game paused. The full-volume
+    # blip comes from 9 -> 10; the rest must be it, scaled exactly.
+    def blips(tag, lines, extra=()):
+        speakers(tag, lines, extra)
+        b = samples(os.path.join(OUT, name + "." + tag + ".pcm.blip"))
+        return [b[i:i + 2400] for i in range(0, len(b), 2400)]
+    ref = blips("blipfull", ["40 menu %s right" % down5], ["--volume", "9"])
+    check("%s: a blip at 10 (or the next checks prove nothing)" % name,
+          len(ref) == 1 and len(ref[0]) == 2400 and max(ref[0]) > 4000,
+          "%d blip(s)" % len(ref))
+    if ref:
+        down = blips("blipdown", ["40 menu %s left left left left left" % down5])
+        check("%s: five steps down: five blips, at 9, 8, 7, 6, 5" % name,
+              down == [scaled(ref[0], v) for v in (9, 8, 7, 6, 5)],
+              "%d blip(s); %s" % (len(down), [max(b) for b in down]))
+        to_off = blips("blipoff", ["40 menu %s %s right" % (down5, " ".join(["left"] * 10))])
+        check("%s: down to OFF and up to 1: no blip for OFF" % name,
+              to_off == [scaled(ref[0], v) for v in (9, 8, 7, 6, 5, 4, 3, 2, 1, 1)],
+              "%d blip(s)" % len(to_off))
+        toggle = blips("bliptoggle", ["40 menu %s ok ok" % down5])
+        check("%s: Return: off (no blip), on again (a blip at 10)" % name,
+              toggle == [ref[0]], "%d blip(s)" % len(toggle))
+        quiet = blips("blipnone", ["40 menu %s back" % down5], ["--volume", "6"])
+        check("%s: no blip without a change" % name, quiet == [], "%d blip(s)" % len(quiet))
+
     # Only the speakers: the game's own sound (the fingerprints) unchanged.
     _, rows_full = run(exe, rom, [], base, 120, name + ".fp1", os.path.join(OUT, name + ".fp1"))
     _, rows_five = run(exe, rom, [], base, 120, name + ".fp2", os.path.join(OUT, name + ".fp2"),

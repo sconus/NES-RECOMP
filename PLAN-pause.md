@@ -284,6 +284,31 @@ The terminal says each change ("frame N: SOUND 7", "SOUND OFF",
 "WINDOW 4X", "WINDOW FULL"). Committed without a live try of SOUND and
 WINDOW (the user's call); a live run opened and closed the menu.
 
+**Added after the live try (the user's choice): a blip.** With the
+game's sound paused in the menu, a new volume couldn't be heard until
+it closed. Now each change of SOUND in the menu plays a short blip at
+the new volume: 50 ms of a 1047 Hz square wave (C6), fading out over its
+last 10 ms, through the same gain as the game's sound; OFF is silent,
+and M while playing doesn't blip. It plays over the paused speakers in
+place of anything queued, and when the menu closes the game's sound
+starts again from the queue's silence. `--speaker-out F` writes the
+blips to `F.blip`; `tests/check_menu.py` checks that the 9 -> 10 blip is
+the full one and every other is it scaled exactly (five steps down: 9 to
+5; down to OFF and up: no blip for OFF; Return off and on: one blip; no
+change: none). Breaks: the blip at full volume (2 FAIL lines), a blip
+for OFF (2), the blip at the volume before the change (4). Not checked by
+a test: that M while playing stays silent, and how it sounds.
+
+The user heard the blip live: "sounds perfect".
+
+**Found in a live window: WINDOW stuck at 5X.** The biggest size was
+worked out from the whole screen, but a window can't cover the menu bar
+and the Dock, so macOS kept it at 5X while the menu thought 6X fitted,
+and right never reached FULL. Now the biggest size comes from the
+screen's usable space less the window's title bar and edges (also for
+Cmd+=), and if a step bigger doesn't grow the window, it goes full
+screen.
+
 Not checked by a test: the real window's resize and full screen from
 the menu, and the speakers themselves (only `--speaker-out`, which the
 speakers get the same samples as); only in a live window.

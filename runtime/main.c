@@ -314,7 +314,7 @@ static const int32_t volume_gain[11] = {
     0, 1464, 2068, 2920, 4125, 5827, 8231, 11627, 16423, 23198, 32768,
 };
 static int volume = 10, sound_off;
-static FILE *speaker_out;
+static FILE *speaker_out, *blip_out;
 
 static void to_speakers(const int16_t *buf, int n) {
     int16_t out[4096];
@@ -325,6 +325,27 @@ static void to_speakers(const int16_t *buf, int n) {
 }
 
 int runtime_sound(void) { return sound_off ? 0 : volume; }
+
+/* A change in the menu plays a short blip at the new volume, so it can
+   be heard while the game's sound is paused: 50 ms of a square wave at
+   1047 Hz (C6, the NES's own kind of tone), fading out over its last
+   10 ms so it doesn't click. Through the same gain as the game's sound;
+   --speaker-out F writes the blips to F.blip. OFF: no blip. */
+#define BLIP_SAMPLES 2400
+#define BLIP_FADE 480
+
+static void blip(void) {
+    if (!menu_is_open() || sound_off) return;
+    int16_t out[BLIP_SAMPLES];
+    int32_t g = volume_gain[volume];
+    for (int i = 0; i < BLIP_SAMPLES; i++) {
+        int32_t x = (i * 2094 / 48000) % 2 ? -8000 : 8000;     /* 1047 Hz */
+        if (i >= BLIP_SAMPLES - BLIP_FADE) x = x * (BLIP_SAMPLES - i) / BLIP_FADE;
+        out[i] = (int16_t)((x * g) >> 15);
+    }
+    if (speakers) video_blip(out, BLIP_SAMPLES);
+    if (blip_out) fwrite(out, sizeof out[0], BLIP_SAMPLES, blip_out);
+}
 
 /* In the terminal too, so a live try can be checked afterwards. */
 static void say_sound(void) {
@@ -344,6 +365,7 @@ void runtime_sound_step(int d) {
     } else if (volume < 10) volume++;
     video_set_muted(sound_off);
     say_sound();
+    blip();
 }
 
 /* M, or Return on SOUND: off and on again at the same volume. */
@@ -351,6 +373,7 @@ void runtime_sound_toggle(void) {
     sound_off = !sound_off;
     video_set_muted(sound_off);
     say_sound();
+    blip();                             /* in the menu only */
 }
 
 static void drain_sound(void) {
@@ -454,6 +477,7 @@ static void at_exit(void) {
     }
     if (sound_on) drain_sound();        /* the last part of a frame */
     if (speaker_out) fclose(speaker_out);
+    if (blip_out) fclose(blip_out);
     if (wav_path) wav_close();
     record_stop();
     save_missed();
@@ -844,7 +868,13 @@ void runtime_window_step(int d) {
     if (!headless) {
         if (video_full_screen()) { if (d < 0) video_set_full_screen(0); }
         else if (d > 0 && video_scale() >= video_most_scale()) video_set_full_screen(1);
-        else video_resize_step(d);
+        else {
+            /* The system can keep a window smaller than asked (a screen
+               measured wrongly, the Dock): then bigger means full screen. */
+            int before = video_scale();
+            video_resize_step(d);
+            if (d > 0 && video_scale() <= before) video_set_full_screen(1);
+        }
         say_window(runtime_window());
         return;
     }
@@ -1269,7 +1299,10 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "--sound-off")) sound_off = 1;
         else if (!strcmp(a, "--speaker-out") && more) {
             speaker_out = fopen(argv[++i], "wb");
-            if (!speaker_out) { fprintf(stderr, "can't write %s\n", argv[i]); return 1; }
+            char bp[1100];
+            snprintf(bp, sizeof bp, "%s.blip", argv[i]);
+            blip_out = fopen(bp, "wb");
+            if (!speaker_out || !blip_out) { fprintf(stderr, "can't write %s\n", argv[i]); return 1; }
         }
         else if (!strcmp(a, "--audio-stats")) audio_stats = 1;
         else if (!strcmp(a, "--ram-stats")) ram_stats = 1;

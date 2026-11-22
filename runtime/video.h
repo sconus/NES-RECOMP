@@ -35,6 +35,9 @@ int video_most_scale(void);
 int video_full_screen(void);
 void video_set_full_screen(int on);
 void video_resize_step(int d);
+/* A short sound played at once over the paused speakers (the menu's
+   blip when the volume changes). */
+void video_blip(const int16_t *samples, int n);
 /* The speakers paused (1) or going again (0): the pause menu. */
 void video_pause_audio(int on);
 /* Buttons held now are ignored until let go (the menu closing). */

@@ -71,8 +71,24 @@ void video_init_audio(void) {
     SDL_PauseAudioDevice(audio, 0);
 }
 
+static int blipped;                     /* since the menu paused the sound */
+
 void video_pause_audio(int on) {
-    if (audio) SDL_PauseAudioDevice(audio, on);
+    if (!audio) return;
+    /* After a blip the game's old sound is gone: start again from the
+       queue's silence, so the game's sound picks up without a gap. */
+    if (!on && blipped) video_restart_audio();
+    blipped = 0;
+    SDL_PauseAudioDevice(audio, on);
+}
+
+/* The menu's blip: played at once, in place of anything queued. */
+void video_blip(const int16_t *samples, int n) {
+    if (!audio || muted) return;
+    SDL_ClearQueuedAudio(audio);
+    SDL_QueueAudio(audio, samples, (Uint32)n * sizeof *samples);
+    SDL_PauseAudioDevice(audio, 0);
+    blipped = 1;
 }
 
 void video_restart_audio(void) {
@@ -160,12 +176,16 @@ static int current_scale(void) {
     return s < 1 ? 1 : s;
 }
 
-/* The biggest whole step that fits on the window's screen. */
+/* The biggest whole step a window fits in on its screen: the space
+   left by the menu bar and the Dock (the taskbar on Windows), less the
+   window's title bar and edges. */
 int video_most_scale(void) {
-    SDL_DisplayMode m;
+    SDL_Rect r;
     int most = 16;
-    if (window && SDL_GetDesktopDisplayMode(SDL_GetWindowDisplayIndex(window), &m) == 0) {
-        int mx = m.w / NES_WIDTH, my = m.h / NES_HEIGHT;
+    if (window && SDL_GetDisplayUsableBounds(SDL_GetWindowDisplayIndex(window), &r) == 0) {
+        int top = 0, left = 0, bottom = 0, right = 0;
+        if (!video_full_screen()) SDL_GetWindowBordersSize(window, &top, &left, &bottom, &right);
+        int mx = (r.w - left - right) / NES_WIDTH, my = (r.h - top - bottom) / NES_HEIGHT;
         most = mx < my ? mx : my;
     }
     return most < 1 ? 1 : most;
