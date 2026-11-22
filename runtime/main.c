@@ -23,6 +23,7 @@
 #include "sys.h"
 #include "video.h"
 #include "wav.h"
+#include "menu.h"
 
 uint8_t A, X, Y, SP = 0xFD;
 uint8_t C, Z, I = 1, D, V, N;
@@ -427,7 +428,46 @@ static void at_exit(void) {
        660 disk=2       FDS: put in side 2 (disk 1 side B; side 3 is disk
                         2 side A, ...)
        700 record       start (or stop) a recording, as V does
-       760 snap         save a picture of the screen, as P does */
+       760 snap         save a picture of the screen, as P does
+       780 reset        press the reset button, as R does
+       800 menu down ok   the pause menu (PLAN-pause.md): open it at the
+                        end of frame 800 and press its keys in turn: up,
+                        down, left, right, ok, back; shot=FILE saves its
+                        picture (FILE.png, or the raw palette indexes).
+                        A menu line leaves the buttons as they are; if its
+                        keys don't close the menu, it closes after them. */
+#define MAX_MENU_LINES 64
+static struct { long frame; int n; int key[16]; char *path[16]; } menu_lines[MAX_MENU_LINES];
+static int menu_line_count, menu_line_pos;     /* not in a state: a load doesn't repeat them */
+
+static void menu_script_line(const char *path, int lineno, long frame) {
+    static const char *const names[] = { "up", "down", "left", "right", "ok", "back" };
+    if (menu_line_count == MAX_MENU_LINES) return;
+    if (menu_line_count && frame < menu_lines[menu_line_count - 1].frame) {
+        fprintf(stderr, "%s:%d: menu frames must go up\n", path, lineno);
+        exit(1);
+    }
+    int n = 0;
+    char *tok;
+    while ((tok = strtok(NULL, " \t\r\n")) && n < 16) {
+        int k = 0;
+        char *file = NULL;
+        if (!strncmp(tok, "shot=", 5)) { k = MENU_SHOT; file = strdup(tok + 5); }
+        else
+            for (int i = 0; i < 6; i++)
+                if (!strcmp(tok, names[i])) k = MENU_UP + i;
+        if (!k) {
+            fprintf(stderr, "%s:%d: unknown menu key '%s'\n", path, lineno, tok);
+            exit(1);
+        }
+        menu_lines[menu_line_count].key[n] = k;
+        menu_lines[menu_line_count].path[n] = file;
+        n++;
+    }
+    menu_lines[menu_line_count].frame = frame;
+    menu_lines[menu_line_count].n = n;
+    menu_line_count++;
+}
 #define MAX_SCRIPT 4096
 static struct {
     long frame;
@@ -435,7 +475,7 @@ static struct {
     int knob[2];                    /* -1: unchanged */
     int aim_x, aim_y;               /* aim_x: -2 unchanged, -1 off */
     int disk;                       /* -2 unchanged, -1 eject, else a side */
-    uint8_t record, snap;           /* as V and P in the window */
+    uint8_t record, snap, reset;    /* as V, P and R in the window */
 } script[MAX_SCRIPT];
 static int script_len, script_pos;
 static uint8_t script_buttons[4], script_fire[2], script_trigger;
@@ -445,7 +485,7 @@ static void load_input_script(const char *path) {
         { "a", "b", "select", "start", "up", "down", "left", "right" };
     FILE *f = fopen(path, "r");
     if (!f) { perror(path); exit(1); }
-    char line[256];
+    char line[2048];
     int lineno = 0;
     while (fgets(line, sizeof line, f)) {
         lineno++;
@@ -455,6 +495,8 @@ static void load_input_script(const char *path) {
         if (!tok) continue;
         if (script_len == MAX_SCRIPT) break;
         long frame = strtol(tok, NULL, 10);
+        char *rest = strtok(NULL, " \t\r\n");
+        if (rest && !strcmp(rest, "menu")) { menu_script_line(path, lineno, frame); continue; }
         if (script_len && frame < script[script_len - 1].frame) {
             fprintf(stderr, "%s:%d: frames must go up\n", path, lineno);
             exit(1);
@@ -463,10 +505,11 @@ static void load_input_script(const char *path) {
         int knob[2] = { -1, -1 }, aim_x = -2, aim_y = 0;
         uint8_t trigger = 0;
         int disk = -2;
-        uint8_t record = 0, snap = 0;
-        while ((tok = strtok(NULL, " \t\r\n"))) {
+        uint8_t record = 0, snap = 0, reset = 0;
+        for (tok = rest; tok; tok = strtok(NULL, " \t\r\n")) {
             if (!strcmp(tok, "record")) { record = 1; continue; }
             if (!strcmp(tok, "snap")) { snap = 1; continue; }
+            if (!strcmp(tok, "reset")) { reset = 1; continue; }
             if (!strncmp(tok, "disk=", 5)) {
                 char *end;
                 long n = strtol(tok + 5, &end, 10);
@@ -527,6 +570,7 @@ static void load_input_script(const char *path) {
         script[script_len].disk = disk;
         script[script_len].record = record;
         script[script_len].snap = snap;
+        script[script_len].reset = reset;
         for (int p = 0; p < 2; p++) {
             script[script_len].fire[p] = fire[p];
             script[script_len].knob[p] = knob[p];
@@ -668,7 +712,7 @@ void runtime_state_message(const char *text) {
 }
 
 void runtime_state_saved(void) {
-    if (state_test_on || rewind_test_on) (void)code_since();
+    if (state_test_on || rewind_test_on || prints_out) (void)code_since();
 }
 
 void runtime_state_rewound(void) {
@@ -677,7 +721,7 @@ void runtime_state_rewound(void) {
 }
 
 void runtime_state_loaded(void) {
-    if (state_test_on) (void)code_since();
+    if (state_test_on || prints_out) (void)code_since();
     state_test_loaded = 1;
     video_restart_audio();          /* the old sound mustn't play over the new */
     last_frame = NULL;
@@ -703,12 +747,26 @@ void runtime_state_key(int what) {
 /* The four slots: <rom>.state1 to .state4, beside the battery save
    (--files-at P: P.state1 ...). Cmd+1 to Cmd+4 pick one. */
 static char slot_path[1100], slot_label[16];
+static int slot = 1;
 
 static void use_slot(int n) {
+    slot = n;
     snprintf(slot_path, sizeof slot_path, "%s.state%d", files_at, n);
     snprintf(slot_label, sizeof slot_label, "SLOT %d", n);
     state_use_file(slot_path, slot_label);
 }
+
+/* What the pause menu needs (menu.h). */
+int runtime_slot(void) { return slot; }
+void runtime_set_slot(int n) { if (n >= 1 && n <= 4) use_slot(n); }
+const char *runtime_slot_path(void) { return slot_path[0] ? slot_path : NULL; }
+void runtime_menu_save(void) { runtime_state_key(STATE_SAVE); }
+void runtime_menu_load(void) { runtime_state_key(STATE_LOAD); }
+void runtime_menu_reset(void) { cpu_request_reset(); }
+int runtime_headless(void) { return headless; }
+unsigned long long runtime_frame(void) { return (unsigned long long)ppu.frame; }
+void runtime_menu_present(const uint16_t *pic) { video_present(pic); }
+int runtime_has_menu(void) { return cart.mapper != MAPPER_NSF; }
 
 void runtime_state_slot(int n) {
     if (cart.mapper == MAPPER_NSF || n < 1 || n > 4) return;
@@ -917,6 +975,19 @@ static void frame_done(const uint16_t *ppu_fb) {
         sound_hash = FNV_START;
         fwrite(p, sizeof p, 1, prints_out);
     }
+    /* The pause menu (PLAN-pause.md), asked for by Esc or a script's
+       menu line (one a frame): no 6502 code runs while it's open, so
+       the game carries on from exactly here when it closes. */
+    if (menu_line_pos < menu_line_count && menu_lines[menu_line_pos].frame <= (long)ppu.frame) {
+        for (int k = 0; k < menu_lines[menu_line_pos].n; k++)
+            menu_key(menu_lines[menu_line_pos].key[k], menu_lines[menu_line_pos].path[k]);
+        menu_request();
+        menu_line_pos++;
+    }
+    if (menu_wanted() && runtime_has_menu()) {
+        menu_run(fb);
+        if (!headless) video_ignore_held();     /* closing it presses nothing */
+    }
     if (state_test_on) state_test_frame(fb);
     if (rewind_test_on) rewind_test_frame(fb);
     if (cart.mapper == MAPPER_FDS) fds_frame();
@@ -930,6 +1001,7 @@ static void frame_done(const uint16_t *ppu_fb) {
         }
         if (script[script_pos].record) runtime_record_key();
         if (script[script_pos].snap) runtime_snap_key();
+        if (script[script_pos].reset) cpu_request_reset();
         if (script[script_pos].aim_x != -2) {
             zapper.x = script[script_pos].aim_x;
             zapper.y = script[script_pos].aim_y;

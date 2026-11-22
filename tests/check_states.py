@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Save states, rewind and fast-forward over the whole suite
-(PLAN-savestates.md steps 1-4).
+"""Save states, rewind, fast-forward and the pause menu over the whole
+suite (PLAN-savestates.md steps 1-4, PLAN-pause.md step 1).
 
 For every ROM in tests/suite.txt (with its input script and options):
 recompile it, then run it headless with --state-test N M: N frames,
@@ -24,6 +24,11 @@ oldest frame kept.
 And fast-forward (step 4): the same frames played with the key held
 the whole run (--hold-fast) must come out exactly as without it, frame
 by frame (--prints-out: picture, RAM, sound, code counts).
+
+And the pause menu (PLAN-pause.md): the same frames, with the menu
+opened at frame N, moved around in (the slot changed and changed back)
+and closed, must come out exactly as without it, and it must close at
+the frame it opened (no game ran while it was open).
 
     python3 tests/check_states.py            every ROM
     python3 tests/check_states.py mmc3       only names matching
@@ -116,7 +121,32 @@ def run_one(test, cflags, libs, rt_objs):
         k = next((i for i in range(n) if prints[0][i * 32:i * 32 + 32] != prints[1][i * 32:i * 32 + 32]), n)
         return test, "fail: fast-forward changed the game: frame %d differs (%d frames, %d)" % (
             k + 1, len(prints[0]) // 32, len(prints[1]) // 32)
-    return test, line + "; from a file in a new run; rewind; fast-forward (%d frames)" % (
+    # The pause menu: the game's own script, plus a menu line.
+    script = os.path.join(OUT, ident + ".menu.txt")
+    with open(script, "w") as f:
+        if test["script"]:
+            f.write(open(os.path.join(ROOT, test["script"])).read() + "\n")
+        f.write("%s menu down down down right left up up up back\n" % cmd[at + 1])
+    paused = list(plain)
+    if "--input" in paused:
+        paused[paused.index("--input") + 1] = script
+    else:
+        paused += ["--input", script]
+    out = os.path.join(OUT, ident + ".menu.prints")
+    try:
+        r = run_tests.sh(paused + ["--prints-out", out], cwd=ROOT, timeout=120)
+    except run_tests.subprocess.TimeoutExpired:
+        return test, "fail: timed out (menu)"
+    opened = re.findall(r"frame (\d+): MENU\n", r.stderr)
+    closed = re.findall(r"frame (\d+): MENU CLOSED", r.stderr)
+    if len(opened) != 1 or opened != closed:
+        return test, "fail: the menu opened at %s and closed at %s" % (opened, closed)
+    menu_prints = open(out, "rb").read() if os.path.exists(out) else b""
+    if menu_prints != prints[0]:
+        n = min(len(prints[0]), len(menu_prints)) // 32
+        k = next((i for i in range(n) if prints[0][i * 32:i * 32 + 32] != menu_prints[i * 32:i * 32 + 32]), n)
+        return test, "fail: the pause menu changed the game: frame %d differs" % (k + 1)
+    return test, line + "; from a file in a new run; rewind; fast-forward (%d frames); menu" % (
         len(prints[0]) // 32)
 
 
@@ -219,7 +249,7 @@ def main():
             sizes.append(int(m.group(1)))
         print("%s  %s  %s" % ("ok  " if ok else "FAIL", t["name"], result))
     print("\n%d of %d ROMs load their state and run on the same, in one run,"
-          " from a file in a new one, rewind, and fast-forward" % (len(tests) - failed, len(tests)))
+          " from a file in a new one, rewind, fast-forward, and the menu" % (len(tests) - failed, len(tests)))
     print()
     for line in refusals(tests):
         print(line)

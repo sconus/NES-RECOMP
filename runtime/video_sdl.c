@@ -12,6 +12,7 @@
 #include "ppu.h"
 #include "record.h"
 #include "state.h"
+#include "menu.h"
 #include "video.h"
 
 /* The window's own shortcuts: Cmd on the Mac, Ctrl on Windows (where the
@@ -68,6 +69,10 @@ void video_init_audio(void) {
     static const int16_t silence[AUDIO_TARGET];
     SDL_QueueAudio(audio, silence, sizeof silence);
     SDL_PauseAudioDevice(audio, 0);
+}
+
+void video_pause_audio(int on) {
+    if (audio) SDL_PauseAudioDevice(audio, on);
 }
 
 void video_restart_audio(void) {
@@ -179,7 +184,14 @@ static void handle_events(void) {
         if (e.type == SDL_QUIT) exit(0);
         if (e.type == SDL_MOUSEMOTION) mouse_seen = 1;
         gamepad_event(&e);
-        if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_ESCAPE) exit(0);
+        /* Esc: the pause menu (PLAN-pause.md), or, in it, back to the
+           game. A music file has no menu: Esc quits it. */
+        if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_ESCAPE && !e.key.repeat) {
+            if (menu_is_open()) menu_key(MENU_BACK, NULL);
+            else if (!runtime_has_menu()) exit(0);
+            else menu_request();
+            continue;
+        }
         if (e.type == SDL_KEYDOWN && (e.key.keysym.mod & CMD_KEY) && !e.key.repeat) {
             /* Cmd+= / Cmd+-: a whole step bigger or smaller; Cmd+F: full
                screen; Cmd+S / Cmd+L: save / load a state; Cmd+1 to
@@ -194,6 +206,19 @@ static void handle_events(void) {
                 int full = SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN_DESKTOP;
                 SDL_SetWindowFullscreen(window, full ? 0 : SDL_WINDOW_FULLSCREEN_DESKTOP);
             }
+            continue;
+        }
+        /* While the menu is open, the keys are its own. */
+        if (e.type == SDL_KEYDOWN && menu_is_open()) {
+            SDL_Keycode k = e.key.keysym.sym;
+            if (k == SDLK_UP) menu_key(MENU_UP, NULL);
+            else if (k == SDLK_DOWN) menu_key(MENU_DOWN, NULL);
+            else if (k == SDLK_LEFT) menu_key(MENU_LEFT, NULL);
+            else if (k == SDLK_RIGHT) menu_key(MENU_RIGHT, NULL);
+            else if (!e.key.repeat && (k == SDLK_RETURN || k == SDLK_KP_ENTER ||
+                                       k == SDLK_SPACE || k == SDLK_x))
+                menu_key(MENU_OK, NULL);
+            else if (!e.key.repeat && k == SDLK_z) menu_key(MENU_BACK, NULL);
             continue;
         }
         if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_m && !e.key.repeat)
@@ -235,7 +260,22 @@ int video_rewind_held(void) {
     return SDL_GetKeyboardState(NULL)[SDL_SCANCODE_BACKSPACE] != 0;
 }
 
+/* Buttons held when the menu closed (Return is Start too): not seen by
+   the game until they're let go, so closing the menu presses nothing. */
+static uint8_t held_mask[4];
+static uint8_t raw_buttons(int player);
+
+void video_ignore_held(void) {
+    for (int p = 0; p < 4; p++) held_mask[p] = raw_buttons(p);
+}
+
 uint8_t video_buttons(int player) {
+    uint8_t b = raw_buttons(player);
+    held_mask[player] &= b;
+    return b & (uint8_t)~held_mask[player];
+}
+
+static uint8_t raw_buttons(int player) {
     const Uint8 *keys = SDL_GetKeyboardState(NULL);
     uint8_t b = 0;
     if (player < 2)             /* the keyboard has room for two players */

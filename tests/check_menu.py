@@ -1,0 +1,239 @@
+#!/usr/bin/env python3
+"""The pause menu (PLAN-pause.md step 1), headless, driven by input-script
+menu lines ("100 menu down ok", see runtime/main.c).
+
+- Its pictures: the menu's box and text, pixel by pixel, against what
+  runtime/menu.c's layout and the runtime's 5x7 font say they should be
+  (the cursor on RESUME; on SLOT after picking slot 2; a saved slot's
+  date), and the game behind it darkened.
+- SAVE STATE then LOAD STATE from the menu: the frames after the load
+  are the frames after the save, fingerprint for fingerprint, and the
+  slot's file is written.
+- RESET from the menu: the same frames as the script's own reset word
+  (as R does).
+- The slot picked in the menu is the file written: slot 2 writes
+  .state2, not .state1.
+- Opening and closing happen at the same frame (no game runs meanwhile).
+
+How the menu changes nothing over the whole suite is in
+tests/check_states.py.
+
+    python3 tests/check_menu.py
+"""
+import os
+import re
+import shutil
+import sys
+import time
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import run_tests  # noqa: E402
+import toolchain  # noqa: E402
+
+ROOT = run_tests.ROOT
+OUT = os.path.join(ROOT, "build", "menu")
+GAMES = [("tests/mmc3_split.nes", None), ("tests/fds_demo.fds", "tests/inputs/fds_demo.txt")]
+
+failures = 0
+
+
+def check(what, ok, why=""):
+    global failures
+    print(("ok    " if ok else "FAIL  ") + what + ("" if ok else ": " + why))
+    failures += not ok
+
+
+def layout():
+    src = open(os.path.join(ROOT, "runtime", "menu.c")).read()
+    d = {k: int(v, 0) for k, v in re.findall(r"#define (MENU_\w+|INK_\w+) (0x[0-9A-F]+|\d+)", src)}
+    return d
+
+
+def font():
+    src = open(os.path.join(ROOT, "runtime", "nsf.c")).read()
+    body = src.split("font[64][7] = {", 1)[1].split("};", 1)[0]
+    vals = [int(v, 16) for v in re.findall(r"0x([0-9A-F]{2})", body)]
+    return [vals[i * 7:i * 7 + 7] for i in range(64)]
+
+
+def text_pixels(fnt, s, x0, y0):
+    """draw_text_5x7's lit pixels."""
+    on = set()
+    for i, ch in enumerate(s):
+        o = ord(ch.upper())
+        if o < 0x20 or o > 0x5F:
+            o = ord("?")
+        g = fnt[o - 0x20]
+        for r in range(7):
+            for c in range(5):
+                if g[r] & (0x10 >> c):
+                    on.add((x0 + i * 6 + c, y0 + r))
+    return on
+
+
+def expected_box(L, fnt, cursor, slot, info):
+    """The menu's box as menu.c draws it: {(x, y): colour}."""
+    want = {}
+    x0, y0, w, h = L["MENU_BOX_X"], L["MENU_BOX_Y"], L["MENU_BOX_W"], L["MENU_BOX_H"]
+    for y in range(y0 - 1, y0 + h + 1):
+        for x in range(x0 - 1, x0 + w + 1):
+            inside = x0 <= x < x0 + w and y0 <= y < y0 + h
+            want[(x, y)] = L["INK_BOX"] if inside else L["INK_EDGE"]
+    title = "PAUSED"
+    for p in text_pixels(fnt, title, 128 - (len(title) * 6 - 1) // 2, L["MENU_TITLE_Y"]):
+        want[p] = L["INK_TITLE"]
+    items = ["RESUME", "SAVE STATE", "LOAD STATE", "SLOT  < %d >" % slot, "RESET", "QUIT"]
+    for i, name in enumerate(items):
+        y = L["MENU_ITEM_Y"] + i * L["MENU_LINE_H"]
+        for p in text_pixels(fnt, name, L["MENU_ITEM_X"], y):
+            want[p] = L["INK_PICKED"] if i == cursor else L["INK_ITEM"]
+        if i == 3:
+            for p in text_pixels(fnt, info, L["MENU_INFO_X"], y):
+                want[p] = L["INK_ITEM"]
+    for p in text_pixels(fnt, ">", L["MENU_CURSOR_X"], L["MENU_ITEM_Y"] + cursor * L["MENU_LINE_H"]):
+        want[p] = L["INK_CURSOR"]
+    return want
+
+
+def read_raw(path):
+    d = open(path, "rb").read()
+    return [d[i] | d[i + 1] << 8 for i in range(0, len(d), 2)]
+
+
+def picture_ok(path, want):
+    if not os.path.exists(path):
+        return "no picture"
+    pic = read_raw(path)
+    if len(pic) != 256 * 240:
+        return "%d pixels, not 256x240" % len(pic)
+    bad = sum(1 for (x, y), c in want.items() if pic[y * 256 + x] != c)
+    # The game behind it, darkened: only the palette's two darkest rows'
+    # colours (0x00-0x1C) and black.
+    lit = sum(1 for i, c in enumerate(pic) if (i % 256, i // 256) not in want and
+              (c > 0x1C or (c & 0x0F) == 0x0D) and c != 0x0F)
+    if bad or lit:
+        return "%d pixel(s) of the menu differ, %d behind it not darkened" % (bad, lit)
+    return None
+
+
+def build(rom, cflags, libs, rt_objs):
+    ident = re.sub(r"[^A-Za-z0-9_.-]", "_", rom)
+    c_file = os.path.join(OUT, ident + ".c")
+    exe = os.path.join(OUT, ident + toolchain.EXE)
+    path = os.path.join(ROOT, rom)
+    args = [toolchain.recompiler(), path, "-o", c_file]
+    if os.path.exists(path + ".missed"):
+        args += ["--missed", path + ".missed"]
+    r = run_tests.sh(args, cwd=ROOT)
+    if r.returncode:
+        sys.exit("recompile error: " + r.stderr[-300:])
+    r = run_tests.sh(toolchain.cc() + ["-O1", "-Iruntime"] + cflags + ["-o", exe, c_file] +
+                     rt_objs + libs, cwd=ROOT)
+    if r.returncode:
+        sys.exit("compile error: " + r.stderr[:300])
+    return exe
+
+
+def run(exe, rom, script_lines, base_script, frames, tag, files):
+    """Run headless with the game's script plus `script_lines`; returns
+    (stderr, the frames' fingerprints, 32 bytes each)."""
+    script = os.path.join(OUT, tag + ".txt")
+    with open(script, "w") as f:
+        if base_script:
+            f.write(open(os.path.join(ROOT, base_script)).read() + "\n")
+        f.write("\n".join(script_lines) + "\n")
+    prints = os.path.join(OUT, tag + ".prints")
+    r = run_tests.sh([exe, os.path.join(ROOT, rom), "--headless", "--no-save",
+                      "--files-at", files, "--frames", str(frames), "--input", script,
+                      "--prints-out", prints], cwd=ROOT, timeout=120)
+    data = open(prints, "rb").read() if os.path.exists(prints) else b""
+    return r.stderr, [data[i:i + 32] for i in range(0, len(data), 32)]
+
+
+def main():
+    shutil.rmtree(OUT, ignore_errors=True)
+    os.makedirs(OUT)
+    cflags, libs = run_tests.sdl_flags()
+    rt_objs = run_tests.build_runtime(cflags)
+    L, fnt = layout(), font()
+    for rom, base in GAMES:
+        name = os.path.basename(rom)
+        exe = build(rom, cflags, libs, rt_objs)
+        files = os.path.join(OUT, name + ".pics")
+        a, b, c = (os.path.join(OUT, name + x + ".raw") for x in (".a", ".b", ".c"))
+        # Pictures: as it opens; on SLOT after picking 2; then slot 1 saved.
+        err, _ = run(exe, rom, ["60 menu shot=%s back" % a,
+                                "61 menu down down down right shot=%s left back" % b,
+                                "62 menu down ok",
+                                "63 menu shot=%s back" % c], base, 70, name + ".pics", files)
+        check("%s: the menu as it opens" % name,
+              not picture_ok(a, expected_box(L, fnt, 0, 1, "EMPTY")),
+              picture_ok(a, expected_box(L, fnt, 0, 1, "EMPTY")) or "")
+        why = picture_ok(b, expected_box(L, fnt, 3, 2, "EMPTY"))
+        check("%s: the menu on SLOT, slot 2 picked" % name, not why, why or "")
+        saved = files + ".state1"
+        info = "?"
+        if os.path.exists(saved):
+            t = time.localtime(os.path.getmtime(saved))
+            info = "%d %s %02d:%02d" % (t.tm_mday, time.strftime("%b", t).upper(), t.tm_hour, t.tm_min)
+        why = picture_ok(c, expected_box(L, fnt, 0, 1, info))
+        check("%s: a saved slot shows its date (%s)" % (name, info), not why, why or "")
+        opened = re.findall(r"frame (\d+): MENU\n", err)
+        closed = re.findall(r"frame (\d+): MENU CLOSED", err)
+        check("%s: the menu opens at the frames asked for, and closes there" % name,
+              opened == closed == ["60", "61", "62", "63"], "opened %s, closed %s" % (opened, closed))
+
+        # SAVE at 40, LOAD at 100: the frames after the load are those after the save.
+        files = os.path.join(OUT, name + ".saveload")
+        err, rows = run(exe, rom, ["40 menu down ok", "100 menu down down ok"], base, 200,
+                        name + ".saveload", files)
+        same = len(rows) >= 160 and all(rows[100 + k] == rows[40 + k] for k in range(60))
+        check("%s: SAVE then LOAD from the menu plays the same frames again" % name,
+              same and "SLOT 1 SAVED" in err and "SLOT 1 LOADED" in err,
+              "%d frames; %s" % (len(rows), err[-300:]))
+        check("%s: SAVE wrote the slot's file" % name, os.path.exists(files + ".state1"),
+              "no " + files + ".state1")
+
+        # RESET from the menu, and the script's reset word, at frame 50.
+        _, menu_rows = run(exe, rom, ["50 menu down down down down ok"], base, 150,
+                           name + ".reset_menu", os.path.join(OUT, name + ".rm"))
+        _, word_rows = run(exe, rom, ["50 reset"] if not base else [], base, 150,
+                           name + ".reset_word", os.path.join(OUT, name + ".rw"))
+        if base:    # the reset word goes in the game's own script, in order
+            lines = open(os.path.join(ROOT, base)).read().splitlines()
+            merged = os.path.join(OUT, name + ".reset_word.base.txt")
+            keep = [ln for ln in lines if not ln.strip() or ln.lstrip().startswith("#")
+                    or int(ln.split()[0]) < 50]
+            later = [ln for ln in lines if ln.strip() and not ln.lstrip().startswith("#")
+                     and int(ln.split()[0]) >= 50]
+            # The buttons held at frame 50 stay held (a line replaces them all).
+            held = ""
+            for ln in keep:
+                if ln.strip() and not ln.lstrip().startswith("#"):
+                    held = " ".join(w for w in ln.split()[1:] if not w.startswith(("disk=", "record", "snap")))
+            open(merged, "w").write("\n".join(keep + ["50 reset " + held] + later) + "\n")
+            _, word_rows = run(exe, rom, [], os.path.relpath(merged, ROOT), 150,
+                               name + ".reset_word", os.path.join(OUT, name + ".rw"))
+        _, plain_rows = run(exe, rom, [], base, 150, name + ".plain", os.path.join(OUT, name + ".pl"))
+        check("%s: the reset changes the game (or the next check proves nothing)" % name,
+              menu_rows != plain_rows, "the same frames as with no reset")
+        check("%s: RESET from the menu is the reset button" % name,
+              len(menu_rows) == 150 and menu_rows == word_rows,
+              "%d and %d frames, first different: %s" % (
+                  len(menu_rows), len(word_rows),
+                  next((i + 1 for i, (p, q) in enumerate(zip(menu_rows, word_rows)) if p != q), "-")))
+
+        # Slot 2 picked, then SAVE: .state2, not .state1.
+        files = os.path.join(OUT, name + ".slot")
+        run(exe, rom, ["40 menu down down down right up up ok"], base, 60, name + ".slot", files)
+        check("%s: SAVE after picking slot 2 writes slot 2" % name,
+              os.path.exists(files + ".state2") and not os.path.exists(files + ".state1"),
+              "state1 %s, state2 %s" % (os.path.exists(files + ".state1"),
+                                       os.path.exists(files + ".state2")))
+    print("\nall menu checks pass" if not failures else "\n%d menu check(s) failed" % failures)
+    sys.exit(1 if failures else 0)
+
+
+if __name__ == "__main__":
+    main()

@@ -26,6 +26,12 @@ void runtime_state_key(int what);
 void runtime_state_slot(int n);
 /* Empty the sound queue and start again from silence (after a load). */
 void video_restart_audio(void);
+/* The speakers paused (1) or going again (0): the pause menu. */
+void video_pause_audio(int on);
+/* Buttons held now are ignored until let go (the menu closing). */
+void video_ignore_held(void);
+/* main.c: whether the game has a pause menu (not a music file). */
+int runtime_has_menu(void);
 /* Text in the runtime's 5x7 font (nsf.c), 6 pixels a character, with
    its top left at (x, y), in NES colour `ink`. */
 void draw_text_5x7(uint16_t *fb, int x, int y, const char *s, uint16_t ink);

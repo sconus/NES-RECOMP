@@ -3,6 +3,8 @@
 #                           the game controller mapping and header reading
 #   make test-ppu           run tests/suite.txt (needs the test ROM clone)
 #   make test-all           both
+#   make test-menu          the pause menu: its pictures, save, load, reset and
+#                           slots through it (tests/check_menu.py, PLAN-pause.md)
 #   make test-states        save a state mid-run and load it, for every ROM in
 #                           the suite (tests/check_states.py, PLAN-savestates.md)
 #   make game ROM=x.nes     recompile any NROM game into build/<name>
@@ -74,11 +76,15 @@ test-ppu: $(RECOMP)
 	python3 tests/run_tests.py
 	python3 tests/check_bandai_save.py
 
-test-all: test test-ppu test-app test-record test-states
+test-all: test test-ppu test-app test-record test-states test-menu
 
 # --- save states (runtime/state.c, PLAN-savestates.md) -----------------
 test-states: $(RECOMP)
 	python3 tests/check_states.py
+
+# --- the pause menu (runtime/menu.c, PLAN-pause.md) ------------------------
+test-menu: $(RECOMP)
+	python3 tests/check_menu.py
 
 # --- recording (runtime/record_mac.m, PLAN-standalone.md step 6) ---------
 test-record: $(RECOMP)
