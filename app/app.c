@@ -484,7 +484,7 @@ static void draw_about(long n) {
     text("BY SERGE AND CLAUDE", SCREEN_CX, y + 42, 1, white, 1);
     text("FREE SOFTWARE UNDER", SCREEN_CX, y + 54, 1, dim, 1);
     text("THE MIT LICENSE", SCREEN_CX, y + 63, 1, dim, 1);
-    text("SUPPORT IT: PRESS D", SCREEN_CX, y + 77, 1, ink(INK_NEON), 1);   /* support.h */
+    text("SUPPORT IT: PRESS D", SCREEN_CX, y + 74, 1, ink(INK_NEON), 1);   /* support.h; inside the glass's curve */
 }
 
 /* The keys, before a game (or a music file) starts: key, what it does. */

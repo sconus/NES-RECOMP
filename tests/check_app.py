@@ -14,6 +14,10 @@ screenshots (build/nesrecomp-app --screenshot), against app/art.h:
      scanlines shimmer every 6 frames, the power light is off for the
      last 10 frames of each second, and nothing else moves (looked at
      on frames on both sides of the shimmer).
+     4b. the room (PLAN-library.md step 1, the reference picture): the
+     TV's glass solid, the screens' text area on it, the TV's light off
+     it, the shelf's 32 places for boxes; and every screen drawing on the
+     glass only, the room untouched around it.
   5. the other screens, pixel for pixel on the TV: recompiling (the name,
      cut to fit; the tall "RECOMPILING IN PROGRESS"; the bar filled to the
      progress; each stage's name), the error (the message wrapped), done;
@@ -409,6 +413,48 @@ def main():
     moved = [p for p in still for n in frames if frames[n][p[1]][p[0]] != base[p[1]][p[0]]]
     check("nothing else moves", not moved, "%d pixel(s) changed" % len(moved))
 
+    # 4b. the room: the reference picture (PLAN-library.md step 1), its
+    # TV's glass the app's screen.
+    glass = {(x, y) for y in range(H) for x in range(W)
+             if rows[y][x] in (defs["INK_SCREEN"], defs["INK_SCAN"])}
+    holes = []
+    for y in sorted({y for _, y in glass}):
+        xs = [x for x, yy in glass if yy == y]
+        holes += [(x, y) for x in range(min(xs), max(xs) + 1) if (x, y) not in glass]
+    check("the glass: solid, with nothing of the picture left on it", len(glass) > 9000 and not holes,
+          "%d glass pixel(s), %d hole(s), first at %s" % (len(glass), len(holes), holes[:1]))
+    mid_y, mid_x = sy + sh // 2, sx + sw // 2
+    off = [(x, mid_y) for x in range(sx, sx + sw) if (x, mid_y) not in glass] + \
+          [(mid_x, y) for y in range(sy, sy + sh) if (mid_x, y) not in glass]
+    check("the screens' text area: across and down its middle, all on the glass", not off,
+          "%d pixel(s) off it, first at %s" % (len(off), off[:1]))
+    check("the TV's light: there, and off the glass", len(led) >= 4 and not set(led) & glass,
+          "%d light pixel(s)" % len(led))
+    src = open(os.path.join(ROOT, "app", "art.h")).read()
+    slot_x = [int(v) for v in re.search(r"art_slot_x\[ART_SLOTS_ROW\] = \{([^}]*)\}", src).group(1).split(",")]
+    slot_y = [int(v) for v in re.search(r"art_slot_y\[ART_SLOT_ROWS\] = \{([^}]*)\}", src).group(1).split(",")]
+    slot_w, slot_h = defs["ART_SLOT_W"], defs["ART_SLOT_H"]
+    halves = [slot_x[:8], slot_x[8:]]
+    gaps = [b - a - slot_w for h_ in halves for a, b in zip(h_, h_[1:])]
+    check("the shelf: 2 rows of 8 places a side, apart, on the canvas, below the TV",
+          len(slot_x) == 16 and len(slot_y) == 2 and min(gaps) >= 4 and halves[1][0] - halves[0][-1] > slot_w
+          and slot_y[1] - slot_y[0] > slot_h and slot_x[0] >= 0 and slot_x[-1] + slot_w <= W
+          and slot_y[-1] + slot_h <= H and slot_y[0] > max(y for _, y in glass),
+          "x %s, y %s, gaps %s" % (slot_x, slot_y, sorted(set(gaps))))
+    # Every screen draws on the glass only: outside it, the room as it is.
+    for args in (["--show", "build", "--rom", "a rather long game name.nes", "--stage", "2", "--progress", "0.5"],
+                 ["--show", "error", "--message", "NOT AN NES ROM " * 6], ["--show", "done", "--rom", "x.nes"],
+                 ["--show", "needcc"], ["--show", "needcc_clicked"], ["--show", "about"], ["--show", "card"],
+                 ["--show", "card_music"], ["--show", "card_states"], ["--show", "hood"],
+                 ["--show", "play", "--rom", "x.nes"], ["--show", "stopped", "--message", "IT CRASHED"]):
+        path = os.path.join(OUT, "room_%s.png" % args[1])
+        subprocess.run([APP, "--screenshot", path] + args, check=True)
+        img = read_png(path)[2]
+        outside = [(x, y) for y in range(H) for x in range(W)
+                   if rows[y][x] not in animated and img[y][x] != pal[rows[y][x]]]
+        check("the %s screen: the room untouched outside the glass" % args[1], not outside,
+              "%d pixel(s) changed, first at %s" % (len(outside), outside[:1]))
+
     # 5. the other screens
     cx = sx + sw // 2
     dim = pal[defs["INK_MANE_HI"]]
@@ -743,7 +789,7 @@ def main():
                      ("THE MIT LICENSE", 63)):
         d_set |= glyph_pixels(font, text_, cx, sy + y)
     bad = screen_text(img, w_set, d_set)
-    n_set = glyph_pixels(font, "SUPPORT IT: PRESS D", cx, sy + 77)
+    n_set = glyph_pixels(font, "SUPPORT IT: PRESS D", cx, sy + 74)   # (inside the curved glass)
     bad += sum((img[y][x] == neon) != ((x, y) in n_set)
                for y in range(sy, sy + sh) for x in range(sx, sx + sw))
     check("the About screen (with \"SUPPORT IT: PRESS D\" in pink)", not bad, "%d pixel(s) differ" % bad)

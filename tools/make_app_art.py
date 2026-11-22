@@ -30,6 +30,8 @@ one copy of it.
 import os
 import re
 import struct
+import subprocess
+import sys
 import zlib
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -42,54 +44,9 @@ W, H = 640, 360
 # dragon with a purple-blue mane and gold horns, white lettering with a
 # dark outline.
 PALETTE = [
-    ("screen", (0x2A, 0x42, 0x9A)),     # the TV screen's glow (animated)
-    ("scan", (0x22, 0x36, 0x84)),       # its scanlines (animated)
+    ("screen", (0x46, 0x6C, 0xB4)),     # the TV screen's glow (animated)
+    ("scan", (0x3C, 0x5E, 0xA2)),       # its scanlines (animated)
     ("led", (0xE0, 0x20, 0x20)),        # the power light (animated)
-    ("wall0", (0x2C, 0x5C, 0xE8)),      # the wall's evening light, blue...
-    ("wall1", (0x34, 0x48, 0xD8)),
-    ("wall2", (0x44, 0x38, 0xC8)),
-    ("wall3", (0x58, 0x30, 0xB4)),
-    ("wall4", (0x6C, 0x2C, 0xA4)),
-    ("wall5", (0x80, 0x2C, 0x98)),      # ...to purple
-    ("wall_dark", (0x22, 0x2C, 0x9C)),  # the plant's shadow on it
-    ("wall_warm", (0x8C, 0x50, 0xA8)),  # the lamp's light on it
-    ("wall_warm2", (0xB4, 0x74, 0x9C)),
-    ("base", (0x24, 0x18, 0x50)),       # the skirting board
-    ("base_hi", (0x52, 0x44, 0xA0)),
-    ("floor0", (0x4E, 0x2E, 0x4C)),     # the floorboards
-    ("floor1", (0x40, 0x24, 0x42)),
-    ("floor_line", (0x26, 0x14, 0x2A)),
-    ("floor_lit", (0x84, 0x4E, 0x4A)),  # lit by the lamp
-    ("rug", (0x2E, 0x38, 0x94)),        # the rug
-    ("rug_dark", (0x1E, 0x22, 0x68)),
-    ("rug_pat", (0x60, 0x4C, 0xB8)),
-    ("rug_red", (0x90, 0x3C, 0x70)),
-    ("curtain", (0x6C, 0x26, 0x2E)),
-    ("curtain_dark", (0x40, 0x14, 0x20)),
-    ("curtain_hi", (0x98, 0x40, 0x3E)),
-    ("shade", (0xF8, 0xC4, 0x70)),      # the lamp
-    ("shade_hi", (0xFF, 0xE8, 0xB0)),
-    ("shade_dark", (0xC8, 0x84, 0x44)),
-    ("lamp_base", (0x5C, 0x60, 0x88)),
-    ("lamp_base_hi", (0x8C, 0x90, 0xB8)),
-    ("lamp_base_dark", (0x34, 0x36, 0x5C)),
-    ("leaf", (0x2C, 0x8C, 0x50)),       # the plants
-    ("leaf_hi", (0x60, 0xC4, 0x5C)),
-    ("leaf_dark", (0x18, 0x54, 0x40)),
-    ("pot", (0xB4, 0x56, 0x34)),
-    ("pot_hi", (0xDC, 0x80, 0x4C)),
-    ("pot_dark", (0x76, 0x30, 0x26)),
-    ("chair", (0x8E, 0x46, 0x36)),      # the armchair
-    ("chair_hi", (0xB2, 0x62, 0x46)),
-    ("chair_dark", (0x5C, 0x2A, 0x32)),
-    ("shelf_top", (0x9A, 0x60, 0x38)),  # the shelf and the TV stand
-    ("shelf_top_hi", (0xC0, 0x84, 0x4E)),
-    ("shelf_top_warm", (0xD0, 0x96, 0x58)),
-    ("shelf_front", (0x76, 0x48, 0x2A)),
-    ("shelf_front_dark", (0x58, 0x34, 0x22)),
-    ("shelf_grain", (0x66, 0x3E, 0x26)),
-    ("shelf_in", (0x2C, 0x1A, 0x1A)),   # inside it
-    ("shelf_in2", (0x1E, 0x10, 0x14)),
     ("shadow", (0x16, 0x0C, 0x20)),
     ("icon_wall0", (0x34, 0x26, 0xA8)),  # the icon's room (draw_icon): its wall...
     ("icon_wall1", (0x50, 0x26, 0xA0)),
@@ -139,7 +96,7 @@ PALETTE = [
 IDX = {name: i for i, (name, _) in enumerate(PALETTE)}
 
 # Where things are, for the app.
-SCREEN = (262, 40, 116, 86)             # the TV screen: x, y, w, h
+SCREEN = (253, 43, 116, 86)             # where the TV screens' words go: x, y, w, h
 ICON_SCREEN = (92, 24, 116, 86)         # the icon's (draw_icon)
 
 # 4x4 ordered dither, for the wall's gradient.
@@ -157,7 +114,7 @@ def font():
 
 class Canvas:
     def __init__(self):
-        self.px = [[IDX["wall0"]] * W for _ in range(H)]
+        self.px = [[IDX["shadow"]] * W for _ in range(H)]
 
     def put(self, x, y, c):
         if 0 <= x < W and 0 <= y < H:
@@ -389,82 +346,6 @@ def console(c, x, y):
     c.rect(x + 115, y, w - 115, 1, "grey_hi")
 
 
-def dith(x, y, t, names):
-    """One of names (dark to light, or along a gradient) for t in 0-1,
-    dithered with the 4x4 pattern so the steps blend."""
-    v = t * (len(names) - 1) + (BAYER[y % 4][x % 4] / 16 - 0.5)
-    return names[max(0, min(len(names) - 1, int(round(v))))]
-
-
-def poly(c, pts, col):
-    """A filled polygon straight onto the canvas."""
-    s = Sprite()
-    s.poly(pts, col)
-    for (x, y), cc in s.px.items():
-        c.put(x, y, cc)
-
-
-def leaf(sp, bx, by, ang, length, width, droop=0.0):
-    """A pointed leaf from (bx, by) at angle ang (degrees, 0 = right, -90
-    = up), curving down by droop; lit along one side, a light midrib."""
-    import math
-    a = math.radians(ang)
-    dx, dy = math.cos(a), math.sin(a)
-    nx, ny = -dy, dx
-    left, right, mid = [], [], []
-    for i in range(13):
-        t = i / 12
-        w = width * math.sin(math.pi * t) ** 0.8
-        cx = bx + dx * length * t
-        cy = by + dy * length * t + droop * length * t * t
-        left.append((cx + nx * w, cy + ny * w))
-        right.append((cx - nx * w, cy - ny * w))
-        mid.append((cx, cy))
-    sp.poly(left + right[::-1], "leaf")
-    sp.poly(mid + right[::-1], "leaf_dark")
-    for x, y in mid[1:-2]:
-        sp.put(x, y, "leaf_hi")
-    for x, y in left[2:-3]:
-        sp.put(x, y, "leaf_hi")
-
-
-def plant(c, x, y, scale=1.0, leaves=None):
-    """A potted plant: its pot's top rim at (x, y), its centre; leaves
-    fanning up and out."""
-    sp = Sprite()
-    if leaves is None:
-        leaves = [(-160, 40, 9, 0.9), (-132, 52, 10, 0.5), (-108, 64, 10, 0.2), (-80, 68, 10, 0.1),
-                  (-52, 54, 10, 0.4), (-22, 40, 9, 0.9), (-145, 30, 8, 1.0), (-94, 44, 9, 0.2),
-                  (-66, 46, 9, 0.3), (-36, 28, 8, 1.0)]
-    for ang, ln, wd, dr in leaves:
-        leaf(sp, x, y - 2, ang, ln * scale, wd * scale, dr)
-    sp.stamp(c)
-    pw, ph = int(18 * scale), int(26 * scale)
-    pot = Sprite()
-    pot.poly([(x - pw, y + 4), (x + pw, y + 4), (x + pw * 0.75, y + ph), (x - pw * 0.75, y + ph)], "pot")
-    pot.poly([(x + pw * 0.2, y + 4), (x + pw, y + 4), (x + pw * 0.75, y + ph), (x + pw * 0.1, y + ph)],
-             "pot_dark")
-    for yy in range(y - 2, y + 5):
-        for xx in range(x - pw - 2, x + pw + 3):
-            pot.put(xx, yy, "pot_hi" if yy < y + 1 else "pot")
-    pot.stamp(c)
-
-
-def controller(c, x, y):
-    """A pad of the era, our own shape: a light grey slab with a black
-    face, a cross, two small grey keys and two red buttons."""
-    c.rect(x - 1, y - 1, 46, 17, "outline")
-    c.rect(x, y, 44, 15, "grey_top")
-    c.rect(x, y, 44, 1, "grey_hi")
-    c.rect(x + 2, y + 3, 40, 10, "black")
-    c.rect(x + 6, y + 7, 7, 2, "grey_deep")       # the cross
-    c.rect(x + 8, y + 5, 3, 6, "grey_deep")
-    c.rect(x + 17, y + 8, 4, 2, "grey")           # select, start
-    c.rect(x + 23, y + 8, 4, 2, "grey")
-    c.disc(x + 32, y + 9, 2, "red")
-    c.disc(x + 38, y + 9, 2, "red")
-
-
 def cartridge_sprite():
     """The little cartridge and arrow on the drop screen: rows of palette
     names, None for see-through. 15 wide, 24 high."""
@@ -499,196 +380,229 @@ def cartridge_sprite():
     return [[key[ch] for ch in row] for row in rows]
 
 
-def draw():
-    c = Canvas()
-    import math
-    # The wall: the evening light, bright blue at the left (from the
-    # window behind the curtain) to purple at the right, dithered.
-    for y in range(96):
-        for x in range(W):
-            t = (x / W) * 0.85 + (y / 96) * 0.15
-            c.put(x, y, dith(x, y, t, ["wall0", "wall1", "wall2", "wall3", "wall4", "wall5"]))
-    # The plant's shadow on the wall, cast by the window's light.
-    sh = Sprite()
-    for ang, ln, wd in ((-140, 44, 8), (-115, 56, 8), (-90, 62, 8), (-65, 54, 8), (-40, 42, 8),
-                        (-160, 30, 6), (-20, 30, 6)):
-        leaf(sh, 100, 92, ang, ln, wd, 0.3)
-    for (x, y) in sh.px:
-        if y < 96 and (x + y) % 2 == 0 or y < 96 and BAYER[y % 4][x % 4] < 12:
-            c.put(x, y, "wall_dark")
-    # The skirting board.
-    c.rect(0, 96, W, 4, "base")
-    c.rect(0, 96, W, 1, "base_hi")
-    # The floor: boards running across, their joins further apart nearer.
-    joins = [100]
-    gap = 5.0
-    while joins[-1] < H:
-        joins.append(int(joins[-1] + gap))
-        gap *= 1.18
-    for k in range(len(joins) - 1):
-        y0, y1 = joins[k], joins[k + 1]
-        for y in range(y0, min(y1, H)):
-            for x in range(W):
-                c.put(x, y, "floor0" if k % 2 else "floor1")
-        c.rect(0, y0, W, 1, "floor_line")
-        for x in range((k * 53) % 97, W, 97 + k * 7):
-            c.rect(x, y0, 1, y1 - y0, "floor_line")
-    # The rug, seen in perspective, with a border and a pattern.
-    top, bot = 114, 186
-    for y in range(top, bot):
-        t = (y - top) / (bot - top)
-        xl, xr = int(118 - 50 * t), int(522 + 50 * t)
-        for x in range(xl, xr):
-            edge = min(x - xl, xr - 1 - x, (y - top) * 2, (bot - 1 - y) * 2)
-            col = "rug"
-            if edge < 2:
-                col = "rug_dark"
-            elif edge < 6:
-                col = "rug_pat" if (x + y) % 4 < 2 else "rug_red"
-            elif edge < 8:
-                col = "rug_dark"
-            elif (abs((x - 320) % 40 - 20) + abs((y - 150) % 18 - 9) * 2) in (14, 15):
-                col = "rug_pat"
-            c.put(x, y, col)
-    # The curtain at the left, in folds.
-    for y in range(0, 190):
-        for x in range(0, 30 + (y > 150) * (y - 150) // 6):
-            f = (x * 3 + (y // 40)) % 12
-            c.put(x, y, "curtain_hi" if f < 2 else "curtain_dark" if f > 8 else "curtain")
-    c.rect(0, 0, 40, 3, "outline")              # the rail
-    # The plant at the back, on the floor.
-    plant(c, 168, 84, 1.0)
-    # The sign on the wall, a framed picture (top right).
-    c.outline_rect(446, 6, 78, 46, "wood", r=0)
-    c.rect(446, 6, 78, 1, "wood3")
-    c.rect(450, 10, 70, 38, "shadow")
-    c.text("NES RECOMP", 485, 13, c="text")
-    c.text("POLYGON", 485, 25, c="neon")
-    c.text("LEGENDS", 485, 35, c="neon")
-    # The armchair at the back right, turned a little towards us: a tall
-    # back with a rounded top and two buttons, a seat cushion, two
-    # rolled arms.
-    chair = Sprite()
-    chair.ellipse(584, 58, 48, 22, "chair")             # the back's top
-    for y in range(58, 128):
-        for x in range(536, 633):
-            chair.put(x, y, "chair")
-    for (x, y) in list(chair.px):
-        if x > 616:
-            chair.put(x, y, "chair_dark")               # its far side, in shade
-        elif y < 46 and x < 600:
-            chair.put(x, y, "chair_hi")                 # lit along the top
-    for bx in (566, 598):                               # the buttons
-        chair.put(bx, 74, "chair_dark"); chair.put(bx + 1, 75, "chair_dark")
-        chair.put(bx - 1, 75, "chair_dark"); chair.put(bx, 76, "chair_dark")
-    for y in range(108, 124):                           # the seat cushion
-        for x in range(530, 632):
-            chair.put(x, y, "chair_hi" if y < 111 else "chair")
-    for y in range(124, 148):                           # the front, under the seat
-        for x in range(528, 632):
-            chair.put(x, y, "chair_dark")
-    chair.ellipse(521, 100, 13, 9, "chair_hi")          # the near arm, rolled
-    for y in range(100, 150):
-        for x in range(508, 535):
-            chair.put(x, y, "chair" if x < 529 else "chair_dark")
-    chair.ellipse(521, 101, 7, 5, "chair")
-    chair.ellipse(636, 96, 10, 8, "chair_dark")         # the far arm
-    chair.stamp(c)
-    c.rect(504, 150, 136, 3, "shadow")
-    # The shelf's top, seen from a little above, then its front.
-    for y in range(188, 210):
-        for x in range(10, 630):
-            c.put(x, y, "shelf_grain" if (y - 188) % 6 == 5 and (x * 7 + y) % 90 > 20 else "shelf_top")
-    c.rect(10, 188, 620, 1, "shelf_front_dark")
-    c.rect(10, 209, 620, 5, "shelf_top_hi")
-    c.rect(10, 213, 620, 1, "shelf_front_dark")
-    c.rect(16, 214, 608, 128, "shelf_front")
-    c.rect(16, 214, 608, 2, "shelf_front_dark")
-    for (x0, x1) in ((24, 317), (323, 616)):
-        for (y0, y1) in ((222, 270), (278, 326)):
-            for y in range(y0, y1):
-                for x in range(x0, x1):
-                    c.put(x, y, "shelf_in2" if y < y0 + 3 or x < x0 + 2 else "shelf_in")
-            c.rect(x0 - 1, y1, x1 - x0 + 2, 1, "shelf_top_hi")   # the board's lit edge
-    c.rect(16, 342, 608, 4, "shadow")
-    for x in (16, 623):
-        c.rect(x, 214, 1, 128, "shelf_front_dark")
-    # The lamp's warm light on the wall, the floor and the shelf top.
-    lx, ly = 66, 128
-    warm = {"wall0": ["wall_warm", "wall_warm2"], "wall1": ["wall_warm", "wall_warm2"],
-            "wall2": ["wall_warm", "wall_warm2"], "wall_dark": ["wall_warm", "wall_warm"],
-            "floor0": ["floor_lit", "floor_lit"], "floor1": ["floor_lit", "floor_lit"],
-            "shelf_top": ["shelf_top_hi", "shelf_top_warm"], "shelf_grain": ["shelf_top", "shelf_top_hi"],
-            "curtain": ["curtain_hi", "curtain_hi"], "curtain_dark": ["curtain", "curtain"]}
-    names = {v: k for k, v in IDX.items()}
-    for y in range(0, 214):
-        for x in range(0, 200):
-            d = math.hypot((x - lx) / 1.25, y - ly) / 80
-            if d >= 1:
+# ---- the room: the reference picture itself (PLAN-library.md) ----
+
+REFERENCE = os.path.join(ROOT, "design", "library-reference.jpg")
+REF_CROP = (21, 1387)                   # its 16:9 middle, of its 1408 columns
+# The shelf's boxes in the picture: 2 rows of 8 a side. Where each box
+# stands (its left x, its top y), all 30x47; the app puts the games'
+# boxes there (step 4), and until then a placeholder.
+SLOT_W, SLOT_H = 30, 47
+SLOT_X = ([26 + round(k * 36.6) for k in range(8)] + [326 + round(k * 36.4) for k in range(8)])
+SLOT_Y = [230, 292]
+# Inside the shelf, where the painted boxes are cleared: each half-row's
+# box columns (x0, x1) and its height (y0, y1); the back's colour on each
+# line is taken from the gaps between the painted boxes (GAPS).
+CLEAR_X = [(25, 315), (325, 612)]
+CLEAR_Y = [(222, 279), (286, 340)]
+GAPS = [[59, 96, 132, 169, 205, 242, 279], [359, 396, 432, 468, 504, 540, 577]]
+GLASS_SEED = (312, 60)                  # a pixel on the TV's glass
+LED = (394, 35)                         # the TV's little light (2x2)
+ROOM_COLOURS = 1000                     # the picture's colours, kept
+
+
+def read_png_rgb(path):
+    """A PNG's pixels as rows of (r, g, b) (8-bit RGB or RGBA)."""
+    d = open(path, "rb").read()
+    i, idat = 8, b""
+    while i < len(d):
+        n = struct.unpack(">I", d[i:i + 4])[0]
+        t, body = d[i + 4:i + 8], d[i + 8:i + 8 + n]
+        if t == b"IHDR":
+            w, h, depth, ctype = struct.unpack(">IIBB", body[:10])
+            assert depth == 8 and ctype in (2, 6), (depth, ctype)
+        elif t == b"IDAT":
+            idat += body
+        i += 12 + n
+    raw = zlib.decompress(idat)
+    bpp = 4 if ctype == 6 else 3
+    stride = w * bpp
+    rows, prev, p = [], bytearray(stride), 0
+    for _ in range(h):
+        f = raw[p]
+        r = bytearray(raw[p + 1:p + 1 + stride])
+        p += 1 + stride
+        for x in range(stride):
+            a = r[x - bpp] if x >= bpp else 0
+            b = prev[x]
+            c = prev[x - bpp] if x >= bpp else 0
+            if f == 1:
+                r[x] = (r[x] + a) & 255
+            elif f == 2:
+                r[x] = (r[x] + b) & 255
+            elif f == 3:
+                r[x] = (r[x] + (a + b) // 2) & 255
+            elif f == 4:
+                pa, pb, pc = abs(b - c), abs(a - c), abs(a + b - 2 * c)
+                r[x] = (r[x] + (a if pa <= pb and pa <= pc else b if pb <= pc else c)) & 255
+        rows.append([tuple(r[x * bpp:x * bpp + 3]) for x in range(w)])
+        prev = r
+    return rows
+
+
+def shrink(rows, x0, x1, nw, nh):
+    """rows' columns x0-x1 averaged down to nw x nh: each new pixel the
+    mean of the area it covers (parts of pixels counted in part)."""
+    def spans(n_src, n_dst):
+        k, out = n_src / n_dst, []
+        for d in range(n_dst):
+            a, b, s, ws = d * k, (d + 1) * k, int(d * k), []
+            while s < b - 1e-9:
+                ws.append((s, min(b, s + 1) - max(a, s)))
+                s += 1
+            out.append(ws)
+        return out
+    wx, wy = spans(x1 - x0, nw), spans(len(rows), nh)
+    across = [[tuple(sum(row[x0 + s][c] * w for s, w in ws) / sum(w for _, w in ws) for c in range(3))
+               for ws in wx] for row in rows]
+    return [[tuple(int(round(sum(across[s][x][c] * w for s, w in ws) / sum(w for _, w in ws)))
+                   for c in range(3)) for x in range(nw)] for ws in wy]
+
+
+def reference():
+    """The reference picture at 640x360 (rows of RGB)."""
+    if not os.path.exists(REFERENCE):
+        sys.exit("the room is design/library-reference.jpg (PLAN-library.md), and it isn't there")
+    tmp = os.path.join(ROOT, "build", "library-reference.png")
+    os.makedirs(os.path.dirname(tmp), exist_ok=True)
+    subprocess.run(["sips", "-s", "format", "png", REFERENCE, "--out", tmp], check=True,
+                   capture_output=True)
+    return shrink(read_png_rgb(tmp), REF_CROP[0], REF_CROP[1], W, H)
+
+
+def mix(a, b, t):
+    return tuple(int(round(a[i] + (b[i] - a[i]) * t)) for i in range(3))
+
+
+def placeholder(rgb, x0, y0, back):
+    """An empty place on the shelf: the faint outline of a box in the
+    shelf's own shadows (its window, the little label and sticker), as if
+    one had stood there in the dust."""
+    for y in range(y0, y0 + SLOT_H):
+        for x in range(x0, x0 + SLOT_W):
+            edge = x in (x0, x0 + SLOT_W - 1) or y in (y0, y0 + SLOT_H - 1)
+            if edge:
+                col = mix(back, (190, 160, 220), 0.12)
+            else:
+                col = mix(back, (190, 160, 220), 0.04)
+            rgb[y][x] = col
+    for y in range(y0 + 5, y0 + 23):                    # the window
+        for x in range(x0 + 4, x0 + SLOT_W - 4):
+            inner = x0 + 5 <= x < x0 + SLOT_W - 5 and y0 + 6 <= y < y0 + 22
+            rgb[y][x] = mix(back, (0, 0, 0), 0.3) if inner else mix(back, (190, 160, 220), 0.1)
+    for x in range(x0 + 4, x0 + 10):                    # the label
+        rgb[y0 + 41][x] = mix(back, (190, 160, 220), 0.12)
+    for (dx, dy) in ((1, 0), (2, 0), (0, 1), (1, 1), (2, 1), (3, 1), (1, 2), (2, 2)):
+        x, y = x0 + 21 + dx, y0 + 39 + dy                # the sticker
+        rgb[y][x] = mix(back, (190, 160, 220), 0.12)
+
+
+def glass(rgb):
+    """The TV's glass in the picture: every pixel joined to GLASS_SEED by
+    pixels brighter than its dark rim."""
+    seen, todo = set(), [GLASS_SEED]
+    while todo:
+        x, y = todo.pop()
+        if (x, y) in seen or sum(rgb[y][x]) < 210:
+            continue
+        seen.add((x, y))
+        todo += [(x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)]
+    # Then everything inside its outline (the glass curves outwards only):
+    # the words and the cartridge painted on it go too, and the edge is
+    # clean. The outline: the convex hull of the pixels' corners.
+    pts = sorted({(x + dx, y + dy) for x, y in seen for dx in (0, 1) for dy in (0, 1)})
+
+    def turn(o, a, b):
+        return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+    hull = []
+    for seq in (pts, pts[::-1]):
+        half = []
+        for p in seq:
+            while len(half) >= 2 and turn(half[-2], half[-1], p) <= 0:
+                half.pop()
+            half.append(p)
+        hull += half[:-1]
+    inside = Sprite()
+    inside.poly(hull, "screen")
+    return set(inside.px)
+
+
+def median_cut(counts, n):
+    """counts: colour -> pixels. n colours that stand for them, and which
+    each colour becomes."""
+    boxes = [list(counts)]
+    while len(boxes) < n:
+        best, bi, axis = -1, -1, 0
+        for i, b in enumerate(boxes):
+            if len(b) < 2:
                 continue
-            now = names[c.px[y][x]]
-            if now in warm:
-                t = 1 - d
-                if t + (BAYER[y % 4][x % 4] / 16 - 0.5) * 0.5 > 0.35:
-                    c.put(x, y, warm[now][1 if t > 0.75 else 0])
-    # The lamp: a shade, a round base.
-    lamp = Sprite()
-    lamp.ellipse(66, 180, 15, 18, "lamp_base")
-    lamp.ellipse(60, 174, 6, 9, "lamp_base_hi")
-    for y in range(162, 198):
-        for x in range(51, 82):
-            if (x, y) in lamp.px and x > 72:
-                lamp.put(x, y, "lamp_base_dark")
-    lamp.ellipse(66, 199, 13, 3, "lamp_base_dark")
-    for y in range(140, 162):
-        lamp.put(65, y, "lamp_base_dark"); lamp.put(66, y, "lamp_base")
-    lamp.poly([(50, 108), (82, 108), (96, 144), (36, 144)], "shade")
-    lamp.poly([(70, 108), (82, 108), (96, 144), (78, 144)], "shade_dark")
-    lamp.poly([(52, 110), (62, 110), (52, 142), (42, 142)], "shade_hi")
-    lamp.stamp(c)
-    c.rect(38, 144, 57, 2, "shade_hi")              # the bright rim
-    # The TV stand on the shelf, with the console and two pads in it.
-    c.rect(198, 202, 245, 7, "shadow")
-    c.outline_rect(198, 142, 244, 64, "shelf_front", r=0)
-    c.rect(198, 142, 244, 8, "shelf_top")
-    c.rect(198, 142, 244, 1, "shelf_top_hi")
-    c.rect(198, 149, 244, 1, "shelf_front_dark")
-    c.rect(206, 150, 228, 50, "shelf_in")
-    c.rect(206, 150, 228, 3, "shelf_in2")
-    c.rect(206, 200, 228, 1, "shelf_top_hi")
-    console(c, 258, 154)
-    controller(c, 210, 185)
-    controller(c, 386, 185)
-    # The TV: cabinet x 244-420, y 22-142.
-    c.rect(250, 140, 166, 3, "shadow")
-    c.outline_rect(244, 22, 176, 120, "wood", r=4)
-    for y in range(28, 138, 7):                 # the grain
-        c.rect(248, y, 168, 1, "wood2")
-    c.rect(246, 23, 172, 1, "wood3")            # the lit top edge
-    sx, sy, sw, sh = SCREEN
-    c.outline_rect(sx - 6, sy - 6, sw + 12, sh + 12, "bezel", r=5)
-    c.rect(sx - 5, sy - 5, sw + 10, 1, "bezel2")
-    c.round_rect(sx - 1, sy - 1, sw + 2, sh + 2, "outline", r=6)
-    c.round_rect(sx, sy, sw, sh, "screen", r=5)
-    for y in range(sy, sy + sh, 2):             # scanlines
-        for x in range(sx, sx + sw):
-            if c.px[y][x] == IDX["screen"]:
-                c.put(x, y, "scan")
-    # The control panel: two dials, three buttons and a speaker grille.
-    c.outline_rect(390, 30, 24, 104, "panel", r=2)
-    for cy in (46, 70):
-        c.disc(402, cy, 8, "outline")
-        c.disc(402, cy, 7, "knob2")
-        c.disc(401, cy - 1, 5, "knob")
-        c.rect(401, cy - 7, 1, 5, "outline")    # the pointer
-    for bx in (394, 401, 408):
-        c.rect(bx, 86, 5, 4, "outline")
-        c.rect(bx + 1, 86, 3, 3, "knob2")
-    for y in range(96, 130, 3):
-        c.rect(394, y, 16, 1, "grille")
-    # The plant on the shelf's right end. (The dragon sits left of it, in
-    # step 2.)
-    plant(c, 590, 176, 0.9)
+            for c in range(3):
+                vals = [col[c] for col in b]
+                score = (max(vals) - min(vals)) * sum(counts[col] for col in b) ** 0.5
+                if score > best:
+                    best, bi, axis = score, i, c
+        if bi < 0:
+            break
+        b = sorted(boxes[bi], key=lambda col: col[axis])
+        total, run, cut = sum(counts[col] for col in b), 0, 1
+        for k, col in enumerate(b):
+            run += counts[col]
+            if run * 2 >= total:
+                cut = max(1, min(len(b) - 1, k + 1))
+                break
+        boxes[bi:bi + 1] = [b[:cut], b[cut:]]
+    colours, which = [], {}
+    for b in boxes:
+        t = sum(counts[col] for col in b)
+        colours.append(tuple(int(round(sum(col[c] * counts[col] for col in b) / t)) for c in range(3)))
+        for col in b:
+            which[col] = len(colours) - 1
+    return colours, which
+
+
+ROOM_PALETTE = []                       # the picture's colours, after PALETTE's
+
+
+def draw():
+    """The room: the reference picture at 640x360, its painted boxes
+    cleared to the shelf's back and placeholders drawn where they stood,
+    the TV's glass and light left to the app (the screen's two animated
+    colours, and the light's)."""
+    rgb = reference()
+    for (x0, x1), gaps in zip(CLEAR_X, GAPS):
+        for (y0, y1) in CLEAR_Y:
+            for y in range(y0, y1):
+                cols = [rgb[y][g + d] for g in gaps for d in (-1, 0, 1)]
+                back = tuple(sum(c[i] for c in cols) // len(cols) for i in range(3))
+                for x in range(x0, x1):
+                    rgb[y][x] = back
+    for y0 in SLOT_Y:
+        for x0 in SLOT_X:
+            placeholder(rgb, x0, y0, rgb[y0 + 12][x0 + 2])  # (the cleared back there)
+    screen = glass(rgb)
+    top = min(y for _, y in screen)
+    counts = {}
+    for y in range(H):
+        for x in range(W):
+            if (x, y) not in screen:
+                counts[rgb[y][x]] = counts.get(rgb[y][x], 0) + 1
+    colours, which = median_cut(counts, ROOM_COLOURS)
+    ROOM_PALETTE[:] = colours
+    c = Canvas()
+    base = len(PALETTE)
+    for y in range(H):
+        for x in range(W):
+            if (x, y) in screen:
+                c.px[y][x] = IDX["scan" if (y - top) % 2 else "screen"]
+            else:
+                c.px[y][x] = base + which[rgb[y][x]]
+    for (x, y) in screen:                               # the glass's dark rim
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            if (x + dx, y + dy) not in screen:
+                c.put(x + dx, y + dy, "outline")
+    for dx in (0, 1):
+        for dy in (0, 1):
+            c.put(LED[0] + dx, LED[1] + dy, "led")
     return c
 
 
@@ -756,8 +670,13 @@ def draw_icon():
     return c
 
 
+def all_colours():
+    """PALETTE's named colours, then the picture's."""
+    return [col for _, col in PALETTE] + ROOM_PALETTE
+
+
 def png(path, c):
-    rgb = [col for _, col in PALETTE]
+    rgb = all_colours()
     raw = b"".join(b"\x00" + bytes(v for i in row for v in rgb[i]) for row in c.px)
 
     def chunk(t, d):
@@ -777,12 +696,22 @@ def main():
              "#define ART_SCREEN_W %d" % SCREEN[2], "#define ART_SCREEN_H %d" % SCREEN[3]]
     for i, (name, _) in enumerate(PALETTE):
         lines.append("#define INK_%s %d" % (name.upper(), i))
-    lines.append("#define ART_COLOURS %d" % len(PALETTE))
+    lines.append("#define ART_COLOURS %d" % len(all_colours()))
+    lines.append("#define ART_NAMED %d                 /* the named ones; then the picture's */" % len(PALETTE))
     lines.append("static const unsigned char art_palette[ART_COLOURS][3] = {")
     for name, (r, g, b) in PALETTE:
         lines.append("    { 0x%02X, 0x%02X, 0x%02X },   /* %s */" % (r, g, b, name))
+    for (r, g, b) in ROOM_PALETTE:
+        lines.append("    { 0x%02X, 0x%02X, 0x%02X }," % (r, g, b))
     lines.append("};")
-    lines.append("static const unsigned char art_pixels[ART_H][ART_W] = {")
+    lines.append("/* The shelf's places for boxes (PLAN-library.md): left x, top y, all ART_SLOT_W x ART_SLOT_H. */")
+    lines.append("#define ART_SLOT_W %d" % SLOT_W)
+    lines.append("#define ART_SLOT_H %d" % SLOT_H)
+    lines.append("#define ART_SLOTS_ROW %d" % len(SLOT_X))
+    lines.append("#define ART_SLOT_ROWS %d" % len(SLOT_Y))
+    lines.append("static const short art_slot_x[ART_SLOTS_ROW] = { %s };" % ", ".join(map(str, SLOT_X)))
+    lines.append("static const short art_slot_y[ART_SLOT_ROWS] = { %s };" % ", ".join(map(str, SLOT_Y)))
+    lines.append("static const unsigned short art_pixels[ART_H][ART_W] = {")
     for row in c.px:
         lines.append("    {" + ",".join(str(v) for v in row) + "},")
     lines.append("};")
