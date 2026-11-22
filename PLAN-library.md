@@ -465,6 +465,92 @@ same code as in the self-test.
   pixels instead of averaging; a played game not moving to the front;
   a garbled `library.txt` crashing.
 
+**Where step 4 ended (2026-11-22).**
+- `app/shelf.c` (new): the list, last played first, in `library.txt` in
+  the build folder ("version 1", then NAME, last played, ROM path,
+  separated by tabs, as a path may have spaces). No `library.txt` yet:
+  the games already built, from their `NAME.stamp` (a path with spaces
+  read whole), newest first, and the file written. A garbled file (not
+  version 1, a line that isn't three parts, a game twice, a time that
+  isn't a number): an empty shelf, and the terminal says why. Each
+  game's `NAME.title` shrunk by averaging, to 20x19 for its box and
+  77x72 for the TV, and its box colour: the most common colour that
+  isn't black, white or grey, snapped to the nearest of 12 box colours
+  (dark grey when there's none). A music file is marked by its first
+  bytes (or `.nsf`, if the file is gone).
+- `app/app.c`: the boxes in the room's places, on every screen that
+  shows the room: the colour, a lighter top, a dark edge, the window
+  with the picture (or a dark window with no picture yet, a note for
+  music), a label and a sticker of our own. The shelf's line on its
+  bottom board, "< PAGE 1/2 >", only when there's more than one page.
+  On the drop screen, the picked game is lifted 2 pixels and outlined,
+  and the TV shows its picture and its ROM's name ("NO PICTURE YET",
+  or a big note, when there's none).
+- On the drop screen: the arrows pick (the first press picks the page's
+  first box; left and right go on across the two halves and past a
+  row's end to the next or last page; up and down switch rows); Page
+  Up and Down flip (the pick keeps its place, or the page's last box);
+  Enter plays. The mouse picks the box it's over; a click plays it; a
+  click on the page line's arrows flips. A click on the TV still opens
+  the file picker; on an empty place, nothing.
+- Playing from the shelf goes through `take()`, as a drop: up to date,
+  so no compiling, then the keys card and the game. After each build
+  (a drop, a box, or `--build`) the game goes to the shelf's front and
+  is picked; after each game its title picture is read again, so a
+  box gets its picture after the game's first play.
+- The terminal: "shelf: 40 game(s)", "shelf: page 1 of 2, game_02
+  picked", "shelf: play NAME", "shelf: NAME to the front", "shelf:
+  NAME added".
+- For the checks: `--library D` (a build folder's shelf in
+  `--screenshot`), `--shelf-keys "right down ..."`, `--click-test drop`
+  with `--library`, `--box-test WxH X Y` (a click on the shelf, played
+  as the window plays it), `--test-shelf DIR`.
+- Pictures sent: page 1 of a made-up 40-game shelf with a box picked,
+  the TV for music and for no picture yet, page 2.
+
+The checks (`tests/check_app.py`, section 12):
+- `--test-shelf`: 21 (colours of made-up pictures, the shrink averaging
+  1-pixel stripes to grey, the stamps, playing to the front, read back,
+  a picture arriving later, music, 13 bad files, two of them with good lines too, a blank line).
+- A made-up shelf of 40: every box on page 1 its colour (from a copy of
+  shelf.c's rule in the check) and its picture shrunk (within 1 of the
+  check's own averaging); the picked box lifted and outlined; the TV's
+  picture and name; the page line; page 2's 8 games and its other places'
+  placeholders untouched; 20 games: no page line; an empty shelf: the
+  room as drawn; another screen: the boxes, but no pick or TV picture.
+- The keys, from the terminal's lines: 12 sequences (first pick, across
+  the halves, onto page 2 and back, up and down, Page Down keeping the
+  place or the last game, not past the last game, Enter).
+- Clicks at 1280x720: a box, the page line's two arrows, the TV, an
+  empty place.
+- Playing from a box: two free ROMs built into a new folder (the newest
+  first on the shelf); a click on the second box plays it up to date
+  (only the file checked), and it comes first; then 240pee played 700
+  frames keeps its title picture, comes first, and its box shows it.
+  (240pee is a copy: playing writes notes beside a ROM, and the test ROM
+  clone must stay as it is.)
+- The app's new code also compiles for Windows here (Zig, with the
+  Windows SDL headers); the Windows run is the real check.
+
+- `make test-all`: 230 of 231 as before (test28), nestest exact, 240 of
+  240; the same C.
+
+Breaks, each in a scratch copy (`tests/check_app.py`, the self-test's
+FAILs counted as one):
+
+| broken | FAIL lines |
+| --- | --- |
+| black counted for the box's colour | 3 |
+| a click playing the box after the one clicked | 1 |
+| page 2 showing page 1's games | 1 |
+| pictures shrunk by skipping pixels, not averaging | 4 |
+| a played game left where it was, not moved to the front | 4 |
+| a garbled line in `library.txt` dropped, the good ones kept | 1 (0 at first: every bad file in the self-test had only its bad line, so dropping it still gave an empty shelf; two files with good lines too were added) |
+| the TV without the game's name | 1 |
+
+Not checked by a test: the mouse moving over the boxes (the window's
+own events), and the shelf live in the window: for you to try.
+
 ### 5. Missing ROMs and removing
 - A box whose ROM is gone: dimmed, "ROM NOT FOUND: DROP IT AGAIN" on the
   TV when picked; dropping a file of the same name puts it back

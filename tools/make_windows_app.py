@@ -53,7 +53,7 @@ import zlib
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-APP_SOURCES = ["app.c", "build.c", "play.c", "hood.c", "code.c", "os_win.c", "support_win.c"]
+APP_SOURCES = ["app.c", "build.c", "play.c", "hood.c", "code.c", "shelf.c", "os_win.c", "support_win.c"]
 TARGET = ["-target", "x86_64-windows-gnu"]      # any 64-bit PC, not this one's processor
 # Of Zig's lib/, what `zig cc -c` needs for Windows: clang's headers, the
 # C library's (MinGW's), and std/std.zig, by which Zig knows its lib/.

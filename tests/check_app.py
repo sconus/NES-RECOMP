@@ -271,6 +271,264 @@ def cart_pixels(defs, cart):
             for x, v in enumerate(row) if v != 255}
 
 
+# ---- 12. the shelf (PLAN-library.md step 4) ----
+# shelf.c's box colours, 0xRRGGBB (the 10th, index 9, is the grey).
+SHELF_COLOURS = [0x8C1E32, 0x1E783C, 0xA09632, 0x788CBE, 0x2846C8, 0x1E2D6E,
+                 0xD2A032, 0x5A2882, 0xE6781E, 0x3C3C4B, 0xB41437, 0x8C50D2]
+SHELF_GREY = 9
+THUMB, PREVIEW = (20, 19), (77, 72)
+
+
+def shelf_shrink(rgb, dw, dh, sw=256, sh=240):
+    """shelf.c's shrink: each new pixel the mean of the area it covers."""
+    out = []
+    for dy in range(dh):
+        y0, y1 = dy * sh / dh, (dy + 1) * sh / dh
+        for dx in range(dw):
+            x0, x1 = dx * sw / dw, (dx + 1) * sw / dw
+            s, area = [0.0, 0.0, 0.0], 0.0
+            for y in range(int(y0), min(sh, int(y1) + 1)):
+                if y >= y1:
+                    break
+                wy = min(y + 1, y1) - max(y, y0)
+                for x in range(int(x0), min(sw, int(x1) + 1)):
+                    if x >= x1:
+                        break
+                    w = wy * (min(x + 1, x1) - max(x, x0))
+                    p = (y * sw + x) * 3
+                    for c in range(3):
+                        s[c] += rgb[p + c] * w
+                    area += w
+            out.append(tuple(int(v / area + 0.5) for v in s))
+    return out
+
+
+def shelf_colour_of(rgb):
+    """shelf.c's box colour for a picture."""
+    count, sums = {}, {}
+    for i in range(0, len(rgb), 3):
+        r, g, b = rgb[i], rgb[i + 1], rgb[i + 2]
+        if max(r, g, b) - min(r, g, b) < 48:
+            continue
+        k = (r >> 4, g >> 4, b >> 4)
+        count[k] = count.get(k, 0) + 1
+        s = sums.setdefault(k, [0, 0, 0])
+        s[0] += r; s[1] += g; s[2] += b
+    if not count:
+        return SHELF_GREY
+    best = max(sorted(count), key=lambda k: count[k])
+    r, g, b = (v // count[best] for v in sums[best])
+    dist = [(2 * (r - (c >> 16)) ** 2 + 4 * (g - (c >> 8 & 255)) ** 2 + 3 * (b - (c & 255)) ** 2, i)
+            for i, c in enumerate(SHELF_COLOURS) if i != SHELF_GREY]
+    return min(dist)[1]
+
+
+def two_colour_title(top, bottom, split=120):
+    """A made-up title picture: colour top above row split, bottom below."""
+    rgb = bytearray()
+    for y in range(240):
+        rgb += bytes((top if y < split else bottom)) * 256
+    return bytes(rgb)
+
+
+def shelf_checks(check, build, stages_of, spaced):
+    defs, pal, rows, font = art()
+    W, H = defs["ART_W"], defs["ART_H"]
+    sx, sy, sw, sh = (defs["ART_SCREEN_" + k] for k in "XYWH")
+    src = open(os.path.join(ROOT, "app", "art.h")).read()
+    slot_x = [int(v) for v in re.search(r"art_slot_x\[ART_SLOTS_ROW\] = \{([^}]*)\}", src).group(1).split(",")]
+    slot_y = [int(v) for v in re.search(r"art_slot_y\[ART_SLOT_ROWS\] = \{([^}]*)\}", src).group(1).split(",")]
+
+    def place(i):
+        """Game i's slot on its page: (x, y)."""
+        s = i % 32
+        return slot_x[s % 16], slot_y[s // 16]
+
+    def rgb_of(c):
+        return (c >> 16 & 255, c >> 8 & 255, c & 255)
+
+    def near(a, b):
+        return all(abs(p - q) <= 1 for p, q in zip(a, b))
+
+    r = subprocess.run([APP, "--test-shelf", os.path.join(OUT, "shelf_test")], capture_output=True, text=True)
+    bad = [l for l in r.stdout.splitlines() if l.startswith("FAIL")]
+    check("the shelf's self-test (--test-shelf: library.txt, stamps, colours, the shrink, bad files)",
+          r.returncode == 0 and "shelf self-test: all pass" in r.stdout and not bad, "; ".join(bad[:3]))
+
+    # A made-up shelf of 40 games, last played first: pictures of two
+    # colours, game_06 a music file, game_08 with no picture yet.
+    lib = os.path.join(OUT, "shelf_lib")
+    shutil.rmtree(lib, ignore_errors=True)
+    os.makedirs(lib)
+    tops = [(0xE4, 0x5C, 0x10), (0x00, 0xA8, 0x00), (0x3C, 0xBC, 0xFC), (0xA8, 0x10, 0x00),
+            (0x68, 0x44, 0xFC), (0xF8, 0xB8, 0x00), (0x7C, 0x7C, 0x7C), (0x94, 0x00, 0x84)]
+    titles, lines = {}, ["version 1"]
+    for i in range(40):
+        name = "game_%02d" % (i + 1)
+        rom = "/nowhere/%s.%s" % (name, "nsf" if i == 5 else "nes")
+        lines.append("%s\t%d\t%s" % (name, 1000 - i, rom))
+        if i in (5, 7):
+            continue
+        titles[i] = two_colour_title(tops[i % 8], (0, 0, 0) if i % 3 else (0xFC, 0xFC, 0xFC), 100 + i)
+        with open(os.path.join(lib, name + ".title"), "wb") as f:
+            f.write(b"NRTITLE1\x00\x01\xf0\x00" + titles[i])
+    with open(os.path.join(lib, "library.txt"), "w") as f:
+        f.write("\n".join(lines) + "\n")
+
+    def shot_lib(name, keys="", show="drop", folder=lib):
+        path = os.path.join(OUT, name + ".png")
+        args = [APP, "--screenshot", path, "--library", folder, "--show", show]
+        if keys:
+            args += ["--shelf-keys", keys]
+        r = subprocess.run(args, capture_output=True, text=True)
+        return read_png(path)[2] if r.returncode == 0 else None, r.stdout
+
+    img, out = shot_lib("shelf_p1", "right right")
+    wrong = []
+    for i in range(32):
+        x, y = place(i)
+        if i == 1:
+            y -= 2                                          # picked: lifted
+        colour = shelf_colour_of(titles[i]) if i in titles else SHELF_GREY
+        if img[y + 30][x + 10] != rgb_of(SHELF_COLOURS[colour]):
+            wrong.append("game_%02d's colour" % (i + 1))
+        win = [img[y + 4 + yy][x + 5 + xx] for yy in range(THUMB[1]) for xx in range(THUMB[0])]
+        if i in titles:
+            want = shelf_shrink(titles[i], *THUMB)
+            if not all(near(a, b) for a, b in zip(win, want)):
+                wrong.append("game_%02d's picture" % (i + 1))
+        elif i == 5:
+            if (0xE8, 0xE0, 0xF0) not in win:
+                wrong.append("game_06's note")
+        elif any(p not in ((0x23, 0x22, 0x2C), (0x1C, 0x1B, 0x24)) for p in win):
+            wrong.append("game_08's empty window")
+    check("the shelf: 32 boxes on page 1, each its picture's colour, its picture shrunk (averaged) in its window",
+          not wrong, ", ".join(wrong[:4]))
+    x, y = place(1)
+    outline = (0xFF, 0xF4, 0xD8)
+    check("the picked box (game_02): lifted 2 pixels and outlined",
+          img[y - 3][x + 10] == outline and img[y + 45][x - 1] == outline and img[y - 2][x + 10] != outline,
+          "%s %s" % (img[y - 3][x + 10], img[y + 45][x - 1]))
+    cx = sx + sw // 2
+    px, py = cx - PREVIEW[0] // 2, sy
+    tv = [img[py + yy][px + xx] for yy in range(PREVIEW[1]) for xx in range(PREVIEW[0])]
+    want = shelf_shrink(titles[1], *PREVIEW)
+    named = glyph_pixels(font, "GAME_02.NES", cx, sy + 76)
+    check("the TV shows the picked game: its picture (77x72, averaged) and its ROM's name",
+          all(near(a, b) for a, b in zip(tv, want)) and all(img[y_][x_] == pal[defs["INK_TEXT"]] for x_, y_ in named),
+          "%d of %d picture pixels off" % (sum(not near(a, b) for a, b in zip(tv, want)), len(want)))
+    page_px = glyph_pixels(font, "< PAGE 1/2 >", 320, 340)
+    check("the page line: < PAGE 1/2 > on the shelf's bottom board",
+          all(img[y_][x_] == (0xF0, 0xE0, 0xC0) for x_, y_ in page_px), "not there")
+    img2, out2 = shot_lib("shelf_p2", "pgdn")
+    x, y = place(32)
+    c33 = shelf_colour_of(titles[32])
+    empty = [(x_, y_) for s in range(8, 32) for x_ in range(slot_x[s % 16], slot_x[s % 16] + 30)
+             for y_ in range(slot_y[s // 16], slot_y[s // 16] + 47) if img2[y_][x_] != pal[rows[y_][x_]]]
+    check("page 2: games 33-40 in its first 8 places, the other places' placeholders as drawn",
+          img2[y + 30][x + 10] == rgb_of(SHELF_COLOURS[c33]) and not empty,
+          "%d placeholder pixel(s) changed" % len(empty))
+    # 20 games: one page, no page line; an empty shelf: the room as drawn.
+    lib20 = os.path.join(OUT, "shelf_lib20")
+    shutil.rmtree(lib20, ignore_errors=True)
+    shutil.copytree(lib, lib20)
+    with open(os.path.join(lib20, "library.txt"), "w") as f:
+        f.write("\n".join(lines[:21]) + "\n")
+    img3, _ = shot_lib("shelf_20", folder=lib20)
+    check("20 games: one page, no page line",
+          img3 is not None and all(img3[y_][x_] == pal[rows[y_][x_]] for x_, y_ in page_px), "a page line drawn")
+    lib0 = os.path.join(OUT, "shelf_lib0")
+    shutil.rmtree(lib0, ignore_errors=True)
+    os.makedirs(lib0)
+    open(os.path.join(lib0, "library.txt"), "w").write("version 1\n")
+    img4, _ = shot_lib("shelf_0", folder=lib0)
+    plain = [(x_, y_) for y_ in range(H) for x_ in range(W)
+             if rows[y_][x_] not in (defs["INK_SCREEN"], defs["INK_SCAN"]) and img4[y_][x_] != pal[rows[y_][x_]]]
+    check("an empty shelf: the room as drawn, the placeholders in every place", img4 is not None and not plain,
+          "%d pixel(s) changed" % len(plain))
+    img5, _ = shot_lib("shelf_build", "right right", show="build")
+    x, y = place(1)
+    check("other screens show the boxes, but no pick and no picture on the TV",
+          img5[y + 30][x + 10] == rgb_of(SHELF_COLOURS[shelf_colour_of(titles[1])]) and img5[y - 3][x + 10] != outline
+          and img5[y - 1][x + 10] != outline, "picked there too")
+
+    # The keys, as the terminal says.
+    def picked(keys):
+        _, o = shot_lib("shelf_keys", keys)
+        said = [l for l in o.splitlines() if l.startswith("shelf: page") or l.startswith("shelf: play")]
+        return said[-1] if said else ""
+    cases = [("right", "page 1 of 2, game_01 picked"),
+             ("right " * 16, "page 1 of 2, game_16 picked"),
+             ("right " * 17, "page 2 of 2, game_33 picked"),
+             ("right " * 17 + "left", "page 1 of 2, game_16 picked"),
+             ("right down", "page 1 of 2, game_17 picked"),
+             ("right down down", "page 1 of 2, game_01 picked"),
+             ("pgdn", "page 2 of 2"),
+             ("right pgdn", "page 2 of 2, game_33 picked"),
+             ("right down right right right pgdn", "page 2 of 2, game_40 picked"),
+             ("pgdn right up", "page 2 of 2, game_33 picked"),
+             ("right " * 20 + "right right right right right right right right right", "page 2 of 2, game_40 picked"),
+             ("right right enter", "play game_02")]
+    wrong = [(k.strip(), picked(k.strip())) for k, want in cases if picked(k.strip()) != "shelf: " + want]
+    check("the keys: arrows pick (across the halves, past a row's end to the next page, not past the last game), "
+          "Page Up/Down flip, Enter plays", not wrong, "%s" % wrong[:2])
+
+    # Clicks, in a 1280x720 window (2x).
+    def click(x, y, folder=lib):
+        r = subprocess.run([APP, "--library", folder, "--click-test", "drop", "1280x720", str(x), str(y)],
+                           capture_output=True, text=True)
+        return [l for l in r.stdout.splitlines() if l.startswith("click:")]
+    bx, by = place(3)
+    t = "< PAGE 1/2 >"
+    x0 = 320 - (len(t) * 6 - 1) // 2
+    on_x = x0 + (len(t) - 1) * 6 + 2
+    got = [click(2 * (bx + 15), 2 * (by + 20)), click(2 * on_x, 2 * 343), click(2 * (x0 + 2), 2 * 343),
+           click(2 * (sx + sw // 2), 2 * (sy + 40)), click(2 * (slot_x[10] + 15), 2 * (slot_y[0] + 20), lib20)]
+    want = [["click: play game_04"], ["click: page on"], ["click: page back"], ["click: file picker"],
+            ["click: play game_11"]]
+    check("clicks: a box plays it, the page line's arrows flip, the TV still opens the file picker",
+          got == want, "%s" % got)
+    got = click(2 * (slot_x[4] + 15), 2 * (slot_y[1] + 20), lib20)       # place 20: no game there
+    check("a click on an empty place does nothing", got == ["click: nothing"], "%s" % got)
+
+    # Playing from a box: two free ROMs built into a new build folder (the
+    # second first on the shelf), then a click on the first one's box.
+    sb = os.path.join(OUT, "shelf_builds")
+    shutil.rmtree(sb, ignore_errors=True)
+    pee = os.path.join(OUT, "roms", "240pee.nes")         # (a copy: playing writes notes beside it)
+    shutil.copy(os.path.join(ROOT, "tests", "roms", "nes-test-roms", "240pee", "240pee.nes"), pee)
+    if os.path.exists(pee + ".missed"):
+        os.remove(pee + ".missed")
+    c1, o1 = build(spaced, sb, trace=False)
+    c2, o2 = build(pee, sb, trace=False)
+    order = [l.split("\t")[0] for l in open(os.path.join(sb, "library.txt")).read().splitlines()[1:]] \
+        if os.path.exists(os.path.join(sb, "library.txt")) else []
+    check("each build goes on the shelf, the newest first", c1 == 0 and c2 == 0 and order == ["240pee", "my_game__test_"],
+          "%s" % order)
+
+    def box(slot, frames):
+        x, y = place(slot)
+        r = AppRun([APP, "--box-test", "1280x720", str(2 * (x + 15)), str(2 * (y + 20)), "--build-dir", sb,
+                    "--play-args", "--headless --no-save --frames %d" % frames])
+        return r
+    r1 = box(1, 60)
+    check("a click on the second box: that game, up to date (only the file checked, nothing compiled), played, now first",
+          r1.returncode == 0 and "shelf: play my_game__test_" in r1.stdout and "up to date" in r1.stdout
+          and stages_of(r1.stdout) == [1] and "played: the game ended well" in r1.stdout
+          and "shelf: order: my_game__test_ 240pee" in r1.stdout, r1.stdout[-300:])
+    r2 = box(1, 700)
+    check("then 240pee's box: played 700 frames, its title picture kept, first again",
+          r2.returncode == 0 and "shelf: play 240pee" in r2.stdout and stages_of(r2.stdout) == [1]
+          and "shelf: 240pee has its picture" in r2.stdout and "shelf: order: 240pee my_game__test_" in r2.stdout
+          and os.path.exists(os.path.join(sb, "240pee.title")), r2.stdout[-300:])
+    img6, _ = shot_lib("shelf_played", folder=sb)
+    x, y = place(0)
+    pic = open(os.path.join(sb, "240pee.title"), "rb").read()[12:] if os.path.exists(os.path.join(sb, "240pee.title")) else b""
+    win = [img6[y + 4 + yy][x + 5 + xx] for yy in range(THUMB[1]) for xx in range(THUMB[0])] if img6 else []
+    check("and its box shows that picture",
+          bool(pic) and all(near(a, b) for a, b in zip(win, shelf_shrink(pic, *THUMB))), "it doesn't")
+
+
 def own_compiler(check, build, stages_of, rom):
     """The app's own compiler on Windows (PLAN-windows.md step 5): Zig in
     the app's zig\\ folder, with the C library prebuilt (zig\\prebuilt,
@@ -1410,6 +1668,8 @@ def main():
     r_ = AppRun([APP, "--build", hrom, "--build-dir", hb])
     check("a build without its listing is built again (not up to date)",
           r_.returncode == 0 and "up to date" not in r_.stdout and os.path.exists(lb), last_line(r_.stdout))
+
+    shelf_checks(check, build, stages_of, spaced)
 
     check("every build and game finished (none ran past its time)", not hung, "%s" % hung)
     print("\n%d check(s) failed" % len(fails) if fails else "\nall checks pass")

@@ -152,11 +152,11 @@ $(SDL2_LIB): tools/build_sdl2.sh
 sdl2: $(SDL2_LIB)
 
 build/nesrecomp-app: app/app.c app/build.c app/build.h app/play.c app/play.h app/hood.c app/hood.h \
-                     app/code.c app/code.h app/support.h app/support_mac.m app/os.h app/os_mac.c \
+                     app/code.c app/code.h app/shelf.c app/shelf.h app/support.h app/support_mac.m app/os.h app/os_mac.c \
                      app/art.h $(SDL2_LIB) \
                      $(RECOMP)
 	@mkdir -p build
-	$(CC) $(CFLAGS) $(APP_ARCH) $(APP_SDL) -Iapp -o $@ app/app.c app/build.c app/play.c app/hood.c app/code.c \
+	$(CC) $(CFLAGS) $(APP_ARCH) $(APP_SDL) -Iapp -o $@ app/app.c app/build.c app/play.c app/hood.c app/code.c app/shelf.c \
 	    app/os_mac.c app/support_mac.m $(APP_LIBS) -framework Cocoa
 
 app: build/nesrecomp-app

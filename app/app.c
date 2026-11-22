@@ -82,6 +82,17 @@
            say where the app's own SDL2, recompiler and runtime are, where
            builds go, and where Apple's C compiler is (PLAN-standalone.md
            steps 1, 3, 4 and 5)
+       nesrecomp-app --screenshot F --library D [--shelf-keys "right down ..."]
+           the drop screen with the shelf of build folder D (library.txt
+           and the games' NAME.title pictures, PLAN-library.md step 4),
+           after pressing those keys (left right up down pgup pgdn enter)
+       nesrecomp-app --library D --click-test drop WxH X Y
+           what a click there does with D's shelf: "play NAME", "page on"...
+       nesrecomp-app --box-test WxH X Y --build-dir D [--play-args "ARGS"]
+           click there on D's shelf, as the window does: play that game
+           (built only if need be), and say the shelf's order after
+       nesrecomp-app --test-shelf DIR
+           the shelf's self-test (library.txt, colours, pictures), in DIR
        nesrecomp-app --version
            print the app's version
        --build-dir D   where builds go (default: ~/Library/Application
@@ -104,6 +115,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdatomic.h>
+#include <time.h>
 #include <zlib.h>
 #ifndef _WIN32
 #include <errno.h>
@@ -118,6 +130,7 @@
 #include "code.h"
 #include "hood.h"
 #include "play.h"
+#include "shelf.h"
 #include "support.h"
 
 static uint32_t canvas[ART_H][ART_W];
@@ -217,6 +230,103 @@ static void text_pass(const char *s, int cx, int y, int sx, int sy, uint32_t col
 /* The room at frame n (60 a second): the picture, with the screen's
    glow and scanlines and the power light animated; `busy` blinks the
    light fast. */
+/* ---- the shelf (PLAN-library.md step 4): the games' boxes in the
+   room's places (art_slot_x, art_slot_y), 16 a row, two rows a page,
+   last played first; shelf.c keeps the list and the pictures ---- */
+static struct shelf shelf;
+static int shelf_page;                  /* the page shown, from 0 */
+static int shelf_pick = -1;             /* the game picked (arrows, mouse), or -1 */
+static int shelf_pick_shown = -1;       /* ...as drawn: only on the drop screen */
+#define SHELF_PAGE (ART_SLOTS_ROW * ART_SLOT_ROWS)  /* 32 */
+#define SHELF_PAGE_Y 340                /* the page line, on the shelf's bottom board */
+#define SHELF_PAGE_CX 320
+
+static int shelf_pages(void) {
+    return shelf.count ? (shelf.count + SHELF_PAGE - 1) / SHELF_PAGE : 1;
+}
+
+/* A colour (0xRRGGBB) darker (k < 1) or towards white (k > 1). */
+static uint32_t shade(uint32_t c, double k) {
+    int ch[3] = { (int)(c >> 16 & 255), (int)(c >> 8 & 255), (int)(c & 255) };
+    for (int j = 0; j < 3; j++) {
+        double v = k <= 1 ? ch[j] * k : ch[j] + (255 - ch[j]) * (k - 1);
+        ch[j] = v > 255 ? 255 : (int)v;
+    }
+    return rgb(ch[0], ch[1], ch[2]);
+}
+
+static void dot(int x, int y, uint32_t c) {
+    if (x >= 0 && x < ART_W && y >= 0 && y < ART_H) canvas[y][x] = c;
+}
+
+/* A quaver, 7x9, for a music file's box and the TV. */
+static const unsigned char note_rows[9] = { 0x0C, 0x0E, 0x0B, 0x09, 0x08, 0x38, 0x78, 0x78, 0x30 };
+
+static void draw_note(int x0, int y0, int scale, uint32_t c) {
+    for (int y = 0; y < 9; y++)
+        for (int x = 0; x < 7; x++)
+            if (note_rows[y] & (0x40 >> x))
+                for (int dy = 0; dy < scale; dy++)
+                    for (int dx = 0; dx < scale; dx++) dot(x0 + x * scale + dx, y0 + y * scale + dy, c);
+}
+
+/* Game i's box with its top left at (x, y): its colour, a lighter top,
+   a dark edge, the window with its picture, a little label and a
+   sticker of our own shapes. Picked: lifted 2 pixels, outlined. */
+static void draw_box(int i, int x, int y, int picked) {
+    const struct shelf_game *g = &shelf.games[i];
+    uint32_t c = shelf_colours[g->colour];
+    if (picked) y -= 2;
+    for (int yy = 0; yy < ART_SLOT_H; yy++)
+        for (int xx = 0; xx < ART_SLOT_W; xx++) {
+            int edge = xx == 0 || yy == 0 || xx == ART_SLOT_W - 1 || yy == ART_SLOT_H - 1;
+            uint32_t v = edge ? shade(c, 0.55) : yy <= 2 ? shade(c, 1.3) : xx >= ART_SLOT_W - 3 ? shade(c, 0.8) : shade(c, 1.0);
+            dot(x + xx, y + yy, v);
+        }
+    for (int yy = 3; yy <= 23; yy++)                    /* the window's frame */
+        for (int xx = 4; xx <= 25; xx++) dot(x + xx, y + yy, rgb(0x14, 0x10, 0x18));
+    for (int yy = 0; yy < THUMB_H; yy++)
+        for (int xx = 0; xx < THUMB_W; xx++) {
+            uint32_t v = g->has_title ? 0xFF000000u | g->thumb[yy * THUMB_W + xx]
+                                      : (yy % 2 ? rgb(0x1C, 0x1B, 0x24) : rgb(0x23, 0x22, 0x2C));
+            dot(x + 5 + xx, y + 4 + yy, v);
+        }
+    if (g->music) draw_note(x + 11, y + 9, 1, rgb(0xE8, 0xE0, 0xF0));
+    for (int xx = 4; xx <= 12; xx++) {                  /* the label */
+        dot(x + xx, y + 41, shade(c, 1.6));
+        dot(x + xx, y + 42, shade(c, 1.45));
+    }
+    for (int yy = 0; yy < 4; yy++)                      /* the sticker */
+        for (int xx = 0; xx < 4; xx++)
+            if (!((yy == 0 || yy == 3) && (xx == 0 || xx == 3)))
+                dot(x + 21 + xx, y + 39 + yy, rgb(0xE8, 0xD8, 0xA0));
+    if (picked) {
+        uint32_t o = rgb(0xFF, 0xF4, 0xD8);
+        for (int xx = -1; xx <= ART_SLOT_W; xx++) { dot(x + xx, y - 1, o); dot(x + xx, y + ART_SLOT_H, o); }
+        for (int yy = -1; yy <= ART_SLOT_H; yy++) { dot(x - 1, y + yy, o); dot(x + ART_SLOT_W, y + yy, o); }
+    }
+}
+
+/* The page line's text, and where its arrows are. */
+static void page_text(char *out, size_t n) {
+    snprintf(out, n, "< PAGE %d/%d >", shelf_page + 1, shelf_pages());
+}
+
+static void draw_shelf(void) {
+    int first = shelf_page * SHELF_PAGE;
+    for (int s = 0; s < SHELF_PAGE && first + s < shelf.count; s++)
+        if (first + s != shelf_pick_shown)
+            draw_box(first + s, art_slot_x[s % ART_SLOTS_ROW], art_slot_y[s / ART_SLOTS_ROW], 0);
+    int p = shelf_pick_shown - first;
+    if (p >= 0 && p < SHELF_PAGE && shelf_pick_shown < shelf.count)   /* last: on top */
+        draw_box(shelf_pick_shown, art_slot_x[p % ART_SLOTS_ROW], art_slot_y[p / ART_SLOTS_ROW], 1);
+    if (shelf_pages() > 1) {
+        char t[32];
+        page_text(t, sizeof t);
+        text(t, SHELF_PAGE_CX, SHELF_PAGE_Y, 1, rgb(0xF0, 0xE0, 0xC0), 1);
+    }
+}
+
 /* The dragon's sword glows (PLAN-library.md step 2): a cyan light added
    to its blade and, fading, around it (art_glow), rising and falling
    every SWORD_PERIOD frames; none at frame 0, so the room is as drawn. */
@@ -259,6 +369,7 @@ static void draw_room(long n, int busy) {
         for (int x = 0; x < ART_W; x++)
             canvas[y][x] = pal[art_pixels[y][x]];
     sword_light(n);
+    draw_shelf();
 }
 
 #define SCREEN_CX (ART_SCREEN_X + ART_SCREEN_W / 2)
@@ -274,8 +385,37 @@ static void screen_name(const char *path, char *out, size_t n) {
 
 #define DROP_TOP 5                      /* the cartridge, below the screen's top */
 #define DROP_TEXT 28                    /* the words, below the cartridge's top */
+/* The picked game on the TV: its picture (77x72) and, under it, its
+   ROM's name; with no picture yet, a dark one saying so; for music, a
+   big note. */
+#define PREVIEW_Y (ART_SCREEN_Y)
+#define PREVIEW_NAME_Y (ART_SCREEN_Y + 76)
+static void draw_preview(int i) {
+    const struct shelf_game *g = &shelf.games[i];
+    int x0 = SCREEN_CX - PREVIEW_W / 2, y0 = PREVIEW_Y;
+    for (int y = -1; y <= PREVIEW_H; y++)
+        for (int x = -1; x <= PREVIEW_W; x++) {
+            uint32_t v = (x < 0 || y < 0 || x == PREVIEW_W || y == PREVIEW_H) ? ink(INK_TEXT_LINE)
+                       : g->has_title ? 0xFF000000u | g->preview[y * PREVIEW_W + x]
+                       : (y % 2 ? rgb(0x1C, 0x1B, 0x24) : rgb(0x23, 0x22, 0x2C));
+            dot(x0 + x, y0 + y, v);
+        }
+    if (g->music) draw_note(SCREEN_CX - 10, y0 + 22, 3, rgb(0xE8, 0xE0, 0xF0));
+    else if (!g->has_title) {
+        text("NO PICTURE", SCREEN_CX, y0 + 26, 1, ink(INK_MANE_HI), 1);
+        text("YET", SCREEN_CX, y0 + 38, 1, ink(INK_MANE_HI), 1);
+    }
+    char name[64];
+    screen_name(g->rom, name, sizeof name);
+    text(name, SCREEN_CX, PREVIEW_NAME_Y, 1, ink(INK_TEXT), 1);
+}
+
 static void draw_drop(long n) {
     draw_room(n, 0);
+    if (shelf_pick_shown >= 0 && shelf_pick_shown < shelf.count) {
+        draw_preview(shelf_pick_shown);
+        return;
+    }
     int cx = SCREEN_CX;
     int top = ART_SCREEN_Y + DROP_TOP;
     /* The little cartridge with its arrow, then the words. */
@@ -607,6 +747,105 @@ static int on_tv(int x, int y, int w, int h) {
            cy >= ART_SCREEN_Y && cy < ART_SCREEN_Y + ART_SCREEN_H;
 }
 
+/* ---- picking on the shelf ---- */
+enum { SK_LEFT, SK_RIGHT, SK_UP, SK_DOWN, SK_PGUP, SK_PGDN, SK_ENTER };
+
+static void shelf_say(void) {
+    printf("shelf: page %d of %d", shelf_page + 1, shelf_pages());
+    if (shelf_pick >= 0) printf(", %s picked", shelf.games[shelf_pick].name);
+    printf("\n");
+    fflush(stdout);
+}
+
+static void shelf_flip(int by) {
+    int p = shelf_page + by;
+    if (p < 0 || p >= shelf_pages()) return;
+    shelf_page = p;
+    if (shelf_pick >= 0) {                  /* the same place on the new page, or its last box */
+        int k = p * SHELF_PAGE + shelf_pick % SHELF_PAGE;
+        shelf_pick = k < shelf.count ? k : shelf.count - 1;
+    }
+    shelf_say();
+}
+
+/* A key on the drop screen: move the pick (the first arrow picks the
+   page's first box; past a row's end, the next or last page), flip the
+   page, or play. Returns the game to play, or -1. */
+static int shelf_key(int k) {
+    if (!shelf.count) return -1;
+    if (k == SK_PGUP || k == SK_PGDN) { shelf_flip(k == SK_PGUP ? -1 : 1); return -1; }
+    if (k == SK_ENTER) return shelf_pick;
+    if (shelf_pick < 0 || shelf_pick / SHELF_PAGE != shelf_page) {
+        shelf_pick = shelf_page * SHELF_PAGE;
+        shelf_say();
+        return -1;
+    }
+    int s = shelf_pick % SHELF_PAGE, col = s % ART_SLOTS_ROW, row = s / ART_SLOTS_ROW, page = shelf_page;
+    if (k == SK_LEFT) {
+        if (col > 0) col--;
+        else if (page > 0) { page--; col = ART_SLOTS_ROW - 1; }
+    } else if (k == SK_RIGHT) {
+        if (col < ART_SLOTS_ROW - 1) col++;
+        else if (page + 1 < shelf_pages()) { page++; col = 0; }
+    } else if (k == SK_UP || k == SK_DOWN) {
+        row = 1 - row;
+    }
+    int want = page * SHELF_PAGE + row * ART_SLOTS_ROW + col;
+    if (want >= shelf.count) {
+        if (k != SK_RIGHT) return -1;       /* nothing there: stay */
+        want = shelf.count - 1;
+    }
+    shelf_pick = want;
+    shelf_page = want / SHELF_PAGE;
+    shelf_say();
+    return -1;
+}
+
+/* What's at canvas pixel (x, y) on the shelf: a game's index, or
+   SHELF_BACK / SHELF_ON (the page line's arrows), or SHELF_NONE. */
+enum { SHELF_NONE = -1, SHELF_BACK = -2, SHELF_ON = -3 };
+static int shelf_at(int x, int y) {
+    int first = shelf_page * SHELF_PAGE;
+    for (int s = 0; s < SHELF_PAGE && first + s < shelf.count; s++) {
+        int bx = art_slot_x[s % ART_SLOTS_ROW], by = art_slot_y[s / ART_SLOTS_ROW];
+        if (x >= bx && x < bx + ART_SLOT_W && y >= by - 2 && y < by + ART_SLOT_H) return first + s;
+    }
+    if (shelf_pages() > 1 && y >= SHELF_PAGE_Y - 3 && y < SHELF_PAGE_Y + 10) {
+        char t[32];
+        page_text(t, sizeof t);
+        int len = (int)strlen(t), x0 = SHELF_PAGE_CX - (len * 6 - 1) / 2;
+        if (x >= x0 - 4 && x < x0 + 9) return SHELF_BACK;
+        if (x >= x0 + (len - 1) * 6 - 4 && x < x0 + len * 6 + 3) return SHELF_ON;
+    }
+    return SHELF_NONE;
+}
+
+/* ...at window pixel (x, y) of a w x h window. */
+static int shelf_at_window(int x, int y, int w, int h) {
+    int scale, ox, oy;
+    layout(w, h, &scale, &ox, &oy);
+    return shelf_at((x - ox) / scale - (x < ox), (y - oy) / scale - (y < oy));
+}
+
+/* A key's name (--shelf-keys) or SDL key as SK_*, or -1. */
+static int shelf_key_named(const char *k) {
+    static const char *const names[] = { "left", "right", "up", "down", "pgup", "pgdn", "enter" };
+    for (int i = 0; i < 7; i++) if (!strcmp(k, names[i])) return i;
+    return -1;
+}
+static int shelf_key_sdl(SDL_Keycode k) {
+    switch (k) {
+    case SDLK_LEFT: return SK_LEFT;
+    case SDLK_RIGHT: return SK_RIGHT;
+    case SDLK_UP: return SK_UP;
+    case SDLK_DOWN: return SK_DOWN;
+    case SDLK_PAGEUP: return SK_PGUP;
+    case SDLK_PAGEDOWN: return SK_PGDN;
+    case SDLK_RETURN: case SDLK_KP_ENTER: return SK_ENTER;
+    default: return -1;
+    }
+}
+
 static int show_code;                   /* present the code view's canvas */
 
 static void present(uint32_t *out, int w, int h) {
@@ -871,7 +1110,7 @@ static void open_picker(void) {
    ROM (build.c). */
 static char **split_args(const char *s, const char *rom, const char *files) {
     static char buf[1024];
-    static char *list[34];
+    static char *list[36];                /* (31 words, --files-at, --title-out, the end) */
     int n = 0;
     snprintf(buf, sizeof buf, "%s", s ? s : "");
     for (char *p = strtok(buf, " "); p && n < 31; p = strtok(NULL, " ")) list[n++] = p;
@@ -884,10 +1123,9 @@ static char **split_args(const char *s, const char *rom, const char *files) {
 }
 
 /* Play exe on rom, wait for it, and say how it ended: 0 when well. */
-static int play_and_wait(const char *exe, const char *rom, const char *args, const char *files,
-                         const char *log) {
+static int play_and_wait_list(const char *exe, const char *rom, char **list, const char *log) {
     char why[512];
-    os_proc pid = play_start(exe, rom, split_args(args, rom, files), log);
+    os_proc pid = play_start(exe, rom, list, log);
     if (pid < 0) {
         printf("error: couldn't start the game (%s)\n", exe);
         return 1;
@@ -896,6 +1134,10 @@ static int play_and_wait(const char *exe, const char *rom, const char *args, con
     if (r > 0) printf("played: the game ended well\n");
     else printf("error: %s\n", why);
     return r > 0 ? 0 : 1;
+}
+static int play_and_wait(const char *exe, const char *rom, const char *args, const char *files,
+                         const char *log) {
+    return play_and_wait_list(exe, rom, split_args(args, rom, files), log);
 }
 
 static int install_clicked;             /* the needcc screen: Apple's installer started */
@@ -973,13 +1215,32 @@ static void take(const char *path) {
     screen = S_BUILD;
 }
 
+/* Play game i from the shelf: the same way as a drop (the build is up
+   to date unless the app or the runtime changed). */
+static void play_box(int i) {
+    printf("shelf: play %s\n", shelf.games[i].name);
+    fflush(stdout);
+    take(shelf.games[i].rom);
+}
+
+/* After a build (the window's, or --build): the game to the shelf's
+   front, picked. */
+static void shelf_built(const struct build *b) {
+    shelf_played(&shelf, b->name, b->rom, (long long)time(NULL));
+    shelf_page = 0;
+    shelf_pick = 0;
+}
+
 int main(int argc, char **argv) {
+    if (argc == 3 && !strcmp(argv[1], "--test-shelf")) return shelf_test(argv[2]);
     const char *shot = NULL, *build_rom = NULL, *open_rom = NULL, *bdir = NULL;
     int trace = 0, model = 0, then_play = 0, hit = 0, hw = 0, hh = 0, hx = 0, hy = 0;
     int sdl_info = 0;
     const char *play_args = NULL, *play_exe = NULL, *play_rom = NULL, *click_screen = NULL;
     int click = 0, cw = 0, ch = 0, cx = 0, cy = 0, menu_test = 0, choose_support = 0;
     const char *key_screen = NULL, *key_name = NULL;
+    const char *library = NULL, *shelf_keys = NULL;
+    int box = 0, bw = 0, bh = 0, bx = 0, by = 0;
     long frames = 0;
     int sw = ART_W, sh = ART_H;
     for (int i = 1; i < argc; i++) {
@@ -1032,6 +1293,14 @@ int main(int argc, char **argv) {
             key_name = argv[++i];
         }
         else if (!strcmp(argv[i], "--then-play")) then_play = 1;
+        else if (!strcmp(argv[i], "--library") && more) library = argv[++i];
+        else if (!strcmp(argv[i], "--shelf-keys") && more) shelf_keys = argv[++i];
+        else if (!strcmp(argv[i], "--box-test") && i + 3 < argc) {
+            box = sscanf(argv[i + 1], "%dx%d", &bw, &bh) == 2;
+            bx = atoi(argv[i + 2]); by = atoi(argv[i + 3]);
+            i += 3;
+            if (!box) usage(argv[0]);
+        }
         else if (!strcmp(argv[i], "--hit-test") && i + 3 < argc) {
             hit = sscanf(argv[i + 1], "%dx%d", &hw, &hh) == 2;
             hx = atoi(argv[i + 2]); hy = atoi(argv[i + 3]);
@@ -1052,6 +1321,20 @@ int main(int argc, char **argv) {
         }
         else if (argv[i][0] != '-' && !open_rom) open_rom = argv[i];
         else usage(argv[0]);
+    }
+    /* For the checks: a build folder's shelf (--library), and keys pressed
+       on it first (--shelf-keys "right down ..."). */
+    if (library) {
+        shelf_load(&shelf, library);
+        char keys[256];
+        snprintf(keys, sizeof keys, "%s", shelf_keys ? shelf_keys : "");
+        for (char *k = strtok(keys, " "); k; k = strtok(NULL, " ")) {
+            int sk = shelf_key_named(k);
+            if (sk < 0) usage(argv[0]);
+            int i = shelf_key(sk);
+            if (i >= 0) printf("shelf: play %s\n", shelf.games[i].name);
+        }
+        if (!strcmp(shot_opts.show, "drop")) shelf_pick_shown = shelf_pick;
     }
     if (shot) return screenshot(shot, frames, sw, sh) ? 1 : 0;
     if (hit) { puts(on_tv(hx, hy, hw, hh) ? "tv" : "outside"); return 0; }
@@ -1090,6 +1373,15 @@ int main(int argc, char **argv) {
         for (int k = 0; k < (int)(sizeof screen_names / sizeof *screen_names); k++)
             if (!strcmp(click_screen, screen_names[k])) s = k;
         if (s < 0) usage(argv[0]);
+        if (s == S_DROP) {                  /* the shelf first (with --library) */
+            int at = shelf_at_window(cx, cy, cw, ch);
+            if (at >= 0) { printf("click: play %s\n", shelf.games[at].name); return 0; }
+            if (at == SHELF_BACK || at == SHELF_ON) {
+                printf("click: page %s\n", at == SHELF_BACK ? "back" : "on");
+                shelf_flip(at == SHELF_BACK ? -1 : 1);
+                return 0;
+            }
+        }
         int a = click_action(s, cx, cy, cw, ch);
         printf("click: %s\n", act_names[a]);
         if (a == ACT_INSTALL) printf("ran: %s --install (exit %d)\n", build_xcode_select(), install_tools(1));
@@ -1150,6 +1442,35 @@ int main(int argc, char **argv) {
     snprintf(prefs, sizeof prefs, "%s/app-prefs.txt", dir);
     snprintf(controls, sizeof controls, "%s/controls.txt", dir);
     snprintf(builds, sizeof builds, "%s", dir);
+    if (box) {
+        /* A click on the shelf in a bw x bh window, as the window takes
+           it: if it's on a box, play that game (built only if need be),
+           headless with --play-args, and say the shelf's order after. */
+        shelf_load(&shelf, builds);
+        int at = shelf_at_window(bx, by, bw, bh);
+        if (at < 0) { printf("click: no box there\n"); return 1; }
+        printf("shelf: play %s\n", shelf.games[at].name);
+        job.verbose = 1;
+        if (build_run(&job, shelf.games[at].rom)) {
+            printf("screen: %s\n", screen_names[failed_screen(&job)]);
+            return 1;
+        }
+        shelf_built(&job);
+        snprintf(game_log, sizeof game_log, "%s/%s.game.log", builds, job.name);
+        /* As the window: a title picture asked for while there's none. */
+        char **list = split_args(play_args, job.rom, job.files_at), title[PATH_MAX + 300];
+        int nl = 0;
+        while (list[nl]) nl++;
+        snprintf(title, sizeof title, "%s/%s.title", builds, job.name);
+        if (!os_exists(title)) { list[nl++] = "--title-out"; list[nl++] = title; list[nl] = NULL; }
+        int pr = play_and_wait_list(job.out, job.rom, list, game_log);
+        shelf_title(&shelf, 0);
+        printf("shelf: %s %s\n", job.name, shelf.games[0].has_title ? "has its picture" : "has no picture");
+        printf("shelf: order:");
+        for (int k = 0; k < shelf.count; k++) printf(" %s", shelf.games[k].name);
+        printf("\n");
+        return pr;
+    }
     if (play_exe) {
         snprintf(game_log, sizeof game_log, "%s.game.log", play_exe);
         return play_and_wait(play_exe, play_rom, play_args, NULL, game_log);
@@ -1161,6 +1482,8 @@ int main(int argc, char **argv) {
                 printf("screen: %s\n", screen_names[failed_screen(&job)]);
                 return 1;
             }
+            shelf_load(&shelf, builds);
+            shelf_built(&job);
             snprintf(game_log, sizeof game_log, "%s/%s.game.log", builds, job.name);   /* (no .exe) */
             int pr = play_and_wait(job.out, job.rom, play_args, job.files_at, game_log);
             struct hood_run h;
@@ -1170,7 +1493,11 @@ int main(int argc, char **argv) {
             return pr;
         }
         if (!trace) {
-            if (!build_run(&job, build_rom)) return 0;
+            if (!build_run(&job, build_rom)) {
+                shelf_load(&shelf, builds);     /* on the shelf, as from the window */
+                shelf_built(&job);
+                return 0;
+            }
             printf("screen: %s\n", screen_names[failed_screen(&job)]);
             return 1;
         }
@@ -1195,6 +1522,8 @@ int main(int argc, char **argv) {
     SDL_Rect usable;
     if (SDL_GetDisplayUsableBounds(0, &usable) == 0 && (usable.w < ART_W * 2 || usable.h < ART_H * 2 + 40))
         open_scale = 1;
+    shelf_load(&shelf, builds);
+    shelf_say();
     SDL_Window *win = SDL_CreateWindow("nesrecomp", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
                                        ART_W * open_scale, ART_H * open_scale,
                                        SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI);
@@ -1238,6 +1567,23 @@ int main(int argc, char **argv) {
                 continue;
             }
             if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_ESCAPE) goto done;
+            /* The shelf, on the drop screen: arrows pick, Page Up and Down
+               flip, Enter plays; the mouse picks the box it's over. */
+            if (screen == S_DROP && e.type == SDL_KEYDOWN) {
+                int k = shelf_key_sdl(e.key.keysym.sym);
+                if (k >= 0 && !(k == SK_ENTER && e.key.repeat)) {
+                    int i = shelf_key(k);
+                    if (i >= 0) play_box(i);
+                    continue;
+                }
+            }
+            if (screen == S_DROP && e.type == SDL_MOUSEMOTION) {
+                int ww, wh, pw, ph;
+                SDL_GetWindowSize(win, &ww, &wh);
+                SDL_GetRendererOutputSize(ren, &pw, &ph);
+                int at = shelf_at_window(ww ? e.motion.x * pw / ww : 0, wh ? e.motion.y * ph / wh : 0, pw, ph);
+                if (at >= 0 && at != shelf_pick) { shelf_pick = at; shelf_say(); }
+            }
             if (e.type == SDL_KEYDOWN && !e.key.repeat) {
                 if (screen == S_ABOUT && about_key_supports(e.key.keysym.sym)) support_open();
                 else if (screen == S_HOOD && e.key.keysym.sym == SDLK_c) {
@@ -1261,6 +1607,11 @@ int main(int argc, char **argv) {
                 SDL_GetWindowSize(win, &ww, &wh);
                 SDL_GetRendererOutputSize(ren, &pw, &ph);
                 int px = ww ? e.button.x * pw / ww : 0, py = wh ? e.button.y * ph / wh : 0;
+                if (screen == S_DROP) {             /* a box plays; the page line's arrows flip */
+                    int at = shelf_at_window(px, py, pw, ph);
+                    if (at >= 0) { play_box(at); continue; }
+                    if (at == SHELF_BACK || at == SHELF_ON) { shelf_flip(at == SHELF_BACK ? -1 : 1); continue; }
+                }
                 switch (click_action(screen, px, py, pw, ph)) {
                 case ACT_LEAVE: screen = S_DROP; break;
                 case ACT_PICKER: open_picker(); break;
@@ -1291,7 +1642,9 @@ int main(int argc, char **argv) {
         if (screen == S_BUILD) {
             int st = atomic_load(&job.state);
             if (st == B_DONE) {
-                /* Built: the controls card first, then the game. */
+                /* Built: on the shelf's front, then the controls card,
+                   then the game. */
+                shelf_built(&job);
                 unsigned char h[5] = { 0 };
                 FILE *rf = fopen(job.rom, "rb");
                 if (rf) { if (fread(h, 1, 5, rf) != 5) h[0] = 0; fclose(rf); }
@@ -1336,6 +1689,8 @@ int main(int argc, char **argv) {
             /* Its run into the history; after a game that ended well,
                the numbers. */
             int added = add_run(&job, game_log, NULL) == 0;
+            int si = shelf_find(&shelf, job.name);      /* its title picture, if it took one */
+            if (si >= 0) shelf_title(&shelf, si);
             if (r > 0) {
                 if (added) { load_last_history(); screen = S_HOOD; }
                 else screen = S_DROP;
@@ -1346,6 +1701,7 @@ int main(int argc, char **argv) {
             SDL_ShowWindow(win);
             SDL_RaiseWindow(win);
         }
+        shelf_pick_shown = screen == S_DROP ? shelf_pick : -1;
         switch (screen) {
         case S_BUILD:
             draw_build(n, shown_name, atomic_load(&job.stage), build_progress(&job, build_now()));
