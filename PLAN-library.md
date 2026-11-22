@@ -391,6 +391,63 @@ Also in this step, the Windows runs' failures (read from their logs):
   black first frame accepted by the fallback; the file written again on
   every run; the game's frames changed by the capture.
 
+**Where step 3 ended (2026-11-22).**
+- `runtime/title.c` (new): with `--title-out FILE`, each frame it is
+  given the picture and whether Start is among the buttons for the
+  next frame (any of the four controllers, from keys, pads or a
+  script). The first fresh press keeps that picture: the one on screen
+  as Start was pressed. A picture 99% or more one colour doesn't
+  count (a press on a black screen waits for the next). With no press
+  by frame 1800 (30 seconds) it keeps frame 600's picture (10
+  seconds), or the first after it that isn't one colour; if the game
+  ends first (quit, window closed, a test finished), that one at the
+  end. Written once, then it stops looking. "title: saved at frame N
+  (Start)", "(10 seconds)", or "title: none (...)". A music file (NSF)
+  keeps none, and says so.
+- The file: "NRTITLE1", 256 and 240 (2 bytes each), then the picture
+  as RGB, 184,332 bytes in all.
+- The app gives the game `--title-out` with `NAME.title` in its build
+  folder, only while that file isn't there.
+- `--test-title DIR`: the runtime's self-test of the rules, in `make
+  test` and the Windows run (`tests/run_nestest.py`).
+
+The checks:
+- `--test-title`, 14: a press on a one-colour screen waits; a press on
+  a picture keeps it, and never again after; no Start: nothing until
+  30 seconds, then the picture of 10 seconds; one colour at 10 seconds
+  (99.5%): the first picture after; Start at 1000 wins; Start after 30
+  seconds doesn't; ending at 20 seconds keeps the 10-second picture,
+  at 5 seconds none; one colour for 30 seconds: none; 98% one colour
+  is a picture; without `--title-out` nothing.
+- `tests/check_titles.py` (new, `make test-titles` in `make test-all`,
+  and the Windows run), on mmc3_split.nes, 240pee.nes and
+  fds_demo.fds: Start pressed by a script at a frame gives exactly that
+  frame's picture, as `--screenshot` saves it; no Start, frame 600's;
+  the terminal's lines; nothing without `--title-out`; none for an NSF.
+- `tests/check_states.py`: every game's fast-forward run also takes a
+  title: 240 of 240 the same frames as without; 29 of them got far
+  enough to keep one (the others are shorter than 10 seconds and press
+  no Start).
+- `tests/check_app.py`: the app asks for `game.title` while it's
+  missing, not once it's there.
+- `make test-all`: 230 of 231 as before (test28), nestest exact; the
+  same C.
+
+Breaks, each in a scratch copy:
+
+| broken | caught by |
+| --- | --- |
+| the picture taken a frame late (the frame after the press) | `check_titles.py`, 5 FAIL lines (240pee's picture is the same a frame later: caught by the terminal's frame number) |
+| a black screen accepted at 10 seconds | `--test-title`, 1 |
+| the picture written again and again | `--test-title`, 2 |
+| the app asking for a picture when there's one | `check_app.py`, 1 |
+| a music file given a picture | `check_titles.py`, 1 |
+| the capture taking the Start press away from the game | `check_states.py`, 4 (the games whose scripts press Start) |
+
+Not checked by a test: a real window, keys and pads (headless has
+none), and quitting a game early from the window. The rules are the
+same code as in the self-test.
+
 ### 4. The shelf
 - `library.txt` (written after each build and each game, read at the
   start; filled from older builds the first time); the boxes, 16 a row,

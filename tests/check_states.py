@@ -23,7 +23,9 @@ oldest frame kept.
 
 And fast-forward (step 4): the same frames played with the key held
 the whole run (--hold-fast) must come out exactly as without it, frame
-by frame (--prints-out: picture, RAM, sound, code counts).
+by frame (--prints-out: picture, RAM, sound, code counts). That run also
+keeps a title picture (--title-out, PLAN-library.md step 3), which must
+change nothing either; the games that get far enough keep one.
 
 And the pause menu (PLAN-pause.md): the same frames, with the menu
 opened at frame N, moved around in (the slot changed and changed back)
@@ -119,7 +121,12 @@ def run_one(test, cflags, libs, rt_objs):
     # Fast-forward held the whole run: the same frames, frame by frame.
     plain = cmd[:at] + ["--frames", str(int(cmd[at + 1]) + M)] + cmd[at + 3:]
     prints = []
-    for extra in ([], ["--hold-fast"]):
+    # (The fast run also takes a title picture, PLAN-library.md step 3: it
+    # must change nothing either.)
+    title = os.path.join(OUT, ident + ".title")
+    if os.path.exists(title):
+        os.remove(title)
+    for extra in ([], ["--hold-fast", "--title-out", title]):
         out = os.path.join(OUT, ident + (".fast" if extra else ".plain") + ".prints")
         try:
             run_tests.sh(plain + extra + ["--prints-out", out], cwd=ROOT, timeout=120)
@@ -131,8 +138,12 @@ def run_one(test, cflags, libs, rt_objs):
     if prints[0] != prints[1]:
         n = min(len(prints[0]), len(prints[1])) // 32
         k = next((i for i in range(n) if prints[0][i * 32:i * 32 + 32] != prints[1][i * 32:i * 32 + 32]), n)
-        return test, "fail: fast-forward changed the game: frame %d differs (%d frames, %d)" % (
+        return test, "fail: fast-forward or the title picture changed the game: frame %d differs (%d frames, %d)" % (
             k + 1, len(prints[0]) // 32, len(prints[1]) // 32)
+    took = os.path.exists(title)
+    if took and (os.path.getsize(title) != 12 + 256 * 240 * 3 or open(title, "rb").read(8) != b"NRTITLE1"):
+        return test, "fail: the title picture's file isn't one"
+    test["title"] = took
     # The pause menu: the game's own script, plus a menu line.
     script = os.path.join(OUT, ident + ".menu.txt")
     with open(script, "w") as f:
@@ -160,8 +171,8 @@ def run_one(test, cflags, libs, rt_objs):
         n = min(len(prints[0]), len(menu_prints)) // 32
         k = next((i for i in range(n) if prints[0][i * 32:i * 32 + 32] != menu_prints[i * 32:i * 32 + 32]), n)
         return test, "fail: the pause menu changed the game: frame %d differs" % (k + 1)
-    return test, line + "; from a file in a new run; rewind; fast-forward (%d frames); menu, odd keys" % (
-        len(prints[0]) // 32)
+    return test, line + "; from a file in a new run; rewind; fast-forward (%d frames)%s; menu, odd keys" % (
+        len(prints[0]) // 32, " and a title" if took else "")
 
 
 def rewind_run(cmd):
@@ -267,6 +278,13 @@ def main():
     print("\n%d of %d ROMs load their state and run on the same, in one run,"
           " from a file in a new one, rewind, fast-forward, and the menu (odd keys)" %
           (len(tests) - failed, len(tests)))
+    titles = sum(" and a title" in results[t["name"]] for t in tests)
+    # (Only runs of 10 seconds or more, or pressing Start, keep one: over
+    # the whole suite some must.)
+    whole = not filters
+    print("%s  the fast runs that kept a title picture (--title-out): %d, none changing a game" %
+          ("ok  " if titles or not whole else "FAIL", titles))
+    failed += whole and not titles
     print()
     same = os.path.exists(ODD_KEYS) and open(ODD_KEYS).read() == ODD_TEXT
     print("%s  the odd controls.txt left as it was (the games only read it)" % ("ok  " if same else "FAIL"))

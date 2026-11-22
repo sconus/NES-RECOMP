@@ -25,6 +25,7 @@
 #include "wav.h"
 #include "menu.h"
 #include "controls.h"
+#include "title.h"
 
 uint8_t A, X, Y, SP = 0xFD;
 uint8_t C, Z, I = 1, D, V, N;
@@ -467,6 +468,7 @@ void runtime_snap_key(void) {
 static int pretend_scale, pretend_full;   /* headless: a pretend window */
 
 static void at_exit(void) {
+    title_finish();                     /* the 10-second picture, if that's all */
     if (remember_size) {
         int s = video_scale();
         FILE *f = fopen(remember_size, "w");
@@ -712,6 +714,7 @@ static void load_input_script(const char *path) {
 }
 
 static int headless;
+static const char *title_out;           /* --title-out (title.h) */
 /* Frames a $6000 test has been waiting at "press reset" (frame_done). */
 static int reset_wait;
 static long stop_after_frames;      /* 0 = run until the window closes */
@@ -1196,6 +1199,10 @@ static void frame_done(const uint16_t *ppu_fb) {
     }
     for (int p = 0; p < 4; p++)
         pad_buttons[p] = script_buttons[p] | (headless ? 0 : video_buttons(p));
+    /* The title picture (--title-out): this picture, if Start is pressed
+       for the next frame (it only reads the picture). */
+    title_frame(fb, (long)ppu.frame,
+                ((pad_buttons[0] | pad_buttons[1] | pad_buttons[2] | pad_buttons[3]) & BTN_START) != 0);
     for (int p = 0; p < 2; p++) vaus[p].fire = script_fire[p];
     zapper.trigger = script_trigger;
     paddle_mouse();
@@ -1277,6 +1284,9 @@ static void usage(const char *prog) {
         "                     check every frame (headless)\n"
         "  --hold-fast        hold the fast-forward key the whole run (for tests)\n"
         "  --prints-out F     write each frame's fingerprint to F (for tests)\n"
+        "  --title-out F      keep the game's title picture in F (for the app's\n"
+        "                     shelf): the screen when Start is first pressed, or\n"
+        "                     at 10 seconds (PLAN-library.md step 3)\n"
         "  --state-out F      with --state-test: write the state to F (and F.prints)\n"
         "                     and stop there, without loading it\n"
         "  --state-in F       with --state-test: load F at the start and check the\n"
@@ -1295,7 +1305,8 @@ static void usage(const char *prog) {
         "  --song N           NSF: play song N (from 1; default: the file's own)\n"
         "  --info             print the cartridge header and exit\n"
         "(or, with no ROM: --test-gamepads checks the game controller mapping,\n"
-        " --test-controls the keyboard remapping and controls.txt)\n"
+        " --test-controls the keyboard remapping and controls.txt,\n"
+        " --test-title DIR the title picture's rules, writing in DIR)\n"
         "  --trace            print CPU state before every instruction\n"
         "  --check-cycles     with --trace: check each instruction's cycle map\n"
         "  --start HEX        start here instead of the reset vector\n",
@@ -1327,6 +1338,7 @@ int main(int argc, char **argv) {
     /* A self-test of the game controller mapping, with no ROM (make test). */
     if (argc == 2 && !strcmp(argv[1], "--test-gamepads")) return gamepad_self_test();
     if (argc == 2 && !strcmp(argv[1], "--test-controls")) return controls_self_test();
+    if (argc == 3 && !strcmp(argv[1], "--test-title")) return title_test(argv[2]);
     if (argc < 2 || argv[1][0] == '-') usage(argv[0]);
     rom_path = files_at = argv[1];
     cart_load(rom_path);
@@ -1384,6 +1396,7 @@ int main(int argc, char **argv) {
         }
         else if (!strcmp(a, "--state-out") && more) state_out = argv[++i];
         else if (!strcmp(a, "--hold-fast")) hold_fast = 1;
+        else if (!strcmp(a, "--title-out") && more) title_out = argv[++i];
         else if (!strcmp(a, "--prints-out") && more) {
             prints_out = fopen(argv[++i], "wb");
             if (!prints_out) { fprintf(stderr, "can't write %s\n", argv[i]); return 1; }
@@ -1489,6 +1502,10 @@ int main(int argc, char **argv) {
     }
     start_scale = pretend_scale = scale < 1 ? 1 : scale;
     if (!headless) video_set_muted(sound_off);
+    if (title_out && cart.mapper == MAPPER_NSF)
+        fprintf(stderr, "title: a music file has no title screen (no picture kept)\n");
+    else if (title_out)
+        title_start(title_out);
     atexit(at_exit);
     /* Ctrl+C and the like end the program at the frame's end, through
        at_exit: the .missed file, a battery save and a recording are

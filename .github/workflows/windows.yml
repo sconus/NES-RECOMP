@@ -92,6 +92,9 @@ jobs:
       - name: The pause menu on Windows - pictures, save, load, reset, sound, window, controllers (tests/check_menu.py)
         run: python tests/check_menu.py
 
+      - name: The title picture on Windows - a Start press, 10 seconds, none for music (tests/check_titles.py)
+        run: python tests/check_titles.py
+
       - name: Pictures of the Controllers pages as Windows draws them (tests/menu_pictures.py)
         run: python tests/menu_pictures.py build/menu-pictures
 

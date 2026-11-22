@@ -8,6 +8,7 @@ then:
      (tests/compare_nestest.py), exactly;
   2. the game controller self-test (--test-gamepads);
      the keyboard remapping's self-test (--test-controls);
+     the title picture's self-test (--test-title, PLAN-library.md step 3);
   3. tests/check_headers.py with the built program.
 Exit status 0 when all pass.
 """
@@ -67,6 +68,15 @@ def main():
         failed += 1
     else:
         print(c.stdout.strip().splitlines()[-1:] or ["(nothing)"], flush=True)
+    tdir = os.path.join(ROOT, "build", "title_test")
+    os.makedirs(tdir, exist_ok=True)
+    t = run([exe, "--test-title", tdir], timeout=120)
+    if t.returncode:
+        print("\n".join(l for l in t.stdout.splitlines() if l.startswith("FAIL")))
+        print("FAIL  --test-title: exit %d" % t.returncode)
+        failed += 1
+    else:
+        print(t.stdout.strip().splitlines()[-1:] or ["(nothing)"], flush=True)
     h = run([sys.executable, os.path.join(HERE, "check_headers.py"), exe], timeout=600)
     print(h.stdout.strip().splitlines()[-1] if h.stdout.strip() else h.stderr.strip()[-500:], flush=True)
     if h.returncode:

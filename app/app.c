@@ -805,10 +805,13 @@ static struct { int scale, volume, sound_off; } game_prefs;
 static void read_game_prefs(void);
 
 /* What a game is started with from the app: the size and volume last
-   remembered, where to remember them, and its keys (controls.txt). */
-#define GAME_ARGS 12
-static void game_args(char **args, const char *files_at, const char *rom) {
-    static char scale[16], volume[16];
+   remembered, where to remember them, its keys (controls.txt), and,
+   while the game has no title picture yet, where to keep one
+   (NAME.title in the build folder, for the shelf: PLAN-library.md
+   step 3). */
+#define GAME_ARGS 16
+static void game_args(char **args, const char *files_at, const char *rom, const char *name) {
+    static char scale[16], volume[16], title[PATH_MAX + 300];
     read_game_prefs();
     snprintf(scale, sizeof scale, "%d", game_prefs.scale);
     snprintf(volume, sizeof volume, "%d", game_prefs.volume);
@@ -819,6 +822,8 @@ static void game_args(char **args, const char *files_at, const char *rom) {
     args[na++] = "--controls"; args[na++] = controls;
     if (game_prefs.sound_off) args[na++] = "--sound-off";
     if (strcmp(files_at, rom)) { args[na++] = "--files-at"; args[na++] = (char *)files_at; }
+    snprintf(title, sizeof title, "%s/%s.title", builds, name);
+    if (!os_exists(title)) { args[na++] = "--title-out"; args[na++] = title; }
     args[na] = NULL;
 }
 
@@ -1011,8 +1016,9 @@ int main(int argc, char **argv) {
             const char *d = argv[++i];
             snprintf(prefs, sizeof prefs, "%s/app-prefs.txt", d);
             snprintf(controls, sizeof controls, "%s/controls.txt", d);
+            snprintf(builds, sizeof builds, "%s", d);
             char *args[GAME_ARGS];
-            game_args(args, "game.nes", "game.nes");
+            game_args(args, "game.nes", "game.nes", "game");
             for (int k = 0; args[k]; k++) printf("%s%s", k ? " " : "", args[k]);
             printf("\n");
             return 0;
@@ -1308,7 +1314,7 @@ int main(int argc, char **argv) {
             /* Play it, with this window out of the way, at the size the
                last game's window had. */
             char *args[GAME_ARGS];
-            game_args(args, job.files_at, job.rom);
+            game_args(args, job.files_at, job.rom, job.name);
             snprintf(game_log, sizeof game_log, "%s/%s.game.log", builds, job.name);   /* (no .exe) */
             game = play_start(job.out, job.rom, args, game_log);
             if (game < 0) {

@@ -949,6 +949,19 @@ def main():
     want_c = "--controls " + os.path.join(OUT, "controls.txt").replace("\\", "/")
     check("the app gives the game its keys' file (controls.txt in the build folder)",
           want_c in got.replace("\\", "/"), repr(got))
+    # The title picture (PLAN-library.md step 3): asked for while there's
+    # none (game.title in the build folder), not once there is one.
+    title = os.path.join(OUT, "game.title")
+    if os.path.exists(title):
+        os.remove(title)
+    want_t = "--title-out " + title.replace("\\", "/")
+    got = subprocess.run([APP, "--game-args", OUT], capture_output=True, text=True).stdout.strip()
+    check("no title picture yet: the app asks the game for one (game.title in the build folder)",
+          got.replace("\\", "/").endswith(want_t), repr(got))
+    open(title, "wb").write(b"NRTITLE1")
+    got = subprocess.run([APP, "--game-args", OUT], capture_output=True, text=True).stdout.strip()
+    check("a title picture already: the app doesn't ask again", "--title-out" not in got, repr(got))
+    os.remove(title)
     old_style = os.path.join(OUT, "prefs-old.txt")
     open(old_style, "w").write("game_scale 6\n")       # written by 2.0
     got = subprocess.run([APP, "--game-prefs", old_style], capture_output=True,

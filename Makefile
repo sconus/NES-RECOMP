@@ -7,6 +7,8 @@
 #                           slots through it (tests/check_menu.py, PLAN-pause.md)
 #   make test-states        save a state mid-run and load it, for every ROM in
 #                           the suite (tests/check_states.py, PLAN-savestates.md)
+#   make test-titles        the game's title picture, for the app's shelf
+#                           (tests/check_titles.py, PLAN-library.md)
 #   make game ROM=x.nes     recompile any NROM game into build/<name>
 #   make run ROM=x.nes      ...and run it in a window (options: ARGS="...")
 #   make recomp             the recompiler in C (build/nesrecomp-recomp)
@@ -70,6 +72,8 @@ test: build/nestest
 	python3 tests/compare_nestest.py tests/nestest.log build/trace.txt
 	./build/nestest --test-gamepads
 	./build/nestest --test-controls
+	@mkdir -p build/title_test
+	./build/nestest --test-title build/title_test
 	python3 tests/check_headers.py build/nestest
 
 # --- test ROM suite: see tests/suite.txt and tests/run_tests.py --------
@@ -77,7 +81,7 @@ test-ppu: $(RECOMP)
 	python3 tests/run_tests.py
 	python3 tests/check_bandai_save.py
 
-test-all: test test-ppu test-app test-record test-states test-menu
+test-all: test test-ppu test-app test-record test-states test-menu test-titles
 
 # --- save states (runtime/state.c, PLAN-savestates.md) -----------------
 test-states: $(RECOMP)
@@ -86,6 +90,9 @@ test-states: $(RECOMP)
 # --- the pause menu (runtime/menu.c, PLAN-pause.md) ------------------------
 test-menu: $(RECOMP)
 	python3 tests/check_menu.py
+
+test-titles: $(RECOMP)
+	python3 tests/check_titles.py
 
 # --- recording (runtime/record_mac.m, PLAN-standalone.md step 6) ---------
 test-record: $(RECOMP)
