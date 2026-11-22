@@ -354,6 +354,82 @@ file kept after quitting and starting again.
   wait started taken as the answer; Select+Start held to open the menu
   stopping working after a remap of Select or Start.
 
+**Where step 4 ended (2026-11-22).**
+- CONTROLLERS now lists BUTTON TEST, KEYBOARD 1, KEYBOARD 2, PADS,
+  PAIRING HELP, BACK (the slots' list below moved down 7 pixels and
+  closer, to fit). PADS is the KEYBOARD page for the pads' one layout:
+  each NES button with its pad button by position (BOTTOM BUTTON, RIGHT
+  BUTTON, LEFT, TOP, SELECT, START, D-PAD UP ... RIGHT, LEFT and RIGHT
+  STICK IN), DEFAULTS and BACK. OK waits for a pad button on any pad:
+  the next fresh press is the answer (one held as it started doesn't
+  count); Esc, Home or 5 seconds keep the old one; a shoulder (or
+  another button not every pad has) is refused and it waits on; a
+  button another NES button has swaps the two.
+- The layout is for every pad. The left stick is always the D-pad's
+  directions. Select+Start held for the menu, and the menu's moves,
+  follow the layout (they read NES buttons), so they're always on some
+  button; Home and the shoulders never move. The button test lights
+  the NES button each pad button is now.
+- `controls.txt` is now "version 2", with "pad a bottom" lines after
+  the keys; a version 1 file (step 3's) is still read, with the usual
+  pad. A pad line in a version 1 file, an unknown or fixed button
+  (Home, a shoulder), or one used twice: the usual keys and pad.
+- The terminal: "pads: press a button for A", "pads: A is now BOTTOM
+  BUTTON (swapped: B is now RIGHT BUTTON)", "pads: RIGHT SHOULDER stays
+  as it is", "pads: A kept as BOTTOM BUTTON (no button in 5 seconds)",
+  "pads: the usual buttons".
+- Input scripts' `pad=` words gained x, y, ls, rs (the left and top
+  face buttons, the sticks pressed in); they name places on the pad,
+  whatever the layout.
+- README: "Changing the pad buttons", with a table of what each name is
+  on Xbox, PlayStation and Switch Pro; `--controls`; the checks.
+
+The checks:
+- `--test-controls`: the usual pad; A to the top button, then to the
+  bottom one swapping with B; Home, both shoulders, Share, a paddle,
+  the touch pad and two nonsense numbers refused; the file read back;
+  keyboard DEFAULTS leaving the pad and the pad's DEFAULTS; seven bad
+  pad files; a version 1 file giving the usual pad.
+- `--test-gamepads`, with virtual pads: the layout on controllers 1 and
+  2; the stick still the D-pad; Select moved to the left button, then
+  that and Start held 0.5 s opening the menu (on 1 and on 2) and the
+  old Select and Start not; the moved A choosing in the menu; the wait
+  ignoring a button held as it started, and Home; a press on another
+  pad answering; the answer held on not also choosing in the menu.
+- `tests/check_menu.py`, 8 more on each game: the PADS page pixel by
+  pixel (open, waiting, a held button not taken, a shoulder refused,
+  swapped, Esc, 5 seconds), the button test lighting by the new layout,
+  the terminal's lines, the file as changed and read back by a new run,
+  DEFAULTS, a file giving A the Home button, the game's frames
+  unchanged.
+- `tests/check_states.py`: the unusual `controls.txt` now moves every
+  pad button too: 240 of 240 the same frames, the file untouched.
+- `make test-all`: 230 of 231 as before (test28), nestest exact; the
+  same C.
+
+Breaks, each in a scratch copy (FAIL lines in the two self-tests, and
+in the menu checks):
+
+| broken | self-tests | menu |
+| --- | --- | --- |
+| the layout applied to controller 1 only | 2 | 0 (headless checks one pad) |
+| a button held as the wait started taken as the answer | 1 | 4 |
+| Select+Start stays on the old buttons after a remap | 3 | 0 |
+| Home taken as the answer | 1 | 0 |
+| the answer, held on, also chooses in the menu | 1 | 0 |
+| a shoulder accepted | 2 | 6 |
+| a pad clash not swapped | 3 | 4 |
+| the file's pad lines not used | 3 | 2 |
+| the pad's change not written | 2 | 2 |
+| PADS DEFAULTS does nothing | 2 | 2 |
+
+(The file's pad lines were at first caught only by the self-test: the
+menu check of the file read back by a new run was added for it.)
+
+Not checked by a test: a real pad (headless only has virtual ones):
+your Xbox pad's buttons answering the page, Home cancelling, and the
+layout kept after quitting and starting again.
+
 ### 5. The app, Windows, the README
 - The app's SAVE AND REWIND card (or CONTROLS) mentions the
   CONTROLLERS page; the checks join the Windows run (the Windows

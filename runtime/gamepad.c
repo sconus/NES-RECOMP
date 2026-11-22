@@ -14,6 +14,11 @@
      Back / Select / Share Select
    SDL is told not to swap Nintendo controllers' buttons to match their
    labels, so the same position means the same button on every brand.
+   That's the usual layout: the pause menu's PADS page changes it, for
+   every pad at once (controls.c, PLAN-controllers.md step 4). The left
+   stick is always the D-pad's directions, whatever the layout. Menu
+   moves and Select+Start follow the layout (they're NES buttons), so
+   they're always on some button; Home and the shoulders never move.
 
    Beyond the NES buttons (PLAN-pause.md step 2):
      Select+Start held 0.5 s   opens the pause menu (a short press of
@@ -36,6 +41,7 @@
 #include "gamepad.h"
 #include "input.h"
 #include "menu.h"
+#include "controls.h"
 
 #define STICK_THRESHOLD 16384           /* half way, of 32767 */
 
@@ -102,20 +108,15 @@ void gamepad_event(const SDL_Event *e) {
     else if (e->type == SDL_CONTROLLERDEVICEREMOVED) close_instance(e->cdevice.which);
 }
 
+static void held_buttons(SDL_GameController *c, uint8_t held[SDL_CONTROLLER_BUTTON_MAX]) {
+    for (int b = 0; b < SDL_CONTROLLER_BUTTON_MAX; b++)
+        held[b] = SDL_GameControllerGetButton(c, (SDL_GameControllerButton)b) != 0;
+}
+
 static uint8_t read_pad(SDL_GameController *c) {
-    static const struct { SDL_GameControllerButton b; uint8_t nes; } map[] = {
-        { SDL_CONTROLLER_BUTTON_DPAD_UP, BTN_UP },
-        { SDL_CONTROLLER_BUTTON_DPAD_DOWN, BTN_DOWN },
-        { SDL_CONTROLLER_BUTTON_DPAD_LEFT, BTN_LEFT },
-        { SDL_CONTROLLER_BUTTON_DPAD_RIGHT, BTN_RIGHT },
-        { SDL_CONTROLLER_BUTTON_B, BTN_A },        /* right face button */
-        { SDL_CONTROLLER_BUTTON_A, BTN_B },        /* bottom face button */
-        { SDL_CONTROLLER_BUTTON_START, BTN_START },
-        { SDL_CONTROLLER_BUTTON_BACK, BTN_SELECT },
-    };
-    uint8_t out = 0;
-    for (size_t i = 0; i < sizeof map / sizeof map[0]; i++)
-        if (SDL_GameControllerGetButton(c, map[i].b)) out |= map[i].nes;
+    uint8_t held[SDL_CONTROLLER_BUTTON_MAX];
+    held_buttons(c, held);
+    uint8_t out = controls_pad_buttons(held, SDL_CONTROLLER_BUTTON_MAX);   /* the layout */
     int x = SDL_GameControllerGetAxis(c, SDL_CONTROLLER_AXIS_LEFTX);
     int y = SDL_GameControllerGetAxis(c, SDL_CONTROLLER_AXIS_LEFTY);
     if (x <= -STICK_THRESHOLD) out |= BTN_LEFT;
@@ -135,6 +136,37 @@ uint8_t gamepad_buttons(int player) {
 void gamepad_ignore_held(void) {
     for (int s = 0; s < SLOTS; s++)
         pad[s].mask = slot[s] ? read_pad(slot[s]) : 0;
+}
+
+/* The PADS page waiting for a button (menu.c): what each pad held
+   when it started, so only a fresh press is the answer. */
+static uint8_t watch_prev[SLOTS][SDL_CONTROLLER_BUTTON_MAX];
+
+void gamepad_watch_start(void) {
+    for (int s = 0; s < SLOTS; s++) {
+        if (slot[s]) held_buttons(slot[s], watch_prev[s]);
+        else memset(watch_prev[s], 0, sizeof watch_prev[s]);
+    }
+}
+
+int gamepad_watch(void) {
+    int found = -1;
+    for (int s = 0; s < SLOTS; s++) {
+        uint8_t held[SDL_CONTROLLER_BUTTON_MAX] = { 0 };
+        if (slot[s]) held_buttons(slot[s], held);
+        for (int b = 0; b < SDL_CONTROLLER_BUTTON_MAX; b++)
+            if (found < 0 && held[b] && !watch_prev[s][b] && b != SDL_CONTROLLER_BUTTON_GUIDE)
+                found = b;
+        memcpy(watch_prev[s], held, sizeof held);
+    }
+    return found;
+}
+
+void gamepad_layout_changed(void) {
+    /* The buttons held now, under the new layout, aren't fresh presses:
+       the one that answered mustn't also move the menu. */
+    for (int s = 0; s < SLOTS; s++)
+        if (slot[s]) pad[s].prev = read_pad(slot[s]);
 }
 
 static void want_key(struct pad_wants *w, int key) {
@@ -287,6 +319,10 @@ static const struct { const char *name; unsigned bit; SDL_GameControllerButton b
     { "lb", PAD_TEST_LB, SDL_CONTROLLER_BUTTON_LEFTSHOULDER },
     { "rb", PAD_TEST_RB, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER },
     { "home", PAD_TEST_HOME, SDL_CONTROLLER_BUTTON_GUIDE },
+    { "x", PAD_TEST_X, SDL_CONTROLLER_BUTTON_X },           /* the left face button */
+    { "y", PAD_TEST_Y, SDL_CONTROLLER_BUTTON_Y },           /* the top one */
+    { "ls", PAD_TEST_LS, SDL_CONTROLLER_BUTTON_LEFTSTICK }, /* the sticks, pressed in */
+    { "rs", PAD_TEST_RS, SDL_CONTROLLER_BUTTON_RIGHTSTICK },
 };
 #define NVBUTTONS (sizeof vbuttons / sizeof vbuttons[0])
 
@@ -498,7 +534,7 @@ static void menu_checks(void) {
         int pl; unsigned bt;
         if (!gamepad_parse_virtual("2:a+start+lb", &pl, &bt) || pl != 1 ||
             bt != (PAD_TEST_A | PAD_TEST_START | PAD_TEST_LB) ||
-            gamepad_parse_virtual("5:a", &pl, &bt) || gamepad_parse_virtual("1:x", &pl, &bt) ||
+            gamepad_parse_virtual("5:a", &pl, &bt) || gamepad_parse_virtual("1:q", &pl, &bt) ||
             !gamepad_parse_virtual("1:none", &pl, &bt) || bt) {
             printf("FAIL reading the script's pad= words\n");
             failures++;
@@ -511,6 +547,74 @@ static void menu_checks(void) {
         expect_wants("controller 2's Select+Start", 2, 0, 0, 0, NULL);
         press(1, START, 0); press(1, BACK, 0); at(8517, 0);
     }
+}
+
+/* The PADS page's layout (PLAN-controllers.md step 4): every pad, the
+   menu's ways in and moves, and the wait for a button. */
+static void layout_checks(void) {
+    const SDL_GameControllerButton Y = SDL_CONTROLLER_BUTTON_Y, X = SDL_CONTROLLER_BUTTON_X,
+        START = SDL_CONTROLLER_BUTTON_START, BACK = SDL_CONTROLLER_BUTTON_BACK,
+        LS = SDL_CONTROLLER_BUTTON_LEFTSTICK;
+    if (!slot[0] || !slot[1]) { printf("FAIL: the layout checks need controllers 1 and 2\n"); failures++; return; }
+    controls_pad_set(CB_A, Y, NULL);                /* A on the top button */
+    press(0, Y, 1); expect("the top button is A on controller 1", 0, BTN_A);
+    press(0, Y, 0);
+    press(1, Y, 1); expect("... and on controller 2", 1, BTN_A);
+    press(1, Y, 0);
+    press(0, SDL_CONTROLLER_BUTTON_B, 1); expect("the right button no longer A", 0, 0);
+    press(0, SDL_CONTROLLER_BUTTON_B, 0);
+    tilt(0, SDL_CONTROLLER_AXIS_LEFTX, -32768); expect("the stick still left", 0, BTN_LEFT);
+    tilt(0, SDL_CONTROLLER_AXIS_LEFTX, 0);
+
+    /* Select moved to the left button: Select+Start is that and Start. */
+    controls_pad_set(CB_SELECT, X, NULL);
+    at(20000, 0);
+    press(0, X, 1); press(0, START, 1);
+    at(20100, 0); at(20600, 0);
+    expect_wants("the new Select+Start held 0.5 s", 1, 0, 0, 0, NULL);
+    press(0, X, 0); press(0, START, 0); at(20617, 0);
+    press(0, BACK, 1); press(0, START, 1);
+    at(21000, 0); at(21600, 0); NOTHING("the old Select (now nothing) with Start held 0.5 s");
+    press(0, BACK, 0); press(0, START, 0); at(21617, 0);
+    press(1, X, 1); press(1, START, 1);
+    at(22000, 0); at(22500, 0);
+    expect_wants("controller 2's new Select+Start", 2, 0, 0, 0, NULL);
+    press(1, X, 0); press(1, START, 0); at(22517, 0);
+    at(22534, 1); press(0, Y, 1); at(22551, 1); KEY("the top button (A) chooses in the menu", MENU_OK);
+    press(0, Y, 0); at(22568, 1);
+
+    /* Waiting: only a fresh press, on any pad, is the answer; Home never. */
+    press(0, Y, 1); SDL_GameControllerUpdate();
+    gamepad_watch_start();
+    SDL_GameControllerUpdate();
+    if (gamepad_watch() != -1) { printf("FAIL a button held as the wait started taken\n"); failures++; }
+    press(0, SDL_CONTROLLER_BUTTON_GUIDE, 1); SDL_GameControllerUpdate();
+    if (gamepad_watch() != -1) { printf("FAIL Home taken as the answer\n"); failures++; }
+    press(0, SDL_CONTROLLER_BUTTON_GUIDE, 0);
+    press(0, Y, 0); SDL_GameControllerUpdate(); gamepad_watch();
+    press(0, Y, 1); SDL_GameControllerUpdate();
+    int got = gamepad_watch();
+    if (got != Y) { printf("FAIL the top button pressed again: %d, not %d\n", got, Y); failures++; }
+    press(0, Y, 0);
+    press(1, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER, 1); SDL_GameControllerUpdate();
+    got = gamepad_watch();
+    if (got != SDL_CONTROLLER_BUTTON_RIGHTSHOULDER) {
+        printf("FAIL controller 2's shoulder: %d (the menu refuses it, but it's seen)\n", got);
+        failures++;
+    }
+    press(1, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER, 0);
+
+    /* The answer held as the layout changes isn't a menu press too. */
+    at(23000, 2); press(0, LS, 1); at(23017, 2);
+    controls_pad_set(CB_A, LS, NULL);
+    gamepad_layout_changed();
+    at(23034, 1); NOTHING("the button that answered, held on as A");
+    press(0, LS, 0); at(23051, 1);
+    controls_pad_defaults();
+    gamepad_layout_changed();
+    press(0, SDL_CONTROLLER_BUTTON_B, 1); expect("DEFAULTS: the right button A again", 0, BTN_A);
+    press(0, SDL_CONTROLLER_BUTTON_B, 0);
+    at(23068, 0);
 }
 
 int gamepad_self_test(void) {
@@ -583,6 +687,7 @@ int gamepad_self_test(void) {
 
     press(0, SDL_CONTROLLER_BUTTON_A, 0);
     menu_checks();
+    layout_checks();
 
     /* SDL announcing a controller that is already open (it does so for
        every one connected at the start): still one slot each. One is
@@ -610,6 +715,6 @@ int gamepad_self_test(void) {
     }
 
     if (failures) return 1;
-    printf("PASS: game controller mapping and menu buttons (virtual controllers)\n");
+    printf("PASS: game controller mapping, layouts and menu buttons (virtual controllers)\n");
     return 0;
 }

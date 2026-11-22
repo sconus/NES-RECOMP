@@ -519,7 +519,11 @@ static void at_exit(void) {
                         pad=2:a+start holds those buttons on a virtual
                         controller in slot 2, plugged in if need be (a,
                         b, select, start, up, down, left, right, lb, rb,
-                        home, or none; PLAN-controllers.md); key=k
+                        home, x, y, ls, rs, or none; PLAN-controllers.md;
+                        they're places on the pad: a the right face
+                        button, b the bottom one, x the left, y the top,
+                        ls and rs the sticks pressed in, whatever the
+                        PADS page made them); key=k
                         (key=right_shift, ...) is that key pressed, for a
                         KEYBOARD page waiting for one, and wait=300 that
                         many 60ths of a second with nothing pressed.
@@ -1253,8 +1257,10 @@ static void usage(const char *prog) {
         "  --mute             no sound from the speakers (M toggles it)\n"
         "  --volume N         the speakers' volume, 1 to 10 (default 10)\n"
         "  --sound-off        start with the sound off (as M; M or the menu turn it on)\n"
-        "  --controls F       the keys for the NES buttons: read from F, and written\n"
-        "                     there when the menu's KEYBOARD pages change them\n"        "  --pairing-for mac|windows  the menu's pairing help for that system\n"
+        "  --controls F       the keys and pad buttons for the NES buttons: read from\n"
+        "                     F, and written there when the menu's KEYBOARD or PADS\n"
+        "                     pages change them\n"
+        "  --pairing-for mac|windows  the menu's pairing help for that system\n"
         "                     (default: the one this was built for; for tests)\n"
         "  --speaker-out F    write what the speakers get to F (raw 16-bit, for tests)\n"
         "  --audio-stats      print the sound queue depth once a second\n"

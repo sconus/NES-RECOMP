@@ -33,13 +33,23 @@ struct pad_info {
 };
 void gamepad_info(int player, struct pad_info *p);
 
+/* The PADS page (PLAN-controllers.md step 4) waiting for a pad button:
+   gamepad_watch_start as it starts (buttons held then don't count),
+   then gamepad_watch gives a button any pad has freshly pressed (an
+   SDL_GameControllerButton, not Home) or -1. gamepad_layout_changed
+   after a remap, so a button held then isn't a fresh menu press. */
+void gamepad_watch_start(void);
+int gamepad_watch(void);
+void gamepad_layout_changed(void);
+
 /* For the tests (an input script's menu line, pad=2:a+start): a virtual
    controller in slot `player` (0-3), plugged in if it isn't there yet,
    holding `buttons` (bits of PAD_TEST_*). gamepad_parse_virtual reads
    "2:a+start" (or "2:none"); 0 if it can't. */
 enum { PAD_TEST_A = 1, PAD_TEST_B = 2, PAD_TEST_SELECT = 4, PAD_TEST_START = 8,
        PAD_TEST_UP = 16, PAD_TEST_DOWN = 32, PAD_TEST_LEFT = 64, PAD_TEST_RIGHT = 128,
-       PAD_TEST_LB = 256, PAD_TEST_RB = 512, PAD_TEST_HOME = 1024 };
+       PAD_TEST_LB = 256, PAD_TEST_RB = 512, PAD_TEST_HOME = 1024,
+       PAD_TEST_X = 2048, PAD_TEST_Y = 4096, PAD_TEST_LS = 8192, PAD_TEST_RS = 16384 };
 int gamepad_parse_virtual(const char *spec, int *player, unsigned *buttons);
 void gamepad_virtual(int player, unsigned buttons);
 

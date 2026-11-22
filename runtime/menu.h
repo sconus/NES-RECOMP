@@ -17,16 +17,18 @@
    MENU_VPAD (scripts only) sets a virtual controller's buttons.
    MENU_SCAN is a key as it is (a scancode, menu_key_code), for a
    KEYBOARD page waiting for one; MENU_WAIT (scripts only) is that many
-   60ths of a second of nothing, as the window would show. */
+   60ths of a second of nothing, as the window would show. MENU_PAD is a
+   pad button freshly pressed (an SDL_GameControllerButton, from
+   gamepad_watch) for the PADS page waiting for one. */
 enum { MENU_UP = 1, MENU_DOWN, MENU_LEFT, MENU_RIGHT, MENU_OK, MENU_BACK, MENU_SHOT,
-       MENU_LEAVE, MENU_VPAD, MENU_SCAN, MENU_WAIT };
+       MENU_LEAVE, MENU_VPAD, MENU_SCAN, MENU_WAIT, MENU_PAD };
 
 /* Open it at the end of this frame. */
 void menu_request(void);
 int menu_wanted(void);
 int menu_is_open(void);
-/* 0 closed, 1 open, 2 on the button test or waiting for a key
-   (gamepad_frame's menu_open: the pads only leave). */
+/* 0 closed, 1 open, 2 on the button test or waiting for a key or a pad
+   button (gamepad_frame's menu_open: the pads only leave). */
 int menu_mode(void);
 /* A KEYBOARD page is waiting for a key: the window sends every key
    pressed as menu_key_code(MENU_SCAN, scancode), Esc as MENU_LEAVE. */

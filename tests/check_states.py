@@ -55,10 +55,13 @@ OUT = os.path.join(ROOT, "build", "states")
 M = 120
 # Every key somewhere else (PLAN-controllers.md step 3).
 ODD_KEYS = os.path.join(OUT, "odd-controls.txt")
-ODD_TEXT = ("version 1\n" + "".join("keyboard%d %s %s\n" % (p, b, k) for p, row in (
+NES = ["up", "down", "left", "right", "b", "a", "select", "start"]
+ODD_TEXT = ("version 2\n" + "".join("keyboard%d %s %s\n" % (p, b, k) for p, row in (
     (1, ["Up", "J", "Left", "L", "I", "K", "Space", "Tab"]),
     (2, ["T", "Down", "H", "Right", "U", "Y", "Keypad Enter", "Keypad 0"]))
-    for b, k in zip(["up", "down", "left", "right", "b", "a", "select", "start"], row)))
+    for b, k in zip(NES, row)) +
+    "".join("pad %s %s\n" % (b, k) for b, k in zip(NES, [
+        "top", "left", "right_stick", "left_stick", "right", "bottom", "start", "select"])))
 
 
 def frames_for(test):

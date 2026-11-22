@@ -285,7 +285,8 @@ they can be plugged in or out while the game runs. The buttons go by position, a
 | Start | Start / Menu |
 | Select | Back / Select / Share |
 
-A controller also has the window's extras:
+That's the usual layout; the pause menu's CONTROLLERS > PADS changes it
+(below). A controller also has the window's extras:
 
 | Button | Does |
 |---|---|
@@ -297,6 +298,8 @@ A controller also has the window's extras:
 In the menu the D-pad (or stick) moves, holding a direction repeats, A
 or Start chooses, and B or Home goes back to the game. A game that
 needs Select and Start held together for half a second can't have it.
+(A, B, Start, Select and the D-pad here are whichever buttons the PADS
+page made them; Home and the shoulders never move.)
 
 **Changing the keys.** CONTROLLERS > KEYBOARD 1 (or 2) lists the eight
 NES buttons with their keys. Choose one and press the key you want;
@@ -309,6 +312,32 @@ either player's, swaps the two. DEFAULTS brings back the usual keys
 `build/controls.txt` (`--controls FILE`); a missing or garbled file
 means the usual keys. They're only the window's: an input script,
 a test or a recording plays the same whatever they are.
+
+**Changing the pad buttons.** CONTROLLERS > PADS does the same for the
+game controllers: one layout for every pad, by position, so it means
+the same on an Xbox, a PlayStation and a Switch pad. Choose a button
+and press the pad button you want, on any pad; Esc, Home, or 5
+seconds with none keeps the old one. A button already held when it
+starts waiting (the A that chose the line) doesn't count. The page
+names the buttons by where they are:
+
+| On the page | Xbox | PlayStation | Switch Pro |
+|---|---|---|---|
+| BOTTOM BUTTON | A | cross | B |
+| RIGHT BUTTON | B | circle | A |
+| LEFT BUTTON | X | square | Y |
+| TOP BUTTON | Y | triangle | X |
+| SELECT | View | Create / Share | - |
+| START | Menu | Options | + |
+| D-PAD UP ... RIGHT | D-pad | D-pad | D-pad |
+| LEFT / RIGHT STICK IN | the sticks, pressed in | L3 / R3 | the sticks, pressed in |
+
+Home and the shoulders stay as they are (the menu, rewind and
+fast-forward), and the left stick is always the D-pad's directions.
+Choosing a pad button another NES button has swaps the two; DEFAULTS
+brings back the usual layout. Select+Start held for the menu, and the
+menu's own moves, follow the new layout, so they're always on some
+button. It's kept in the same `controls.txt`.
 
 **Pairing a controller.** The game doesn't pair controllers; the
 system does. The pause menu's CONTROLLERS > PAIRING HELP shows these
@@ -359,8 +388,9 @@ The built program takes options after the ROM path:
     --mute             no sound from the speakers (M toggles it)
     --volume N         the speakers' volume, 1 to 10 (default 10)
     --sound-off        start with the sound off (M or the menu turn it on)
-    --controls F       the keys for the NES buttons: read from F, and written
-                       there when the menu's KEYBOARD pages change them
+    --controls F       the keys and pad buttons for the NES buttons: read
+                       from F, and written there when the menu's KEYBOARD
+                       or PADS pages change them
     --pairing-for mac|windows  the menu's pairing help for that system
                        (default: the one it was built for; for tests)
     --audio-stats      print the sound queue depth once a second
@@ -903,10 +933,14 @@ change at the new volume; and the size and volume written on exit.
 `make test-states` also opens the menu in every game and checks the
 frames are the same as without it. `--test-gamepads` checks the
 controller's menu buttons and shoulders with a pretend clock.
-`--test-controls` checks the keyboard remapping (refused keys, swaps,
-DEFAULTS, `controls.txt` read back, missing and garbled files), and
-`make test-menu` the KEYBOARD pages; `make test-states` runs every game
-with an unusual `controls.txt`, the same frames as without.
+`--test-controls` checks the keyboard and pad remapping (refused keys
+and buttons, swaps, DEFAULTS, `controls.txt` read back, missing and
+garbled files), `--test-gamepads` that a pad layout applies to every
+pad, moves Select+Start and the menu's moves with it, and that only a
+fresh press answers the PADS page, and `make test-menu` the KEYBOARD
+and PADS pages; `make test-states` runs every game with an unusual
+`controls.txt` (every key and pad button moved), the same frames as
+without.
 The pairing help's pages are checked for both systems
 (`--pairing-for mac|windows`) and for the one it runs on.
 
