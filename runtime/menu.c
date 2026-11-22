@@ -283,6 +283,11 @@ static void shot(const uint16_t *pic, const char *path) {
 }
 
 /* A key on the CONTROLLERS page or its button test. */
+static void back_to_main(void) {
+    page = PAGE_MAIN;
+    fprintf(stderr, "frame %llu: MENU\n", runtime_frame());
+}
+
 static void press_controllers(int key) {
     if (page == PAGE_TEST) {
         if (key == MENU_LEAVE) {
@@ -294,9 +299,9 @@ static void press_controllers(int key) {
     switch (key) {
     case MENU_UP:   ctrl_cursor = (ctrl_cursor + CTRL_COUNT - 1) % CTRL_COUNT; break;
     case MENU_DOWN: ctrl_cursor = (ctrl_cursor + 1) % CTRL_COUNT; break;
-    case MENU_BACK: case MENU_LEAVE: page = PAGE_MAIN; break;
+    case MENU_BACK: case MENU_LEAVE: back_to_main(); break;
     case MENU_OK:
-        if (ctrl_cursor == CTRL_BACK) page = PAGE_MAIN;
+        if (ctrl_cursor == CTRL_BACK) back_to_main();
         else {
             page = PAGE_TEST;
             test_poll(1);                   /* buttons held now aren't presses */

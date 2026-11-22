@@ -202,7 +202,8 @@ def controllers(exe, rom, base, name, L, fnt):
     check("%s: the terminal names each fresh press (not A held as it opened)" % name,
           said == ["frame 60: MENU", "frame 60: CONTROLLERS", "frame 60: BUTTON TEST",
                    "controller 2: B", "controller 2: START", "controller 2: A", "controller 2: LB",
-                   "controller 2: HOME", "frame 60: CONTROLLERS", "frame 60: MENU CLOSED (RESUME)"],
+                   "controller 2: HOME", "frame 60: CONTROLLERS", "frame 60: MENU",
+                   "frame 60: MENU CLOSED (RESUME)"],
           repr(said))
     _, plain = run(exe, rom, [], base, 90, name + ".ctrlplain", os.path.join(OUT, name + ".cp"))
     check("%s: the controllers' pages don't move the game" % name,
