@@ -72,7 +72,7 @@ def tv_words(c):
     """Write ICON_WORDS on the TV's screen in the picture, centred, the
     font 3 picture pixels a dot, outlined like the app's lettering."""
     glyphs = art.font()
-    sx, sy, sw, sh = art.SCREEN
+    sx, sy, sw, sh = art.ICON_SCREEN
     scale, gap = 3, 6
     top = sy + (sh - (len(ICON_WORDS) * 7 * scale + (len(ICON_WORDS) - 1) * gap)) // 2
     on = set()
@@ -100,7 +100,7 @@ def icon_master():
     """The 1024x1024 icon: a rounded square of the wall's gradient (its
     pixels 8 icon pixels wide), the TV and the console drawn 5 icon
     pixels a canvas pixel, centred."""
-    c = art.draw()
+    c = art.draw_icon()
     tv_words(c)
     pal = [col for _, col in art.PALETTE]
     size, radius, inset = 1024, 180, 80
@@ -130,7 +130,7 @@ def icon_master():
                 gx, gy = x // 8, y // 8
                 t = gx / 128 * 0.65 + gy / 128 * 0.35
                 v = t * 4 + (art.BAYER[gy % 4][gx % 4] / 16 - 0.5)
-                col = pal[art.IDX["wall%d" % max(0, min(4, int(round(v))))]]
+                col = pal[art.IDX["icon_wall%d" % max(0, min(4, int(round(v))))]]
             rows[y][x] = col + (255,)
     return rows
 

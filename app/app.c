@@ -1,7 +1,8 @@
 /* nesrecomp app: a window to drop a ROM onto (PLAN-gui.md).
 
    The window and its screens. The picture (app/art.h, from
-   tools/make_app_art.py) is a 320x180 canvas, drawn into the window at
+   tools/make_app_art.py) is a 640x360 canvas (PLAN-library.md: the
+   living room, the TV on its stand above the shelf), drawn into the window at
    the largest whole-number scale that fits and centred, with the rest
    of the window in a dark border, so the pixels stay square and sharp.
    The window's pixels are counted in real pixels (a Retina screen has
@@ -12,7 +13,8 @@
    blinks once a second (fast while a ROM is being built).
 
    The screens, all on the TV:
-     drop    "DROP YOUR NES ROM FILE HERE"
+     drop    a little cartridge with an arrow, "DRAG NES ROM HERE TO
+             RECOMPILE"
      build   the file's name, "RECOMPILING IN PROGRESS", the loading bar
              and the stage (build.c does the work, on its own thread, so
              the window stays responsive)
@@ -49,7 +51,7 @@
        nesrecomp-app --screenshot F [--frames N] [--size WxH]
                      [--show drop|build|error|done] [--rom NAME]
                      [--stage N] [--progress P] [--message M] [--history FILE]
-           draw a screen into a window of W x H pixels (default 320x180)
+           draw a screen into a window of W x H pixels (default 640x360)
            and save it as a PNG, with no window: for tests/check_app.py
        nesrecomp-app --build ROM --then-play [--play-args "ARGS"]
            build it, then play it (with ARGS for the game, such as
@@ -121,8 +123,8 @@
 static uint32_t canvas[ART_H][ART_W];
 /* "The 6502 next to its C" (step 8) uses the whole window at a finer
    grid: a canvas twice the room's size, the font at one pixel. */
-#define CODE_W (ART_W * 2)
-#define CODE_H (ART_H * 2)
+#define CODE_W 640
+#define CODE_H 360
 static uint32_t code_canvas[CODE_H][CODE_W];
 /* Where text goes: the room's canvas, or the code view's. */
 static uint32_t *tgt = &canvas[0][0];
@@ -247,14 +249,21 @@ static void screen_name(const char *path, char *out, size_t n) {
     else snprintf(out, n, "%.*s..", LINE_CHARS - 2, base);
 }
 
+#define DROP_TOP 5                      /* the cartridge, below the screen's top */
+#define DROP_TEXT 28                    /* the words, below the cartridge's top */
 static void draw_drop(long n) {
     draw_room(n, 0);
     int cx = SCREEN_CX;
-    int top = ART_SCREEN_Y + (ART_SCREEN_H - (3 * 14 + 2 * 6)) / 2;
+    int top = ART_SCREEN_Y + DROP_TOP;
+    /* The little cartridge with its arrow, then the words. */
+    int x0 = cx - ART_CART_W / 2;
+    for (int y = 0; y < ART_CART_H; y++)
+        for (int x = 0; x < ART_CART_W; x++)
+            if (art_cart[y][x] != 255) canvas[top + y][x0 + x] = ink(art_cart[y][x]);
     uint32_t white = ink(INK_TEXT);
-    text("DROP YOUR", cx, top, 2, white, 1);
-    text("NES ROM", cx, top + 20, 2, white, 1);
-    text("FILE HERE", cx, top + 40, 2, white, 1);
+    text_xy("DRAG NES ROM", cx, top + DROP_TEXT, 1, 2, white, 1);
+    text_xy("HERE TO", cx, top + DROP_TEXT + 18, 1, 2, white, 1);
+    text_xy("RECOMPILE", cx, top + DROP_TEXT + 36, 1, 2, white, 1);
 }
 
 /* The loading bar's box on the screen, and its inside. */
@@ -1151,8 +1160,14 @@ int main(int argc, char **argv) {
         fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
         return 1;
     }
+    /* The window opens at twice the canvas (1280x720), or once if that
+       doesn't fit the screen (a small laptop's). */
+    int open_scale = 2;
+    SDL_Rect usable;
+    if (SDL_GetDisplayUsableBounds(0, &usable) == 0 && (usable.w < ART_W * 2 || usable.h < ART_H * 2 + 40))
+        open_scale = 1;
     SDL_Window *win = SDL_CreateWindow("nesrecomp", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-                                       ART_W * 3, ART_H * 3,
+                                       ART_W * open_scale, ART_H * open_scale,
                                        SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI);
     SDL_Renderer *ren = win ? SDL_CreateRenderer(win, -1, SDL_RENDERER_PRESENTVSYNC) : NULL;
     if (!ren) {
@@ -1160,6 +1175,9 @@ int main(int argc, char **argv) {
         return 1;
     }
     SDL_SetWindowMinimumSize(win, ART_W, ART_H);
+    printf("window: %dx%d (%dx the %dx%d room)\n", ART_W * open_scale, ART_H * open_scale, open_scale,
+           ART_W, ART_H);
+    fflush(stdout);
     support_menu_add(win);              /* "Support NES RECOMP..." in the menu */
     SDL_EventState(SDL_DROPFILE, SDL_ENABLE);
     SDL_Texture *tex = NULL;

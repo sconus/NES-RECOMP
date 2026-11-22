@@ -3,9 +3,10 @@
 screenshots (build/nesrecomp-app --screenshot), against app/art.h:
   1. the picture: every pixel outside the TV screen and the power light
      is the art's colour;
-  2. the text: "DROP YOUR / NES ROM / FILE HERE", in the 5x7 font at
-     twice its size, centred on the screen, outlined a pixel all round,
-     and nothing else in the text's colour there;
+  2. the text: "DRAG NES ROM / HERE TO / RECOMPILE", in the 5x7 font at
+     twice its height, centred on the screen under the little cartridge
+     (PLAN-library.md step 1), outlined a pixel all round, and nothing
+     else in the text's colour there; the cartridge pixel for pixel;
   3. the window: at several sizes, the canvas at the largest whole
      number scale that fits, centred, the rest the border colour (a
      window smaller than the canvas shows it at 1x, cropped);
@@ -137,6 +138,8 @@ def art():
     font_body = src.split("art_font[64][7] = {", 1)[1].split("};", 1)[0]
     vals = [int(v, 16) for v in re.findall(r"0x([0-9A-F]{2})", font_body)]
     font = [vals[i * 7:i * 7 + 7] for i in range(64)]
+    cart_body = src.split("art_cart[ART_CART_H][ART_CART_W] = {", 1)[1].split("};", 1)[0]
+    art.cart = [[int(v) for v in r.split(",")] for r in re.findall(r"\{([0-9,]+)\}", cart_body)]
     return defs, pal, rows, font
 
 
@@ -221,24 +224,39 @@ def wrap(msg, width=18, most=5):
     return lines
 
 
-def text_pixels(defs, font, lines, scale=2, gap=6):
+# The drop screen (PLAN-library.md step 1): the cartridge 5 pixels below
+# the screen's top, the words' first line 28 below the cartridge's top,
+# 18 apart, at twice the font's height.
+DROP_TOP, DROP_TEXT, DROP_GAP = 5, 28, 18
+DROP_WORDS = ["DRAG NES ROM", "HERE TO", "RECOMPILE"]
+
+
+def text_pixels(defs, font, lines, sx=1, sy=2):
     """The canvas pixels the drop screen's text covers."""
-    sx, sy, sw, sh = (defs["ART_SCREEN_" + k] for k in "XYWH")
-    cx = sx + sw // 2
-    top = sy + (sh - (len(lines) * 7 * scale + (len(lines) - 1) * gap)) // 2
+    scx, scy, sw, sh = (defs["ART_SCREEN_" + k] for k in "XYWH")
+    cx = scx + sw // 2
+    top = scy + DROP_TOP + DROP_TEXT
     on = set()
     for li, s in enumerate(lines):
-        y0 = top + li * (7 * scale + gap)
-        x0 = cx - (len(s) * 6 * scale - scale) // 2
+        y0 = top + li * DROP_GAP
+        x0 = cx - (len(s) * 6 * sx - sx) // 2
         for i, ch in enumerate(s):
             g = font[ord(ch) - 0x20]
             for r in range(7):
                 for c in range(5):
                     if g[r] & (0x10 >> c):
-                        for dy in range(scale):
-                            for dx in range(scale):
-                                on.add((x0 + i * 6 * scale + c * scale + dx, y0 + r * scale + dy))
+                        for dy in range(sy):
+                            for dx in range(sx):
+                                on.add((x0 + i * 6 * sx + c * sx + dx, y0 + r * sy + dy))
     return on
+
+
+def cart_pixels(defs, cart):
+    """The cartridge's pixels on the drop screen: (x, y) -> palette index."""
+    scx, scy, sw, _ = (defs["ART_SCREEN_" + k] for k in "XYWH")
+    x0 = scx + sw // 2 - defs["ART_CART_W"] // 2
+    return {(x0 + x, scy + DROP_TOP + y): v for y, row in enumerate(cart)
+            for x, v in enumerate(row) if v != 255}
 
 
 def own_compiler(check, build, stages_of, rom):
@@ -319,7 +337,7 @@ def main():
 
     w, h, base = shot("drop0")
     check("canvas size", (w, h) == (W, H), "%dx%d" % (w, h))
-    on = text_pixels(defs, font, ["DROP YOUR", "NES ROM", "FILE HERE"])
+    on = text_pixels(defs, font, DROP_WORDS)
     ring = {(x + dx, y + dy) for x, y in on for dx in (-1, 0, 1) for dy in (-1, 0, 1)} - on
     # 1. the picture
     bad = [(x, y) for y in range(H) for x in range(W)
@@ -341,12 +359,23 @@ def main():
           "%d outline pixel(s) not dark, %d dark beyond it" % (len(unlined), len(stray)))
     check("the text is on the screen",
           all(sx <= x < sx + sw and sy <= y < sy + sh for x, y in on), "it runs off")
+    cart = cart_pixels(defs, art.cart)
+    wrong = [p for p, v in cart.items() if base[p[1]][p[0]] != pal[v]]
+    check("the cartridge", len(cart) > 100 and not wrong,
+          "%d of %d pixel(s) wrong" % (len(wrong), len(cart)))
+    check("the cartridge is on the screen, above the words",
+          all(sx <= x < sx + sw and sy <= y < sy + sh for x, y in cart)
+          and max(y for _, y in cart) < min(y for _, y in on) - 1, "it runs off or into the words")
     # 3. the window
     border = pal[defs["INK_LETTERBOX"]]
-    for size in ((640, 360), (1000, 620), (333, 200), (961, 1080), (200, 100)):
+    # (1280x720 and 1920x1080 are whole steps of the canvas;
+    # 333x200 is smaller than it, so 1x and cropped, the offset rounded
+    # towards zero as C does.)
+    for size in ((640, 360), (1280, 720), (1920, 1080), (1000, 620), (1500, 900), (961, 1080),
+                 (333, 200)):
         ww, wh, img = shot("drop_%dx%d" % size, size=size)
         scale = max(1, min(size[0] // W, size[1] // H))
-        ox, oy = (size[0] - W * scale) // 2, (size[1] - H * scale) // 2
+        ox, oy = int((size[0] - W * scale) / 2), int((size[1] - H * scale) / 2)
         bad = 0
         for y in range(wh):
             for x in range(ww):
@@ -800,7 +829,7 @@ def main():
         check("the %s card" % title.lower(), not bad, "%d pixel(s) differ" % bad)
 
     wrong = []
-    for size in ((960, 540), (1000, 620), (640, 360), (320, 180)):
+    for size in ((1280, 720), (1920, 1080), (1000, 620), (640, 360)):
         scale = max(1, min(size[0] // W, size[1] // H))
         ox, oy = (size[0] - W * scale) // 2, (size[1] - H * scale) // 2
         x0, y0 = ox + sx * scale, oy + sy * scale
