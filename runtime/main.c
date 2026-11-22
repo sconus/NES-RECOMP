@@ -24,6 +24,7 @@
 #include "video.h"
 #include "wav.h"
 #include "menu.h"
+#include "controls.h"
 
 uint8_t A, X, Y, SP = 0xFD;
 uint8_t C, Z, I = 1, D, V, N;
@@ -518,12 +519,20 @@ static void at_exit(void) {
                         pad=2:a+start holds those buttons on a virtual
                         controller in slot 2, plugged in if need be (a,
                         b, select, start, up, down, left, right, lb, rb,
-                        home, or none; PLAN-controllers.md).
+                        home, or none; PLAN-controllers.md); key=k
+                        (key=right_shift, ...) is that key pressed, for a
+                        KEYBOARD page waiting for one, and wait=300 that
+                        many 60ths of a second with nothing pressed.
                         A menu line leaves the buttons as they are; if its
                         keys don't close the menu, it closes after them. */
 #define MAX_MENU_LINES 64
-#define MENU_LINE_KEYS 32
-static struct { long frame; int n; int key[MENU_LINE_KEYS]; char *path[MENU_LINE_KEYS]; } menu_lines[MAX_MENU_LINES];
+#define MENU_LINE_KEYS 64                   /* the menu holds 64 (MAX_KEYS) */
+static struct {
+    long frame;
+    int n;
+    int key[MENU_LINE_KEYS], code[MENU_LINE_KEYS];
+    char *path[MENU_LINE_KEYS];
+} menu_lines[MAX_MENU_LINES];
 static int menu_line_count, menu_line_pos;     /* not in a state: a load doesn't repeat them */
 
 static void menu_script_line(const char *path, int lineno, long frame) {
@@ -542,7 +551,23 @@ static void menu_script_line(const char *path, int lineno, long frame) {
             exit(1);
         }
         char *file = NULL;
-        if (!strncmp(tok, "shot=", 5)) { k = MENU_SHOT; file = strdup(tok + 5); }
+        int code = 0;
+        if (!strncmp(tok, "key=", 4)) {
+            k = MENU_SCAN;
+            code = controls_scancode(tok + 4);
+            if (!code) {
+                fprintf(stderr, "%s:%d: key= needs a key's name, as key=k or key=right_shift: '%s'\n",
+                        path, lineno, tok);
+                exit(1);
+            }
+        } else if (!strncmp(tok, "wait=", 5)) {
+            k = MENU_WAIT;
+            code = atoi(tok + 5);
+            if (code < 1) {
+                fprintf(stderr, "%s:%d: wait= needs a number of 60ths: '%s'\n", path, lineno, tok);
+                exit(1);
+            }
+        } else if (!strncmp(tok, "shot=", 5)) { k = MENU_SHOT; file = strdup(tok + 5); }
         else if (!strcmp(tok, "leave")) k = MENU_LEAVE;
         else if (!strncmp(tok, "pad=", 4)) {
             int pl;
@@ -563,6 +588,7 @@ static void menu_script_line(const char *path, int lineno, long frame) {
         }
         menu_lines[menu_line_count].key[n] = k;
         menu_lines[menu_line_count].path[n] = file;
+        menu_lines[menu_line_count].code[n] = code;
         n++;
     }
     menu_lines[menu_line_count].frame = frame;
@@ -1127,8 +1153,11 @@ static void frame_done(const uint16_t *ppu_fb) {
        menu line (one a frame): no 6502 code runs while it's open, so
        the game carries on from exactly here when it closes. */
     if (menu_line_pos < menu_line_count && menu_lines[menu_line_pos].frame <= (long)ppu.frame) {
-        for (int k = 0; k < menu_lines[menu_line_pos].n; k++)
-            menu_key(menu_lines[menu_line_pos].key[k], menu_lines[menu_line_pos].path[k]);
+        for (int k = 0; k < menu_lines[menu_line_pos].n; k++) {
+            int key = menu_lines[menu_line_pos].key[k];
+            if (key == MENU_SCAN || key == MENU_WAIT) menu_key_code(key, menu_lines[menu_line_pos].code[k]);
+            else menu_key(key, menu_lines[menu_line_pos].path[k]);
+        }
         menu_request();
         menu_line_pos++;
     }
@@ -1224,7 +1253,8 @@ static void usage(const char *prog) {
         "  --mute             no sound from the speakers (M toggles it)\n"
         "  --volume N         the speakers' volume, 1 to 10 (default 10)\n"
         "  --sound-off        start with the sound off (as M; M or the menu turn it on)\n"
-        "  --pairing-for mac|windows  the menu's pairing help for that system\n"
+        "  --controls F       the keys for the NES buttons: read from F, and written\n"
+        "                     there when the menu's KEYBOARD pages change them\n"        "  --pairing-for mac|windows  the menu's pairing help for that system\n"
         "                     (default: the one this was built for; for tests)\n"
         "  --speaker-out F    write what the speakers get to F (raw 16-bit, for tests)\n"
         "  --audio-stats      print the sound queue depth once a second\n"
@@ -1258,7 +1288,8 @@ static void usage(const char *prog) {
         "                     (default 77; the right edge is 160 more)\n"
         "  --song N           NSF: play song N (from 1; default: the file's own)\n"
         "  --info             print the cartridge header and exit\n"
-        "(or, with no ROM: --test-gamepads checks the game controller mapping)\n"
+        "(or, with no ROM: --test-gamepads checks the game controller mapping,\n"
+        " --test-controls the keyboard remapping and controls.txt)\n"
         "  --trace            print CPU state before every instruction\n"
         "  --check-cycles     with --trace: check each instruction's cycle map\n"
         "  --start HEX        start here instead of the reset vector\n",
@@ -1289,6 +1320,7 @@ static void plug_header_device(void) {
 int main(int argc, char **argv) {
     /* A self-test of the game controller mapping, with no ROM (make test). */
     if (argc == 2 && !strcmp(argv[1], "--test-gamepads")) return gamepad_self_test();
+    if (argc == 2 && !strcmp(argv[1], "--test-controls")) return controls_self_test();
     if (argc < 2 || argv[1][0] == '-') usage(argv[0]);
     rom_path = files_at = argv[1];
     cart_load(rom_path);
@@ -1321,6 +1353,7 @@ int main(int argc, char **argv) {
             if (volume < 1 || volume > 10) { fprintf(stderr, "--volume: 1 to 10\n"); return 1; }
         }
         else if (!strcmp(a, "--sound-off")) sound_off = 1;
+        else if (!strcmp(a, "--controls") && more) controls_use_file(argv[++i]);
         else if (!strcmp(a, "--pairing-for") && more) {
             const char *w = argv[++i];
             if (!strcmp(w, "mac")) menu_set_pairing(0);

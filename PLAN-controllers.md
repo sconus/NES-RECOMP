@@ -277,6 +277,76 @@ build (step 5 adds the menu check to the Windows run).
 - Breaks: the old key still pressing the button; a reserved key
   accepted; the file not written, or a garbled one crashing.
 
+**Where step 3 ended (2026-11-22).**
+- CONTROLLERS now lists BUTTON TEST, KEYBOARD 1, KEYBOARD 2, PAIRING
+  HELP, BACK. A KEYBOARD page shows the eight buttons with their keys,
+  DEFAULTS and BACK, and a line saying what happened. OK on a button
+  waits ("..."): the next key is the answer, Esc or 5 seconds with none
+  keeps the old one, and a key the window keeps (Esc, M, R, V, P, 0-9,
+  Backspace, the fast-forward key, Cmd, Ctrl) is refused and it waits
+  on. A key another button has, either player's, swaps the two.
+  DEFAULTS brings back that player's usual keys, and the other player's
+  where one clashed. While it waits the pads only cancel (Home, or
+  Select+Start held), as on the button test.
+- `runtime/controls.c`: the two players' keys (it replaces the table in
+  `video_sdl.c`), refusals, swaps, `controls.txt` (a "version 1" line,
+  then "keyboard1 a X" lines, keys as SDL names them); a missing, older
+  or garbled file gives the usual keys and says why in the terminal.
+- `--controls FILE`; the app passes its build folder's `controls.txt`
+  (beside `app-prefs.txt`), `make run` passes `build/controls.txt`.
+- The terminal: "keyboard 1: press a key for A", "keyboard 1: A is now
+  K", "... (swapped: keyboard 2 UP is now X)", "M is the window's", "A
+  kept as X (no key in 5 seconds)", "the usual keys".
+- Input scripts: `key=k` (a key, as `key=right_shift`) and `wait=300`
+  (60ths with nothing pressed). A menu line may now hold 64 words, as
+  many as the menu queues (33 were needed for the checks).
+- README: the keys table points at the KEYBOARD pages; "Changing the
+  keys"; `--controls` and the new checks.
+
+The checks:
+- `--test-controls` (in `make test`, and in the Windows run through
+  `tests/run_nestest.py`): a pretend keyboard; K pressing A and X no
+  longer; ten window keys refused; a clash swapped across players; the
+  file read back; DEFAULTS, and the other player's clashing key back;
+  eleven bad files (older, no version, a missing key, player 3, an
+  unknown button or key, Esc, a key twice, a key still the other
+  player's, binary, empty) giving the usual keys; two-word key names.
+- `tests/check_menu.py`, 6 more on each game: the KEYBOARD pages pixel
+  by pixel (open, waiting, refused, swapped, Esc, still waiting at 299
+  60ths, given up at 300, keyboard 2); the terminal's lines; the file as
+  changed; a run with the changed file playing the same frames, the
+  file untouched; DEFAULTS; a garbled file.
+- `tests/check_states.py`: every game's menu run reads an unusual
+  `controls.txt` (every key moved): 240 of 240 the same frames, and the
+  file left as it was.
+- `tests/check_app.py`: the app gives the game `--controls` with its
+  build folder's `controls.txt` (`--game-args`, for the test).
+- `make test-all`: 230 of 231 as before (test28), nestest exact; the
+  same C. The 64-word change came after that run (it's only the menu
+  lines' parsing); the menu checks were run again with it.
+
+Breaks, each in a scratch copy (FAIL lines in the self-test, and in the
+menu checks):
+
+| broken | self-test | menu |
+| --- | --- | --- |
+| the old key still presses the button | 2 | 0 (headless reads no keyboard) |
+| M (the window's) accepted | 4 | 6 |
+| the file not written | 1 | 4 |
+| a garbled key name taken as it is | 4 | 0 |
+| a clash not swapped (two buttons, one key) | 3 | 6 |
+| DEFAULTS leaves the other player's clashing key | 1 | 2 |
+| the wait ends a 60th early | 0 | 2 |
+| Esc while waiting taken as the answer | 0 | 4 |
+
+(The first count of these showed 6 menu FAILs for every break: the
+checks' own menu line had grown to 33 words, over the limit of 32, so
+it never ran. That's what the 64 is for; the table is after it.)
+
+Not checked by a test: real keys in a window (headless has no
+keyboard): that a remapped key plays, the Esc and pad cancels, and the
+file kept after quitting and starting again.
+
 ### 4. Remapping the pads
 - The PADS page: the same, for one layout every pad uses (as decided);
   waiting for a pad button, not a key.

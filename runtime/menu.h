@@ -14,18 +14,26 @@
 /* The menu's keys, from the window or an input script. MENU_BACK (Z, a
    pad's B) goes back a page; MENU_LEAVE (Esc, Home) too, and is the
    only way off the button test, where every other button lights up.
-   MENU_VPAD (scripts only) sets a virtual controller's buttons. */
+   MENU_VPAD (scripts only) sets a virtual controller's buttons.
+   MENU_SCAN is a key as it is (a scancode, menu_key_code), for a
+   KEYBOARD page waiting for one; MENU_WAIT (scripts only) is that many
+   60ths of a second of nothing, as the window would show. */
 enum { MENU_UP = 1, MENU_DOWN, MENU_LEFT, MENU_RIGHT, MENU_OK, MENU_BACK, MENU_SHOT,
-       MENU_LEAVE, MENU_VPAD };
+       MENU_LEAVE, MENU_VPAD, MENU_SCAN, MENU_WAIT };
 
 /* Open it at the end of this frame. */
 void menu_request(void);
 int menu_wanted(void);
 int menu_is_open(void);
-/* 0 closed, 1 open, 2 on the button test (gamepad_frame's menu_open). */
+/* 0 closed, 1 open, 2 on the button test or waiting for a key
+   (gamepad_frame's menu_open: the pads only leave). */
 int menu_mode(void);
+/* A KEYBOARD page is waiting for a key: the window sends every key
+   pressed as menu_key_code(MENU_SCAN, scancode), Esc as MENU_LEAVE. */
+int menu_wants_scancode(void);
 /* A key for the menu (MENU_SHOT: save the menu's picture to `path`). */
 void menu_key(int key, const char *path);
+void menu_key_code(int key, int code);
 /* Which system's pairing help to show: 0 the Mac's, 1 Windows'
    (default: the one this was built for; --pairing-for, for the tests). */
 void menu_set_pairing(int windows);

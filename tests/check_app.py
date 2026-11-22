@@ -834,6 +834,11 @@ def main():
                          text=True).stdout.strip()
     check("the app gives the next game the size and volume remembered",
           got == "scale 2 volume 4 sound_off 1", repr(got))
+    # The keys (PLAN-controllers.md step 3): controls.txt beside app-prefs.txt.
+    got = subprocess.run([APP, "--game-args", OUT], capture_output=True, text=True).stdout.strip()
+    want_c = "--controls " + os.path.join(OUT, "controls.txt").replace("\\", "/")
+    check("the app gives the game its keys' file (controls.txt in the build folder)",
+          want_c in got.replace("\\", "/"), repr(got))
     old_style = os.path.join(OUT, "prefs-old.txt")
     open(old_style, "w").write("game_scale 6\n")       # written by 2.0
     got = subprocess.run([APP, "--game-prefs", old_style], capture_output=True,

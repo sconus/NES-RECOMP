@@ -69,6 +69,7 @@ test: build/nestest
 	./build/nestest $(NESTEST) --headless --start C000 --trace --check-cycles > build/trace.txt
 	python3 tests/compare_nestest.py tests/nestest.log build/trace.txt
 	./build/nestest --test-gamepads
+	./build/nestest --test-controls
 	python3 tests/check_headers.py build/nestest
 
 # --- test ROM suite: see tests/suite.txt and tests/run_tests.py --------
@@ -99,8 +100,9 @@ game: $(RECOMP)
 	$(RECOMP) $(ROM) -o build/$(NAME).c $(call missed_arg,$(ROM))
 	$(CC) $(CFLAGS) $(SDL_CFLAGS) -Iruntime -o build/$(NAME) build/$(NAME).c $(RT_SRC) $(LDLIBS)
 
+# The keys the pause menu's KEYBOARD pages set are kept in build/controls.txt.
 run: game
-	./build/$(NAME) $(ROM) $(ARGS)
+	./build/$(NAME) $(ROM) --controls build/controls.txt $(ARGS)
 
 # --- the recompiler in C (recomp/, PLAN-standalone.md step 2) -----------
 # The same program as recomp.py, which stays as the reference it is

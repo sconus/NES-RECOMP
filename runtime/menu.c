@@ -8,6 +8,7 @@
 #include "video.h"
 #include "gamepad.h"
 #include "input.h"
+#include "controls.h"
 
 /* The layout, in NES pixels (tests/check_menu.py reads these). */
 #define MENU_BOX_X 36
@@ -31,7 +32,7 @@
 
 /* The CONTROLLERS page (PLAN-controllers.md): in the same box, its
    lines, then what each slot holds. */
-#define CTRL_LIST_Y 123                     /* "1 XBOX WIRELESS CONTROLLER" */
+#define CTRL_LIST_Y 149                     /* "1 XBOX WIRELESS CONTROLLER" */
 #define CTRL_LIST_H 12
 #define CTRL_LIST_CHARS 25                  /* of the name */
 
@@ -89,11 +90,26 @@ static const char *const item_names[ITEM_COUNT] = {
     "QUIT",
 };
 
-/* The pages: the menu itself, CONTROLLERS, its button test, PAIRING
-   HELP and one of its pages of steps. */
-enum { PAGE_MAIN, PAGE_CONTROLLERS, PAGE_TEST, PAGE_PAIRING, PAGE_PAIR_TEXT };
-enum { CTRL_TEST, CTRL_PAIRING, CTRL_BACK, CTRL_COUNT };
-static const char *const ctrl_names[CTRL_COUNT] = { "BUTTON TEST", "PAIRING HELP", "BACK" };
+/* The pages: the menu itself, CONTROLLERS, its button test, KEYBOARD 1
+   or 2, PAIRING HELP and one of its pages of steps. */
+enum { PAGE_MAIN, PAGE_CONTROLLERS, PAGE_TEST, PAGE_KEYS, PAGE_PAIRING, PAGE_PAIR_TEXT };
+enum { CTRL_TEST, CTRL_KEYS1, CTRL_KEYS2, CTRL_PAIRING, CTRL_BACK, CTRL_COUNT };
+static const char *const ctrl_names[CTRL_COUNT] = {
+    "BUTTON TEST", "KEYBOARD 1", "KEYBOARD 2", "PAIRING HELP", "BACK",
+};
+
+/* A KEYBOARD page (PLAN-controllers.md step 3), in the menu's box: the
+   eight buttons and their keys, DEFAULTS and BACK, then a line that says
+   what happened. OK on a button waits for a key: the next one pressed
+   is the answer; Esc, or KEYS_WAIT 60ths with none, keeps the old one. */
+#define KEYS_LINE_H 11
+#define KEYS_KEY_X 128                      /* the key's name */
+#define KEYS_KEY_CHARS 15
+#define KEYS_STATUS_Y 182
+#define KEYS_WAIT 300                       /* 5 seconds */
+enum { KEYS_DEFAULTS = CB_COUNT, KEYS_BACK, KEYS_COUNT };
+static int keys_player, keys_cursor, keys_waiting, keys_ticks;
+static char keys_status[40];
 
 /* Pairing help (PLAN-controllers.md step 2): how to pair a pad with the
    system this was built for (menu_set_pairing picks the other, for the
@@ -246,19 +262,31 @@ static int pair_windows = 0;
 static int wanted, is_open, cursor, page, ctrl_cursor, pair_cursor, pair_page;
 
 #define MAX_KEYS 64
-static struct { int key; const char *path; } keys[MAX_KEYS];
+static struct { int key, code; const char *path; } keys[MAX_KEYS];
 static int key_count, key_at;
 
 void menu_request(void) { wanted = 1; }
 int menu_wanted(void) { return wanted; }
 int menu_is_open(void) { return is_open; }
 void menu_set_pairing(int windows) { pair_windows = windows; }
-int menu_mode(void) { return !is_open ? 0 : page == PAGE_TEST ? 2 : 1; }
+int menu_wants_scancode(void) { return is_open && page == PAGE_KEYS && keys_waiting; }
+int menu_mode(void) {
+    return !is_open ? 0 : page == PAGE_TEST || menu_wants_scancode() ? 2 : 1;
+}
 
 void menu_key(int key, const char *path) {
     if (key_count == MAX_KEYS) return;
     keys[key_count].key = key;
+    keys[key_count].code = 0;
     keys[key_count].path = path;
+    key_count++;
+}
+
+void menu_key_code(int key, int code) {
+    if (key_count == MAX_KEYS) return;
+    keys[key_count].key = key;
+    keys[key_count].code = code;
+    keys[key_count].path = NULL;
     key_count++;
 }
 
@@ -388,6 +416,24 @@ static void draw_controllers(uint16_t *out) {
     }
 }
 
+static void draw_keys(uint16_t *out) {
+    for (int i = 0; i < KEYS_COUNT; i++) {
+        int y = MENU_ITEM_Y + i * KEYS_LINE_H;
+        uint16_t ink = i == keys_cursor ? INK_PICKED : INK_ITEM;
+        draw_text_5x7(out, MENU_ITEM_X, y, i == KEYS_DEFAULTS ? "DEFAULTS" : i == KEYS_BACK ? "BACK" :
+                      controls_button_names[i], ink);
+        if (i >= CB_COUNT) continue;
+        if (keys_waiting && i == keys_cursor) draw_text_5x7(out, KEYS_KEY_X, y, "...", INK_CURSOR);
+        else {
+            char name[KEYS_KEY_CHARS + 1];
+            snprintf(name, sizeof name, "%s", controls_key_name(controls_key(keys_player, i)));
+            draw_text_5x7(out, KEYS_KEY_X, y, name, ink);
+        }
+    }
+    draw_text_5x7(out, MENU_CURSOR_X, MENU_ITEM_Y + keys_cursor * KEYS_LINE_H, ">", INK_CURSOR);
+    centred(out, KEYS_STATUS_Y, keys_status, INK_ITEM);
+}
+
 static const char *pairing_title(void) {
     return pair_windows ? "PAIRING HELP (WINDOWS)" : "PAIRING HELP (MAC)";
 }
@@ -416,8 +462,10 @@ static void draw(uint16_t *out, const uint16_t *fb) {
     box(out, MENU_BOX_X - 1, MENU_BOX_Y - 1, MENU_BOX_W + 2, MENU_BOX_H + 2, INK_EDGE);
     box(out, MENU_BOX_X, MENU_BOX_Y, MENU_BOX_W, MENU_BOX_H, INK_BOX);
     centred(out, MENU_TITLE_Y, page == PAGE_CONTROLLERS ? "CONTROLLERS" :
-            page == PAGE_PAIRING ? pairing_title() : "PAUSED", INK_TITLE);
+            page == PAGE_PAIRING ? pairing_title() :
+            page == PAGE_KEYS ? (keys_player ? "KEYBOARD 2" : "KEYBOARD 1") : "PAUSED", INK_TITLE);
     if (page == PAGE_CONTROLLERS) { draw_controllers(out); return; }
+    if (page == PAGE_KEYS) { draw_keys(out); return; }
     if (page == PAGE_PAIRING) { draw_pairing(out); return; }
     for (int i = 0; i < ITEM_COUNT; i++) {
         int y = MENU_ITEM_Y + i * MENU_LINE_H;
@@ -472,6 +520,65 @@ static void to_pairing(void) {
     fprintf(stderr, "frame %llu: %s\n", runtime_frame(), pairing_title());
 }
 
+/* A KEYBOARD page. `code` is MENU_SCAN's key. */
+static void keys_stop(const char *status, const char *why) {
+    int b = keys_cursor;
+    keys_waiting = 0;
+    snprintf(keys_status, sizeof keys_status, "%s", status);
+    fprintf(stderr, "keyboard %d: %s kept as %s%s\n", keys_player + 1, controls_button_names[b],
+            controls_key_name(controls_key(keys_player, b)), why);
+}
+
+static void press_keys(int key, int code) {
+    int pl = keys_player + 1;
+    if (keys_waiting) {
+        if (key == MENU_LEAVE) keys_stop("KEPT AS IT WAS", "");
+        else if (key == MENU_WAIT) {
+            keys_ticks += code;
+            if (keys_ticks >= KEYS_WAIT) keys_stop("NO KEY: KEPT AS IT WAS", " (no key in 5 seconds)");
+        } else if (key == MENU_SCAN) {
+            int b = keys_cursor, op = 0, ob = 0;
+            int r = controls_set(keys_player, b, code, &op, &ob);
+            char name[32];
+            snprintf(name, sizeof name, "%s", controls_key_name(code));
+            if (!r) {                       /* still waiting, for another */
+                keys_ticks = 0;
+                snprintf(keys_status, sizeof keys_status, "THE WINDOW USES THAT KEY");
+                fprintf(stderr, "keyboard %d: %s is the window's\n", pl, name);
+                return;
+            }
+            keys_waiting = 0;
+            fprintf(stderr, "keyboard %d: %s is now %s", pl, controls_button_names[b], name);
+            if (r == 2) {
+                snprintf(keys_status, sizeof keys_status, "SWAPPED WITH KEYBOARD %d %s", op + 1,
+                         controls_button_names[ob]);
+                fprintf(stderr, " (swapped: keyboard %d %s is now %s)", op + 1,
+                        controls_button_names[ob], controls_key_name(controls_key(op, ob)));
+            } else keys_status[0] = 0;
+            fprintf(stderr, "\n");
+        }
+        return;                             /* nothing else moves while it waits */
+    }
+    switch (key) {
+    case MENU_UP:   keys_cursor = (keys_cursor + KEYS_COUNT - 1) % KEYS_COUNT; keys_status[0] = 0; break;
+    case MENU_DOWN: keys_cursor = (keys_cursor + 1) % KEYS_COUNT; keys_status[0] = 0; break;
+    case MENU_BACK: case MENU_LEAVE: to_controllers(); break;
+    case MENU_OK:
+        if (keys_cursor == KEYS_BACK) to_controllers();
+        else if (keys_cursor == KEYS_DEFAULTS) {
+            controls_defaults(keys_player);
+            snprintf(keys_status, sizeof keys_status, "THE USUAL KEYS");
+            fprintf(stderr, "keyboard %d: the usual keys\n", pl);
+        } else {
+            keys_waiting = 1;
+            keys_ticks = 0;
+            snprintf(keys_status, sizeof keys_status, "PRESS A KEY (ESC: CANCEL)");
+            fprintf(stderr, "keyboard %d: press a key for %s\n", pl, controls_button_names[keys_cursor]);
+        }
+        break;
+    }
+}
+
 static void press_pairing(int key) {
     if (page == PAGE_PAIR_TEXT) {           /* a page of steps: any of these go back */
         if (key == MENU_OK || key == MENU_BACK || key == MENU_LEAVE) to_pairing();
@@ -490,8 +597,9 @@ static void press_pairing(int key) {
     }
 }
 
-static void press_controllers(int key) {
+static void press_controllers(int key, int code) {
     if (page == PAGE_PAIRING || page == PAGE_PAIR_TEXT) { press_pairing(key); return; }
+    if (page == PAGE_KEYS) { press_keys(key, code); return; }
     if (page == PAGE_TEST) {
         if (key == MENU_LEAVE) to_controllers();
         return;                             /* every other button only lights up */
@@ -502,7 +610,14 @@ static void press_controllers(int key) {
     case MENU_BACK: case MENU_LEAVE: back_to_main(); break;
     case MENU_OK:
         if (ctrl_cursor == CTRL_BACK) back_to_main();
-        else if (ctrl_cursor == CTRL_PAIRING) {
+        else if (ctrl_cursor == CTRL_KEYS1 || ctrl_cursor == CTRL_KEYS2) {
+            page = PAGE_KEYS;
+            keys_player = ctrl_cursor == CTRL_KEYS2;
+            keys_cursor = 0;
+            keys_waiting = 0;
+            keys_status[0] = 0;
+            fprintf(stderr, "frame %llu: KEYBOARD %d\n", runtime_frame(), keys_player + 1);
+        } else if (ctrl_cursor == CTRL_PAIRING) {
             pair_cursor = PAIR_XBOX;
             to_pairing();
         } else {
@@ -515,8 +630,8 @@ static void press_controllers(int key) {
 }
 
 /* A key: returns 0 when it closes the menu, and what was chosen. */
-static int press(int key, int *chosen) {
-    if (page != PAGE_MAIN) { press_controllers(key); return 1; }
+static int press(int key, int code, int *chosen) {
+    if (page != PAGE_MAIN) { press_controllers(key, code); return 1; }
     switch (key) {
     case MENU_UP:   cursor = (cursor + ITEM_COUNT - 1) % ITEM_COUNT; break;
     case MENU_DOWN: cursor = (cursor + 1) % ITEM_COUNT; break;
@@ -557,7 +672,7 @@ void menu_run(const uint16_t *fb) {
     video_pause_audio(1);
     while (is_open) {
         while (is_open && key_at < key_count) {
-            int k = keys[key_at].key;
+            int k = keys[key_at].key, code = keys[key_at].code;
             const char *path = keys[key_at].path;
             key_at++;
             if (k == MENU_SHOT) { draw(pic, fb); shot(pic, path); }
@@ -566,7 +681,7 @@ void menu_run(const uint16_t *fb) {
                 unsigned bt;
                 if (gamepad_parse_virtual(path, &pl, &bt)) gamepad_virtual(pl, bt);
                 if (page == PAGE_TEST) test_poll(0);
-            } else if (!press(k, &chosen)) is_open = 0;
+            } else if (!press(k, code, &chosen)) is_open = 0;
         }
         if (key_at == key_count) key_at = key_count = 0;
         if (!is_open) break;
@@ -575,11 +690,13 @@ void menu_run(const uint16_t *fb) {
             break;
         }
         if (page == PAGE_TEST) test_poll(0);
+        if (menu_wants_scancode()) press_keys(MENU_WAIT, 1);   /* a 60th waited */
         draw(pic, fb);
         runtime_menu_present(pic);
     }
     key_at = key_count = 0;
     page = PAGE_MAIN;
+    keys_waiting = 0;
     video_pause_audio(0);
     fprintf(stderr, "frame %llu: MENU CLOSED (%s)\n", runtime_frame(), item_names[chosen]);
     switch (chosen) {

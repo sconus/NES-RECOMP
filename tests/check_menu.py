@@ -25,6 +25,13 @@ menu lines ("100 menu down ok", see runtime/main.c).
   terminal names each fresh press, not one held as the test opened;
   only leave (Esc, Home) gets off the test page, not B or the others;
   and the game doesn't move meanwhile.
+- KEYBOARD 1 and 2 (PLAN-controllers.md step 3), pixel by pixel: as
+  it opens, waiting for a key, a key the window keeps refused, a clash
+  swapped, Esc and 5 seconds of nothing keeping the old key; the
+  terminal says each; the --controls file written as changed, DEFAULTS
+  bringing the usual keys back (and the other player's key that
+  clashed), a garbled file giving the usual keys; and a run with the
+  changed file playing the same frames as without it.
 - PAIRING HELP (PLAN-controllers.md step 2): its list and each page of
   steps, pixel by pixel, for the Mac and for Windows (--pairing-for);
   without the option, the system this runs on; every page fits its box;
@@ -62,7 +69,7 @@ def check(what, ok, why=""):
 def layout():
     src = open(os.path.join(ROOT, "runtime", "menu.c")).read()
     d = {k: int(v, 0) for k, v in
-         re.findall(r"#define ((?:MENU|INK|TEST|CTRL|PAIR)_\w+) (0x[0-9A-F]+|\d+)", src)}
+         re.findall(r"#define ((?:MENU|INK|TEST|CTRL|PAIR|KEYS)_\w+) (0x[0-9A-F]+|\d+)", src)}
     d["pages"] = {name: re.findall(r'"((?:[^"\\]|\\.)*)"', body) for name, body in
                   re.findall(r"static const char \*const (pair_\w+)\[\] = \{(.*?)NULL,\n\};",
                              src, re.S)}
@@ -138,7 +145,7 @@ def expected_controllers(L, fnt, cursor, names):
     want = {}
     frame_box(want, L, L["MENU_BOX_X"], L["MENU_BOX_Y"], L["MENU_BOX_W"], L["MENU_BOX_H"])
     centred(want, fnt, "CONTROLLERS", L["MENU_TITLE_Y"], L["INK_TITLE"])
-    for i, item in enumerate(["BUTTON TEST", "PAIRING HELP", "BACK"]):
+    for i, item in enumerate(["BUTTON TEST", "KEYBOARD 1", "KEYBOARD 2", "PAIRING HELP", "BACK"]):
         for p in text_pixels(fnt, item, L["MENU_ITEM_X"], L["MENU_ITEM_Y"] + i * L["MENU_LINE_H"]):
             want[p] = L["INK_PICKED"] if i == cursor else L["INK_ITEM"]
     for p in text_pixels(fnt, ">", L["MENU_CURSOR_X"], L["MENU_ITEM_Y"] + cursor * L["MENU_LINE_H"]):
@@ -231,7 +238,7 @@ def pairing(exe, rom, base, name, L, fnt):
     for system in ("mac", "windows", None):
         tag = "%s.pair_%s" % (name, system or "default")
         pics = [os.path.join(OUT, "%s.%d.raw" % (tag, k)) for k in range(5)]
-        keys = ["up up ok down ok",                 # CONTROLLERS, PAIRING HELP
+        keys = ["up up ok down down down ok",       # CONTROLLERS, PAIRING HELP
                 "shot=%s ok shot=%s back" % (pics[0], pics[1]),   # the list, XBOX
                 "down ok shot=%s leave" % pics[2],  # PLAYSTATION (Esc goes back)
                 "down ok shot=%s ok" % pics[3],     # SWITCH PRO (OK goes back too)
@@ -262,6 +269,121 @@ def pairing(exe, rom, base, name, L, fnt):
             _, plain = run(exe, rom, [], base, 90, name + ".pairplain", os.path.join(OUT, name + ".pp"))
             check("%s: the pairing pages don't move the game" % name,
                   len(rows) == 90 and rows == plain, "%d frames, differ from the plain run" % len(rows))
+
+
+BUTTONS = ["UP", "DOWN", "LEFT", "RIGHT", "B", "A", "SELECT", "START"]
+USUAL = [["UP", "DOWN", "LEFT", "RIGHT", "Z", "X", "RIGHT SHIFT", "RETURN"],
+         ["W", "S", "A", "D", "F", "G", "Q", "E"]]
+USUAL_FILE = [["Up", "Down", "Left", "Right", "Z", "X", "Right Shift", "Return"],
+              ["W", "S", "A", "D", "F", "G", "Q", "E"]]
+
+
+def controls_text(names):
+    """controls.txt as the game writes it, for these keys (SDL's names)."""
+    return ("# nesrecomp's keys (the pause menu's CONTROLLERS writes this):\n"
+            "# player, NES button, the key as SDL names it\nversion 1\n" +
+            "".join("keyboard%d %s %s\n" % (p + 1, b.lower(), names[p][i])
+                    for p in range(2) for i, b in enumerate(BUTTONS)))
+
+
+def expected_keys(L, fnt, player, cursor, names, waiting=False, status=""):
+    """A KEYBOARD page: names are its eight keys as shown."""
+    want = {}
+    frame_box(want, L, L["MENU_BOX_X"], L["MENU_BOX_Y"], L["MENU_BOX_W"], L["MENU_BOX_H"])
+    centred(want, fnt, "KEYBOARD %d" % player, L["MENU_TITLE_Y"], L["INK_TITLE"])
+    for i, item in enumerate(BUTTONS + ["DEFAULTS", "BACK"]):
+        y = L["MENU_ITEM_Y"] + i * L["KEYS_LINE_H"]
+        ink = L["INK_PICKED"] if i == cursor else L["INK_ITEM"]
+        for p in text_pixels(fnt, item, L["MENU_ITEM_X"], y):
+            want[p] = ink
+        if i < 8:
+            key, kink = ("...", L["INK_CURSOR"]) if waiting and i == cursor else \
+                (names[i][:L["KEYS_KEY_CHARS"]], ink)
+            for p in text_pixels(fnt, key, L["KEYS_KEY_X"], y):
+                want[p] = kink
+    for p in text_pixels(fnt, ">", L["MENU_CURSOR_X"], L["MENU_ITEM_Y"] + cursor * L["KEYS_LINE_H"]):
+        want[p] = L["INK_CURSOR"]
+    centred(want, fnt, status, L["KEYS_STATUS_Y"], L["INK_ITEM"])
+    return want
+
+
+def keyboards(exe, rom, base, name, L, fnt):
+    ctl = os.path.join(OUT, name + ".controls.txt")
+    if os.path.exists(ctl):
+        os.remove(ctl)
+    pics = {k: os.path.join(OUT, "%s.keys.%s.raw" % (name, k))
+            for k in ("open", "wait", "refused", "swapped", "cancel", "almost", "timeout", "k2")}
+    keys = ["up up ok down ok",                 # CONTROLLERS, KEYBOARD 1
+            "shot=%s" % pics["open"],
+            "ok shot=%s" % pics["wait"],        # UP: waiting for a key
+            "key=m shot=%s" % pics["refused"],  # the window's: still waiting
+            "key=w shot=%s" % pics["swapped"],  # keyboard 2's UP: swapped
+            "down down down down down ok leave shot=%s" % pics["cancel"],     # A, then Esc
+            "ok wait=299 shot=%s" % pics["almost"],                           # not yet
+            "wait=1 shot=%s" % pics["timeout"],                               # 5 s of nothing
+            "ok key=k",                         # A is K
+            "back down ok shot=%s" % pics["k2"],                              # KEYBOARD 2
+            "back back back"]
+    err, _ = run(exe, rom, ["60 menu " + " ".join(keys)], base, 90, name + ".keys",
+                 os.path.join(OUT, name + ".keys"), ["--controls", ctl])
+    p1 = list(USUAL[0])
+    p1[0] = "W"
+    wants = {"open": expected_keys(L, fnt, 1, 0, USUAL[0]),
+             "wait": expected_keys(L, fnt, 1, 0, USUAL[0], True, "PRESS A KEY (ESC: CANCEL)"),
+             "refused": expected_keys(L, fnt, 1, 0, USUAL[0], True, "THE WINDOW USES THAT KEY"),
+             "swapped": expected_keys(L, fnt, 1, 0, p1, False, "SWAPPED WITH KEYBOARD 2 UP"),
+             "cancel": expected_keys(L, fnt, 1, 5, p1, False, "KEPT AS IT WAS"),
+             "almost": expected_keys(L, fnt, 1, 5, p1, True, "PRESS A KEY (ESC: CANCEL)"),
+             "timeout": expected_keys(L, fnt, 1, 5, p1, False, "NO KEY: KEPT AS IT WAS"),
+             "k2": expected_keys(L, fnt, 2, 0, ["UP"] + USUAL[1][1:])}
+    why = None
+    for k, want in wants.items():
+        why = picture_ok(pics[k], want)
+        if why:
+            why = "%s: %s" % (k, why)
+            break
+    check("%s: KEYBOARD pages: opened, waiting, refused, swapped, Esc, 4.98 s, 5 s, keyboard 2" % name,
+          not why, why or "")
+    said = [ln for ln in err.splitlines() if ln.startswith(("keyboard ", "controls: "))]
+    check("%s: KEYBOARD pages: the terminal says each" % name, said == [
+        "controls: %s not there yet: the usual keys" % ctl,
+        "keyboard 1: press a key for UP", "keyboard 1: M is the window's",
+        "keyboard 1: UP is now W (swapped: keyboard 2 UP is now UP)",
+        "keyboard 1: press a key for A", "keyboard 1: A kept as X",
+        "keyboard 1: press a key for A", "keyboard 1: A kept as X (no key in 5 seconds)",
+        "keyboard 1: press a key for A", "keyboard 1: A is now K"], repr(said))
+    changed = [list(USUAL_FILE[0]), list(USUAL_FILE[1])]
+    changed[0][0], changed[0][5], changed[1][0] = "W", "K", "Up"
+    got = open(ctl).read() if os.path.exists(ctl) else ""
+    check("%s: KEYBOARD pages: --controls written as changed" % name,
+          got == controls_text(changed), repr(got[-200:]))
+
+    # The changed keys change nothing in the game (only the window reads them).
+    _, rows = run(exe, rom, [], base, 90, name + ".keysplay", os.path.join(OUT, name + ".kp"),
+                  ["--controls", ctl])
+    _, plain = run(exe, rom, [], base, 90, name + ".keysplain", os.path.join(OUT, name + ".kq"))
+    after = open(ctl).read() if os.path.exists(ctl) else ""
+    check("%s: changed keys play the same frames, and the file is only read" % name,
+          len(rows) == 90 and rows == plain and after == got,
+          "%d frames, %s" % (len(rows), "same file" if after == got else "file changed"))
+
+    # DEFAULTS on keyboard 1: its keys, and keyboard 2's UP (it had Up).
+    err, _ = run(exe, rom, ["60 menu up up ok down ok " + "down " * 8 + "ok back back back"], base, 70,
+                 name + ".keysdef", os.path.join(OUT, name + ".kd"), ["--controls", ctl])
+    got = open(ctl).read() if os.path.exists(ctl) else ""
+    check("%s: DEFAULTS: the usual keys, and keyboard 2's UP back on W" % name,
+          got == controls_text(USUAL_FILE) and "keyboard 1: the usual keys" in err, repr(got[-200:]))
+
+    # A garbled file: the usual keys, said, and the page shows them.
+    with open(ctl, "w") as f:
+        f.write("version 1\nkeyboard1 a\x01\x02 nonsense\n")
+    pic = os.path.join(OUT, name + ".keys.garbled.raw")
+    err, rows = run(exe, rom, ["60 menu up up ok down ok shot=%s back back back" % pic], base, 90,
+                    name + ".keysbad", os.path.join(OUT, name + ".kb"), ["--controls", ctl])
+    why = picture_ok(pic, expected_keys(L, fnt, 1, 0, USUAL[0]))
+    check("%s: a garbled --controls file: the usual keys, said" % name,
+          not why and "controls: %s line 2 not understood: the usual keys" % ctl in err
+          and len(rows) == 90, why or err[-200:])
 
 
 def controllers(exe, rom, base, name, L, fnt):
@@ -561,6 +683,7 @@ def main():
         sound_and_window(exe, rom, base, name, L, fnt)
         controllers(exe, rom, base, name, L, fnt)
         pairing(exe, rom, base, name, L, fnt)
+        keyboards(exe, rom, base, name, L, fnt)
     print("\nall menu checks pass" if not failures else "\n%d menu check(s) failed" % failures)
     sys.exit(1 if failures else 0)
 

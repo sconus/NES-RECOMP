@@ -761,11 +761,32 @@ static long card_until;
 static int card_is_music;
 static int card_page;                   /* a game's: 0 the controls, 1 save and rewind */
 static char prefs[PATH_MAX];            /* app-prefs.txt in the build folder */
+static char controls[PATH_MAX];         /* controls.txt beside it: the game's keys */
 
 /* The game window's size (whole steps of 256x240) and the speakers'
    volume (1-10, and whether the sound is off), kept between runs: the
    game writes them on exit (--remember-size), one "name value" a line. */
 static struct { int scale, volume, sound_off; } game_prefs;
+
+static void read_game_prefs(void);
+
+/* What a game is started with from the app: the size and volume last
+   remembered, where to remember them, and its keys (controls.txt). */
+#define GAME_ARGS 12
+static void game_args(char **args, const char *files_at, const char *rom) {
+    static char scale[16], volume[16];
+    read_game_prefs();
+    snprintf(scale, sizeof scale, "%d", game_prefs.scale);
+    snprintf(volume, sizeof volume, "%d", game_prefs.volume);
+    int na = 0;
+    args[na++] = "--scale"; args[na++] = scale;
+    args[na++] = "--remember-size"; args[na++] = prefs;
+    args[na++] = "--volume"; args[na++] = volume;
+    args[na++] = "--controls"; args[na++] = controls;
+    if (game_prefs.sound_off) args[na++] = "--sound-off";
+    if (strcmp(files_at, rom)) { args[na++] = "--files-at"; args[na++] = (char *)files_at; }
+    args[na] = NULL;
+}
 
 static void read_game_prefs(void) {
     game_prefs.scale = 3;
@@ -951,6 +972,17 @@ int main(int argc, char **argv) {
                    game_prefs.sound_off);
             return 0;
         }
+        else if (!strcmp(argv[i], "--game-args") && more) {
+            /* For tests: what a game would be started with, from a build folder. */
+            const char *d = argv[++i];
+            snprintf(prefs, sizeof prefs, "%s/app-prefs.txt", d);
+            snprintf(controls, sizeof controls, "%s/controls.txt", d);
+            char *args[GAME_ARGS];
+            game_args(args, "game.nes", "game.nes");
+            for (int k = 0; args[k]; k++) printf("%s%s", k ? " " : "", args[k]);
+            printf("\n");
+            return 0;
+        }
         else if (!strcmp(argv[i], "--version")) { puts(APP_VERSION); return 0; }
         else if (!strcmp(argv[i], "--support-url")) { puts(SUPPORT_URL); return 0; }
         else if (!strcmp(argv[i], "--menu-test")) menu_test = 1;
@@ -1076,6 +1108,7 @@ int main(int argc, char **argv) {
     }
     os_make_dirs(dir);                          /* it, and the folders above it */
     snprintf(prefs, sizeof prefs, "%s/app-prefs.txt", dir);
+    snprintf(controls, sizeof controls, "%s/controls.txt", dir);
     snprintf(builds, sizeof builds, "%s", dir);
     if (play_exe) {
         snprintf(game_log, sizeof game_log, "%s.game.log", play_exe);
@@ -1231,15 +1264,8 @@ int main(int argc, char **argv) {
         if (screen == S_CARD && n >= card_until) {
             /* Play it, with this window out of the way, at the size the
                last game's window had. */
-            char scale[16], volume[16];
-            read_game_prefs();
-            snprintf(scale, sizeof scale, "%d", game_prefs.scale);
-            snprintf(volume, sizeof volume, "%d", game_prefs.volume);
-            char *args[10] = { "--scale", scale, "--remember-size", prefs, "--volume", volume };
-            int na = 6;
-            if (game_prefs.sound_off) args[na++] = "--sound-off";
-            if (strcmp(job.files_at, job.rom)) { args[na++] = "--files-at"; args[na++] = job.files_at; }
-            args[na] = NULL;
+            char *args[GAME_ARGS];
+            game_args(args, job.files_at, job.rom);
             snprintf(game_log, sizeof game_log, "%s/%s.game.log", builds, job.name);   /* (no .exe) */
             game = play_start(job.out, job.rom, args, game_log);
             if (game < 0) {

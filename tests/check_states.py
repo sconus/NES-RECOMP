@@ -28,7 +28,10 @@ by frame (--prints-out: picture, RAM, sound, code counts).
 And the pause menu (PLAN-pause.md): the same frames, with the menu
 opened at frame N, moved around in (the slot changed and changed back)
 and closed, must come out exactly as without it, and it must close at
-the frame it opened (no game ran while it was open).
+the frame it opened (no game ran while it was open). That run also
+reads an unusual controls.txt (PLAN-controllers.md step 3: every key
+moved), which must change nothing either: the keys are only the
+window's, never an input script's.
 
     python3 tests/check_states.py            every ROM
     python3 tests/check_states.py mmc3       only names matching
@@ -50,6 +53,12 @@ import toolchain  # noqa: E402
 ROOT = run_tests.ROOT
 OUT = os.path.join(ROOT, "build", "states")
 M = 120
+# Every key somewhere else (PLAN-controllers.md step 3).
+ODD_KEYS = os.path.join(OUT, "odd-controls.txt")
+ODD_TEXT = ("version 1\n" + "".join("keyboard%d %s %s\n" % (p, b, k) for p, row in (
+    (1, ["Up", "J", "Left", "L", "I", "K", "Space", "Tab"]),
+    (2, ["T", "Down", "H", "Right", "U", "Y", "Keypad Enter", "Keypad 0"]))
+    for b, k in zip(["up", "down", "left", "right", "b", "a", "select", "start"], row)))
 
 
 def frames_for(test):
@@ -134,11 +143,13 @@ def run_one(test, cflags, libs, rt_objs):
         paused += ["--input", script]
     out = os.path.join(OUT, ident + ".menu.prints")
     try:
-        r = run_tests.sh(paused + ["--prints-out", out], cwd=ROOT, timeout=120)
+        r = run_tests.sh(paused + ["--controls", ODD_KEYS, "--prints-out", out], cwd=ROOT, timeout=120)
     except run_tests.subprocess.TimeoutExpired:
         return test, "fail: timed out (menu)"
     opened = re.findall(r"frame (\d+): MENU\n", r.stderr)
     closed = re.findall(r"frame (\d+): MENU CLOSED", r.stderr)
+    if "controls: read " not in r.stderr:
+        return test, "fail: the odd controls.txt wasn't read: " + r.stderr[-200:]
     if len(opened) != 1 or opened != closed:
         return test, "fail: the menu opened at %s and closed at %s" % (opened, closed)
     menu_prints = open(out, "rb").read() if os.path.exists(out) else b""
@@ -146,7 +157,7 @@ def run_one(test, cflags, libs, rt_objs):
         n = min(len(prints[0]), len(menu_prints)) // 32
         k = next((i for i in range(n) if prints[0][i * 32:i * 32 + 32] != menu_prints[i * 32:i * 32 + 32]), n)
         return test, "fail: the pause menu changed the game: frame %d differs" % (k + 1)
-    return test, line + "; from a file in a new run; rewind; fast-forward (%d frames); menu" % (
+    return test, line + "; from a file in a new run; rewind; fast-forward (%d frames); menu, odd keys" % (
         len(prints[0]) // 32)
 
 
@@ -220,6 +231,8 @@ def refusals(tests):
 def main():
     filters = [a for a in sys.argv[1:] if not a.startswith("--")]
     os.makedirs(OUT, exist_ok=True)
+    with open(ODD_KEYS, "w") as f:
+        f.write(ODD_TEXT)
     seen, tests = set(), []
     for t in run_tests.load_suite():
         if t["rom"].endswith(".nsf"):
@@ -249,8 +262,12 @@ def main():
             sizes.append(int(m.group(1)))
         print("%s  %s  %s" % ("ok  " if ok else "FAIL", t["name"], result))
     print("\n%d of %d ROMs load their state and run on the same, in one run,"
-          " from a file in a new one, rewind, fast-forward, and the menu" % (len(tests) - failed, len(tests)))
+          " from a file in a new one, rewind, fast-forward, and the menu (odd keys)" %
+          (len(tests) - failed, len(tests)))
     print()
+    same = os.path.exists(ODD_KEYS) and open(ODD_KEYS).read() == ODD_TEXT
+    print("%s  the odd controls.txt left as it was (the games only read it)" % ("ok  " if same else "FAIL"))
+    failed += not same
     for line in refusals(tests):
         print(line)
         failed += line.startswith("FAIL")

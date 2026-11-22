@@ -7,6 +7,7 @@
 #include "apu.h"
 #include "event.h"
 #include "gamepad.h"
+#include "controls.h"
 #include "input.h"
 #include "palette.h"
 #include "ppu.h"
@@ -259,7 +260,12 @@ static void handle_events(void) {
             else if (k == SDLK_f) video_set_full_screen(!video_full_screen());
             continue;
         }
-        /* While the menu is open, the keys are its own. */
+        /* While the menu is open, the keys are its own; a KEYBOARD page
+           waiting for a key gets whichever it is. */
+        if (e.type == SDL_KEYDOWN && menu_is_open() && menu_wants_scancode()) {
+            if (!e.key.repeat) menu_key_code(MENU_SCAN, e.key.keysym.scancode);
+            continue;
+        }
         if (e.type == SDL_KEYDOWN && menu_is_open()) {
             SDL_Keycode k = e.key.keysym.sym;
             if (k == SDLK_UP) menu_key(MENU_UP, NULL);
@@ -287,19 +293,6 @@ static void handle_events(void) {
     pad_frame();
 }
 
-/* Keyboard layout: controller 1 on the arrows and the keys around the
-   right hand, controller 2 on WASD and the keys around the left. */
-static const struct { SDL_Scancode key; uint8_t button; } keymap[2][8] = {
-    { { SDL_SCANCODE_UP,     BTN_UP },     { SDL_SCANCODE_DOWN,  BTN_DOWN },
-      { SDL_SCANCODE_LEFT,   BTN_LEFT },   { SDL_SCANCODE_RIGHT, BTN_RIGHT },
-      { SDL_SCANCODE_X,      BTN_A },      { SDL_SCANCODE_Z,     BTN_B },
-      { SDL_SCANCODE_RETURN, BTN_START },  { SDL_SCANCODE_RSHIFT, BTN_SELECT } },
-    { { SDL_SCANCODE_W,      BTN_UP },     { SDL_SCANCODE_S,     BTN_DOWN },
-      { SDL_SCANCODE_A,      BTN_LEFT },   { SDL_SCANCODE_D,     BTN_RIGHT },
-      { SDL_SCANCODE_G,      BTN_A },      { SDL_SCANCODE_F,     BTN_B },
-      { SDL_SCANCODE_E,      BTN_START },  { SDL_SCANCODE_Q,     BTN_SELECT } },
-};
-
 int video_fast_held(void) {
     /* The key left of 1. On a Mac's ISO keyboard (where it is §), SDL
        reports it as the key beside left Shift, and the other way round,
@@ -323,13 +316,12 @@ void video_ignore_held(void) {
     gamepad_ignore_held();
 }
 
+/* The keyboard has room for two players; which keys are theirs is
+   controls.c's (the pause menu's KEYBOARD pages change them). */
 static uint8_t keyboard_buttons(int player) {
-    const Uint8 *keys = SDL_GetKeyboardState(NULL);
-    uint8_t b = 0;
-    if (player < 2)             /* the keyboard has room for two players */
-        for (int i = 0; i < 8; i++)
-            if (keys[keymap[player][i].key]) b |= keymap[player][i].button;
-    return b;
+    int n = 0;
+    const Uint8 *keys = SDL_GetKeyboardState(&n);
+    return player < 2 ? controls_buttons(player, keys, n) : 0;
 }
 
 uint8_t video_keyboard_buttons(int player) { return keyboard_buttons(player); }

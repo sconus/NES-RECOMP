@@ -170,6 +170,9 @@ Sound plays through the speakers unless you pass `--mute` (or press M).
 | Start | Return | E |
 | Select | Right Shift | Q |
 
+Those are the usual keys; the pause menu's CONTROLLERS > KEYBOARD 1 and
+KEYBOARD 2 change them (below).
+
 | Key | Does |
 |---|---|
 | M | Sound off / on |
@@ -295,6 +298,18 @@ In the menu the D-pad (or stick) moves, holding a direction repeats, A
 or Start chooses, and B or Home goes back to the game. A game that
 needs Select and Start held together for half a second can't have it.
 
+**Changing the keys.** CONTROLLERS > KEYBOARD 1 (or 2) lists the eight
+NES buttons with their keys. Choose one and press the key you want;
+Esc, or 5 seconds with no key, keeps the old one. Keys the window
+uses itself (Esc, M, R, V, P, 0-9, Backspace, the fast-forward key,
+Cmd and Ctrl) are refused, and choosing a key another button has,
+either player's, swaps the two. DEFAULTS brings back the usual keys
+(and the other player's, where one clashed). The app keeps them in
+`controls.txt` beside its `app-prefs.txt`, and `make run` in
+`build/controls.txt` (`--controls FILE`); a missing or garbled file
+means the usual keys. They're only the window's: an input script,
+a test or a recording plays the same whatever they are.
+
 **Pairing a controller.** The game doesn't pair controllers; the
 system does. The pause menu's CONTROLLERS > PAIRING HELP shows these
 steps for the system it runs on (checked in November 2026 against
@@ -344,6 +359,8 @@ The built program takes options after the ROM path:
     --mute             no sound from the speakers (M toggles it)
     --volume N         the speakers' volume, 1 to 10 (default 10)
     --sound-off        start with the sound off (M or the menu turn it on)
+    --controls F       the keys for the NES buttons: read from F, and written
+                       there when the menu's KEYBOARD pages change them
     --pairing-for mac|windows  the menu's pairing help for that system
                        (default: the one it was built for; for tests)
     --audio-stats      print the sound queue depth once a second
@@ -886,6 +903,10 @@ change at the new volume; and the size and volume written on exit.
 `make test-states` also opens the menu in every game and checks the
 frames are the same as without it. `--test-gamepads` checks the
 controller's menu buttons and shoulders with a pretend clock.
+`--test-controls` checks the keyboard remapping (refused keys, swaps,
+DEFAULTS, `controls.txt` read back, missing and garbled files), and
+`make test-menu` the KEYBOARD pages; `make test-states` runs every game
+with an unusual `controls.txt`, the same frames as without.
 The pairing help's pages are checked for both systems
 (`--pairing-for mac|windows`) and for the one it runs on.
 
