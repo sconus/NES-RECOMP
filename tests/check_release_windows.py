@@ -338,7 +338,7 @@ def main():
         me = z.read(top + "/READ ME FIRST.txt").decode("utf-8", "replace") if "READ ME FIRST.txt" in inside else ""
         points = ["NES RECOMP %s for Windows" % version, "Extract All", "Windows protected your PC",
                   '"More info"', '"Run anyway"', "%LOCALAPPDATA%\\NES RECOMP", "Videos\\NES RECOMP",
-                  "Enter (Start)", "Esc quits", "Alt+Space", rel.support_url(), "Windows 10 (version 1903",
+                  "Enter (Start)", "Esc opens the pause menu", "Alt+Space", rel.support_url(), "Windows 10 (version 1903",
                   "licenses\\LLVM LICENSE.txt", "licenses\\MinGW-w64 LICENSE.txt"]
         miss = [p for p in points if p not in me]
         check("the read-me's points (%d)" % len(points), not miss, miss)

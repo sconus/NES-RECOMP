@@ -61,7 +61,9 @@ USING IT
   build takes a few seconds; after that, a game starts at once.
 - In a game: arrow keys, X (A), Z (B), Return (Start), Right Shift
   (Select); M mutes, R resets, V starts and stops a recording, P saves
-  a picture, Esc quits. Game controllers work too.
+  a picture. Esc opens the pause menu: save and load, the volume, the
+  window's size, quit. Game controllers work too (hold Select and Start
+  for the menu; the shoulder buttons rewind and fast-forward).
 - On the drop screen: I shows who made it (and D there opens the
   support page), H shows "under the hood"
   for the last game; there, C shows its code.

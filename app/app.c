@@ -482,11 +482,13 @@ static void draw_about(long n) {
 static const char *const card_game[][2] = {
     { "ARROWS", "D-PAD" }, { "X", "A BUTTON" }, { "Z", "B BUTTON" },
     { "RETURN", "START" }, { "R.SHIFT", "SELECT" }, { "M", "MUTE" },
-    { "R", "RESET" }, { "V", "RECORD" }, { "ESC", "QUIT" }, { NULL, NULL },
+    { "R", "RESET" }, { "V", "RECORD" }, { "ESC", "MENU" }, { NULL, NULL },
 };
 /* The second card, after a game's controls (PLAN-savestates.md step 5):
    save states, rewind, fast-forward. The keys as each keyboard names
-   them: the Mac's Backspace key says "delete". */
+   them: the Mac's Backspace key says "delete". Then a game controller's
+   (PLAN-pause.md step 2): the shoulders, and Select+Start held for the
+   menu. */
 static const char *const card_states[][2] = {
 #ifdef _WIN32
     { "CTRL+S", "SAVE" }, { "CTRL+L", "LOAD" }, { "CTRL+1-4", "SLOT 1-4" },
@@ -495,7 +497,8 @@ static const char *const card_states[][2] = {
     { "CMD+S", "SAVE" }, { "CMD+L", "LOAD" }, { "CMD+1-4", "SLOT 1-4" },
     { "DELETE", "REWIND" },
 #endif
-    { "` KEY", "FAST X4" }, { NULL, NULL },
+    { "` KEY", "FAST X4" }, { "PAD LB", "REWIND" }, { "PAD RB", "FAST X4" },
+    { "SEL+ST", "MENU" }, { NULL, NULL },
 };
 static const char *const card_music[][2] = {
     { "LEFT", "LAST SONG" }, { "RIGHT", "NEXT SONG" }, { "R", "RESTART" },

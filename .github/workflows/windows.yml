@@ -81,6 +81,9 @@ jobs:
       - name: Save states, rewind and fast-forward on Windows (tests/check_states.py)
         run: python tests/check_states.py
 
+      - name: The pause menu on Windows - pictures, save, load, reset, sound, window (tests/check_menu.py)
+        run: python tests/check_menu.py
+
       - name: Recording on Windows (Media Foundation), read back
         run: python tests/check_record_win.py
 

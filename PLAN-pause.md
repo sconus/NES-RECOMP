@@ -319,6 +319,39 @@ speakers get the same samples as); only in a live window.
 - The menu's checks join the Windows run; the README gets the menu and
   the controller buttons.
 
+**Where step 4 ended (2026-11-21).**
+- The app's cards: CONTROLS says `ESC  MENU`; SAVE AND REWIND adds the
+  controller's `PAD LB  REWIND`, `PAD RB  FAST X4` and `SEL+ST  MENU`
+  (8 rows under the big title; `SEL+STRT` ran into its second column,
+  so it's shortened, and the README says to hold it). MUSIC PLAYER keeps
+  `ESC  QUIT` (music has no menu). Pictures sent; `tests/check_app.py`
+  checks them pixel by pixel.
+- The Windows run gets `tests/check_menu.py` (after the state tests);
+  its first run is this step's push.
+- README: Escape opens the menu; a section on the menu (its lines, keys,
+  what it pauses, what's remembered, the Terminal lines); the
+  controller's menu buttons and shoulders; `--volume`, `--sound-off`;
+  `make test-menu` and what it checks.
+- The releases' READ ME FIRST (Mac and Windows) said "Esc quits": now
+  "Esc opens the pause menu ..." and the controller's buttons;
+  `tests/check_release.py` and `check_release_windows.py` look for it
+  (the Mac one runs with `make release`, the Windows one on the
+  Windows run).
+
+Checks: `make test-all` as before (230 of 231, nestest exact, 240 of 240
+with the menu, all menu checks), the same C. Breaks: CONTROLS still
+saying ESC QUIT (1 FAIL line: 74 pixels), the controller's rows missing
+(1: 496 pixels). Not run here: `make release` (the Mac read-me check),
+and the Windows checks until the push.
+
+**Where the stage ended.** The pause menu works with the keyboard and
+game controllers, in the window from the app and from `make run`, on
+Mac and (by the Windows run) Windows: RESUME, SAVE STATE, LOAD STATE,
+SLOT, RESET, SOUND (with a blip), WINDOW, QUIT. Found on the way: each
+connected controller had been opened twice since controllers were added
+(one pad played as two players), and WINDOW stuck below the biggest size
+on a screen with a Dock; both fixed.
+
 ## Not in this plan
 - The Controllers screen (pairing help, a button test, remapping): the
   next plan; the menu will get a CONTROLLERS item then.

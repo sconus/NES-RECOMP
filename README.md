@@ -172,11 +172,11 @@ Sound plays through the speakers unless you pass `--mute` (or press M).
 
 | Key | Does |
 |---|---|
-| M | Mute / unmute |
+| M | Sound off / on |
 | R | Reset button |
 | V | Start / stop recording a movie (below) |
 | P | Save a picture of the screen |
-| Escape | Quit |
+| Escape | The pause menu (below) |
 
 **Save states, rewind and fast-forward.** (Ctrl in place of Cmd on
 Windows.)
@@ -213,6 +213,45 @@ Windows.)
   Terminal ("frame 411: SLOT 1 SAVED"). Music files (NSF) have none of
   these.
 
+**The pause menu.** Esc (or, on a game controller, Select and Start
+held together for half a second) pauses the game and opens a menu over
+it:
+
+        PAUSED
+
+      > RESUME
+        SAVE STATE
+        LOAD STATE
+        SLOT  < 1 >     21 NOV 09:14
+        RESET
+        SOUND < 10 >
+        WINDOW < 3X >
+        QUIT
+
+- Up and down move; Return (or Space, or X) chooses; Esc (or Z) goes
+  back to the game. Left and right change a line with `< >`.
+- SLOT says what the slot holds: EMPTY, or the day and time it was
+  saved. SAVE STATE and LOAD STATE use it, as Cmd+S and Cmd+L do.
+- SOUND: the speakers' volume, 10 (full) down to 1 in steps of 3 dB,
+  then OFF; each change plays a short blip at the new volume. Return
+  turns it off and on, as M does. The volume is only the speakers': a
+  recording or `--wav` keeps the game's own sound.
+- WINDOW: the window's size in whole steps, as Cmd+= and Cmd+-; one
+  step past the biggest that fits is FULL screen. Return switches full
+  screen, as Cmd+F.
+- QUIT ends the game (as closing the window does, which still quits at
+  once, and Cmd+Q on a Mac).
+- While it's open, the game is stopped exactly where it was: no game
+  code runs, the sound is paused, rewind keeps no frames and a
+  recording records none. Closing it carries on as if nothing happened,
+  and a button still held from the menu (Return is also Start) doesn't
+  reach the game until it's let go.
+- With the app, the volume (and the sound off) is remembered with the
+  window's size, so the next game opens the same.
+- What it does is written in the Terminal ("frame 854: MENU",
+  "frame 854: SOUND 7", "frame 854: MENU CLOSED (SAVE STATE)").
+  Music files (NSF) have no menu: Esc quits them.
+
 **Recording.** V starts a recording and V again stops it; a small red
 REC shows in the window's corner meanwhile (it isn't in the movie).
 Each recording is one `.mov` in `~/Movies/NES RECOMP/`, named by the
@@ -224,7 +263,7 @@ game and the date and time, ready for QuickTime or a video editor:
 - The movie runs on game time, so picture and sound stay together even
   if the Mac stutters (the game slows a little instead, if the encoder
   ever falls behind).
-- Quitting (Esc, closing the window, Ctrl+C in Terminal) finishes the
+- Quitting (QUIT in the menu, closing the window, Ctrl+C in Terminal) finishes the
   movie properly; only a crash or a forced quit loses it.
 P saves a PNG of the screen to the same folder. `--record FILE` records
 a whole run, with or without a window.
@@ -243,6 +282,19 @@ they can be plugged in or out while the game runs. The buttons go by position, a
 | Start | Start / Menu |
 | Select | Back / Select / Share |
 
+A controller also has the window's extras:
+
+| Button | Does |
+|---|---|
+| Select + Start, held half a second | The pause menu (a short press of both still reaches the game, as some games use it) |
+| Home / Guide | The pause menu, where the system lets it through (macOS, Windows' Game Bar or Steam may take it first) |
+| Left shoulder (LB / L1 / L), held | Rewind |
+| Right shoulder (RB / R1 / R), held | Fast-forward |
+
+In the menu the D-pad (or stick) moves, holding a direction repeats, A
+or Start chooses, and B or Home goes back to the game. A game that
+needs Select and Start held together for half a second can't have it.
+
 The built program takes options after the ROM path:
 
     --headless         no window (for tests)
@@ -256,6 +308,8 @@ The built program takes options after the ROM path:
     --record-dir D     where V's movies and P's pictures go
                        (default ~/Movies/NES RECOMP)
     --mute             no sound from the speakers (M toggles it)
+    --volume N         the speakers' volume, 1 to 10 (default 10)
+    --sound-off        start with the sound off (M or the menu turn it on)
     --audio-stats      print the sound queue depth once a second
     --input FILE       scripted button presses (below)
     --scale N          window size, N times 256x240 (default 3)
@@ -391,7 +445,8 @@ it: you bring your own.
   Recordings go to `~/Movies/NES RECOMP`.
 - **The game's window** can be resized by dragging; Cmd+= and Cmd+-
   change it by a whole step and Cmd+F makes it full screen. The picture
-  stays sharp, and the next game opens at the size you left.
+  stays sharp, and the next game opens at the size you left, and at the
+  volume set in the pause menu.
 - **I** shows the About screen; the Mac menu's About box says the same:
   for educational purposes only, by Serge and Claude, free software
   under the MIT License.
@@ -761,6 +816,7 @@ and the newer NSF2 and NSFe formats.
     make test-ppu   # everything in tests/suite.txt (needs the ROM clone)
     make test-record  # recording movies (tests/check_record.py)
     make test-states  # save states, rewind, fast-forward (tests/check_states.py)
+    make test-menu    # the pause menu (tests/check_menu.py)
     make test-all   # all of these, and the app's checks
 
 `make test` also runs `--test-gamepads`, which plugs in virtual game
@@ -782,6 +838,18 @@ are refused; that rewinding 120 frames shows each frame as it was and
 plays forward the same, with the usual ring of states and with a small
 one that fills up; and that a run with fast-forward held throughout is
 the same, frame by frame, as one without.
+
+`make test-menu` drives the pause menu headless, through input-script
+lines (`800 menu down ok` opens it at frame 800 and presses its keys;
+`shot=FILE` saves its picture): its pictures pixel by pixel against
+`runtime/menu.c`'s layout and the runtime's font; SAVE then LOAD from
+the menu playing the same frames again; RESET as the reset button; the
+slot picked being the file written; the volume scaling what the
+speakers get exactly (`--speaker-out`), with OFF silent and one blip a
+change at the new volume; and the size and volume written on exit.
+`make test-states` also opens the menu in every game and checks the
+frames are the same as without it. `--test-gamepads` checks the
+controller's menu buttons and shoulders with a pretend clock.
 
 `make test-ppu` (the name is from when it was only PPU tests) runs
 `tests/run_tests.py`. It recompiles each ROM in

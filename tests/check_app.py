@@ -772,7 +772,7 @@ def main():
     for name, title, rows in (
             ("card", "CONTROLS", [("ARROWS", "D-PAD"), ("X", "A BUTTON"), ("Z", "B BUTTON"),
                                   ("RETURN", "START"), ("R.SHIFT", "SELECT"), ("M", "MUTE"),
-                                  ("R", "RESET"), ("V", "RECORD"), ("ESC", "QUIT")]),
+                                  ("R", "RESET"), ("V", "RECORD"), ("ESC", "MENU")]),
             ("card_music", "MUSIC PLAYER", [("LEFT", "LAST SONG"), ("RIGHT", "NEXT SONG"),
                                             ("R", "RESTART"), ("M", "MUTE"), ("V", "RECORD"),
                                             ("ESC", "QUIT")]),
@@ -781,7 +781,9 @@ def main():
             ("card_states", "SAVE AND REWIND",
              [("CTRL+S" if WIN else "CMD+S", "SAVE"), ("CTRL+L" if WIN else "CMD+L", "LOAD"),
               ("CTRL+1-4" if WIN else "CMD+1-4", "SLOT 1-4"),
-              ("BKSPACE" if WIN else "DELETE", "REWIND"), ("` KEY", "FAST X4")])):
+              ("BKSPACE" if WIN else "DELETE", "REWIND"), ("` KEY", "FAST X4"),
+              # and a controller's (PLAN-pause.md step 4)
+              ("PAD LB", "REWIND"), ("PAD RB", "FAST X4"), ("SEL+ST", "MENU")])):
         img = screen(name, "--show", name)
         # Nine rows fit only under a title of one height (PLAN-standalone
         # step 6 added V).
