@@ -51,8 +51,16 @@ jobs:
           Invoke-WebRequest https://github.com/libsdl-org/SDL/releases/download/release-2.32.10/SDL2-devel-2.32.10-mingw.zip -OutFile sdl2.zip
           if ((Get-FileHash sdl2.zip -Algorithm SHA256).Hash -ne "F15CFF5FCA62EC9381A016EF1D42A95C638CD72D2F226BA5781C76FE43DBD1AC") { throw "SDL2's checksum is wrong" }
           Expand-Archive sdl2.zip -DestinationPath $env:RUNNER_TEMP
-          Invoke-WebRequest https://zlib.net/fossils/zlib-1.3.1.tar.gz -OutFile zlib.tar.gz
-          if ((Get-FileHash zlib.tar.gz -Algorithm SHA256).Hash -ne "9A93B2B7DFDAC77CEBA5A558A580E74667DD6FEDE4585B91EEFB60F03B72DF23") { throw "zlib's checksum is wrong" }
+          # zlib's own release on GitHub (the same file as zlib.net's, which
+          # began handing these machines something else), then zlib.net's.
+          $zsum = "9A93B2B7DFDAC77CEBA5A558A580E74667DD6FEDE4585B91EEFB60F03B72DF23"
+          foreach ($url in "https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.gz",
+                           "https://zlib.net/fossils/zlib-1.3.1.tar.gz") {
+            try { Invoke-WebRequest $url -OutFile zlib.tar.gz } catch { "zlib from $url failed: $_" }
+            if ((Test-Path zlib.tar.gz) -and (Get-FileHash zlib.tar.gz -Algorithm SHA256).Hash -eq $zsum) { break }
+            "zlib from $url : not the right file ($((Get-Item zlib.tar.gz -ErrorAction SilentlyContinue).Length) bytes)"
+          }
+          if ((Get-FileHash zlib.tar.gz -Algorithm SHA256).Hash -ne $zsum) { throw "zlib's checksum is wrong" }
           tar -xzf zlib.tar.gz -C $env:RUNNER_TEMP
           $sdl = "$env:RUNNER_TEMP\SDL2-2.32.10\x86_64-w64-mingw32"
           "NESRECOMP_SDL2=$sdl" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV

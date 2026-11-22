@@ -217,6 +217,28 @@ static void text_pass(const char *s, int cx, int y, int sx, int sy, uint32_t col
 /* The room at frame n (60 a second): the picture, with the screen's
    glow and scanlines and the power light animated; `busy` blinks the
    light fast. */
+/* The dragon's sword glows (PLAN-library.md step 2): a cyan light added
+   to its blade and, fading, around it (art_glow), rising and falling
+   every SWORD_PERIOD frames; none at frame 0, so the room is as drawn. */
+#define SWORD_PERIOD 180                    /* 3 seconds */
+static double sword_pulse(long n) {
+    return 0.5 - 0.5 * cos(n * 2 * M_PI / SWORD_PERIOD);
+}
+static void sword_light(long n) {
+    double p = sword_pulse(n);
+    static const int light[3] = { 40, 120, 112 };   /* at its brightest, on the blade */
+    for (int i = 0; i < ART_GLOW_N; i++) {
+        double k = p * art_glow[i][2] / 255.0;
+        uint32_t c = canvas[art_glow[i][1]][art_glow[i][0]];
+        int ch[3] = { (int)(c >> 16) & 255, (int)(c >> 8) & 255, (int)c & 255 };
+        for (int j = 0; j < 3; j++) {
+            ch[j] += (int)(light[j] * k + 0.5);
+            if (ch[j] > 255) ch[j] = 255;
+        }
+        canvas[art_glow[i][1]][art_glow[i][0]] = rgb(ch[0], ch[1], ch[2]);
+    }
+}
+
 static void draw_room(long n, int busy) {
     double t = n / 60.0;
     double glow = 0.5 + 0.5 * sin(t * 2 * M_PI / 4.0);      /* 0-1 every 4 s */
@@ -236,6 +258,7 @@ static void draw_room(long n, int busy) {
     for (int y = 0; y < ART_H; y++)
         for (int x = 0; x < ART_W; x++)
             canvas[y][x] = pal[art_pixels[y][x]];
+    sword_light(n);
 }
 
 #define SCREEN_CX (ART_SCREEN_X + ART_SCREEN_W / 2)

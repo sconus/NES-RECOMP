@@ -322,6 +322,63 @@ Not checked by a test: that the placeholders look right to you.
   cyan colours). Otherwise this step is skipped.
 - Breaks: the pulse touching pixels outside the sword.
 
+**Where step 2 ended (2026-11-22).** You chose to do it.
+- `tools/make_app_art.py` finds the blade in the picture: the bright
+  cyan pixels in a box beside the dragon (x 448-499, y 100-163; the
+  hilt's guard, below, is left out). It writes `art_glow` in
+  `app/art.h`: every pixel within 4 of the blade, with how much light
+  it gets (all of it on the blade, fading to about a tenth 4 pixels
+  off).
+- The app adds a cyan light (at most 40, 120, 112 to red, green and
+  blue, capped at 255) to those pixels, rising and falling every 3
+  seconds (180 frames): none at frame 0, so the room is exactly as
+  drawn, brightest at frame 90. So the blade brightens and a soft glow
+  spreads onto the floor and the dragon's paw. It runs on every screen
+  that shows the room, like the TV's glow.
+- Pictures sent: the glow at frames 0, 45 and 90, and the room at its
+  brightest.
+
+The checks (`tests/check_app.py`):
+- "nothing else moves" now leaves out the glow's pixels; new: at frame
+  90 every blade pixel is the picture plus the whole light, capped;
+  at frame 180 the glow is gone again; more than half the pixels around
+  the blade are lit at frame 90; the glow is by the dragon, off the TV
+  and the shelf. (The first try of the blade check, "more cyan than
+  red", failed on a correct glow: the blade's green and blue are capped
+  at 255 first. It now checks the exact sums.)
+
+- `make test-all`: 230 of 231 as before (test28), nestest exact, 240 of
+  240; the same C; the app bundle and its icon as before.
+
+Breaks, each in a scratch copy (`tests/check_app.py`):
+
+| broken | FAIL lines |
+| --- | --- |
+| the light also put 6 pixels to the right | 15 |
+| lit at frame 0 (the pulse starting halfway) | 15 |
+| every 4 seconds, not 3 | 2 |
+| on the blade only, nothing around it | 1 |
+
+Not checked by a test: how strong the glow looks to you.
+
+Also in this step, the Windows runs' failures (read from their logs):
+- **Run 52** (Controllers step 5) failed in its breaks step: the copy
+  with no break failed `tests/check_menu.py` (58 FAIL lines, "no
+  picture"), so its own break was "caught" for the wrong reason; the
+  30 real breaks were caught. The cause: the breaks' scratch copies are
+  in a folder named "nesrecomp break ...", and the check put the full
+  path of each picture in an input script's `shot=` word, where words
+  are split at spaces. It now gives those paths from the project folder,
+  where the game runs. On the Mac, in a copy under a folder with a
+  space: 58 FAIL lines before, none after; the matching break (the
+  Windows pairing help on a Mac) caught there with 4.
+- **Runs 53 and 54** (step 1) stopped before building: "zlib's checksum
+  is wrong". zlib.net handed GitHub's machine something other than
+  zlib 1.3.1 (the Mac gets the right file). The workflow now takes the
+  same file (byte for byte, checked) from zlib's own release on GitHub,
+  then zlib.net's, and says what it got if neither matches. This is
+  first tried by the next Windows run.
+
 ### 3. The game takes its title picture
 - Runtime: `--title-out FILE`: the frame before the first Start press
   (from a key, a pad, or an input script), else the 10-second rule;

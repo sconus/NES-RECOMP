@@ -14,6 +14,8 @@ screenshots (build/nesrecomp-app --screenshot), against app/art.h:
      scanlines shimmer every 6 frames, the power light is off for the
      last 10 frames of each second, and nothing else moves (looked at
      on frames on both sides of the shimmer).
+     The dragon's sword glows (step 2): every 3 seconds, none at frame 0,
+     brightest at frame 90, only on and around its blade.
      4b. the room (PLAN-library.md step 1, the reference picture): the
      TV's glass solid, the screens' text area on it, the TV's light off
      it, the shelf's 32 places for boxes; and every screen drawing on the
@@ -255,6 +257,12 @@ def text_pixels(defs, font, lines, sx=1, sy=2):
     return on
 
 
+def glass_px(rows, defs):
+    """The TV's glass: the pixels in the screen's two colours."""
+    return {(x, y) for y, row in enumerate(rows) for x, v in enumerate(row)
+            if v in (defs["INK_SCREEN"], defs["INK_SCAN"])}
+
+
 def cart_pixels(defs, cart):
     """The cartridge's pixels on the drop screen: (x, y) -> palette index."""
     scx, scy, sw, _ = (defs["ART_SCREEN_" + k] for k in "XYWH")
@@ -390,11 +398,14 @@ def main():
         check("window %dx%d (scale %d)" % (size + (scale,)), (ww, wh) == size and not bad,
               "%d pixel(s) differ" % bad)
     # 4. the animation
-    frames = {n: shot("drop_f%d" % n, frame=n)[2] for n in (6, 60, 120, 170)}
+    frames = {n: shot("drop_f%d" % n, frame=n)[2] for n in (6, 60, 90, 120, 170, 180)}
+    src_h = open(os.path.join(ROOT, "app", "art.h")).read()
+    glow = {(int(x), int(y)): int(k) for x, y, k in re.findall(
+        r"\{(\d+),(\d+),(\d+)\}", src_h.split("art_glow[ART_GLOW_N][3] = {", 1)[1].split("};", 1)[0])}
     led = [(x, y) for y in range(H) for x in range(W) if rows[y][x] == defs["INK_LED"]]
     screen = [(x, y) for y in range(H) for x in range(W)
               if rows[y][x] == defs["INK_SCREEN"] and (x, y) not in on and (x, y) not in ring]
-    still = [(x, y) for y in range(H) for x in range(W) if rows[y][x] not in animated]
+    still = [(x, y) for y in range(H) for x in range(W) if rows[y][x] not in animated and (x, y) not in glow]
     check("the glow changes", len({frames[n][screen[0][1]][screen[0][0]] for n in (60, 120)}
                                   | {base[screen[0][1]][screen[0][0]]}) > 1, "the screen stays the same")
     scan = next((x, y) for y in range(H) for x in range(W)
@@ -412,6 +423,28 @@ def main():
           "not on at frames 0 and 120 and off at 170")
     moved = [p for p in still for n in frames if frames[n][p[1]][p[0]] != base[p[1]][p[0]]]
     check("nothing else moves", not moved, "%d pixel(s) changed" % len(moved))
+    # The sword's glow (PLAN-library.md step 2): every 180 frames, none at
+    # frame 0 (so the room is as drawn) or 180, at its brightest at 90: the
+    # blade brighter, cyan added (red least), and only where art_glow says.
+    blade = [p for p, k in glow.items() if k == 255]
+    light = (40, 120, 112)                  # app.c's sword light, at its brightest
+    wrong = [p for p in blade if frames[90][p[1]][p[0]] !=
+             tuple(min(255, base[p[1]][p[0]][c] + light[c]) for c in range(3))]
+    check("the sword glows: at frame 90 its blade gets the whole cyan light",
+          len(blade) > 300 and not wrong, "%d blade pixel(s), %d wrong, first at %s"
+          % (len(blade), len(wrong), wrong[:1]))
+    back = [p for p in glow if frames[180][p[1]][p[0]] != base[p[1]][p[0]]]
+    check("the sword's glow gone again at frame 180 (every 3 seconds)", not back,
+          "%d pixel(s) still lit" % len(back))
+    halo = [p for p, k in glow.items() if k < 255]
+    lit = [p for p in halo if frames[90][p[1]][p[0]] != base[p[1]][p[0]]]
+    check("the sword's light spreads around it, fading", len(lit) > len(halo) // 2,
+          "%d of %d pixel(s) around the blade lit" % (len(lit), len(halo)))
+    x0g, x1g = min(x for x, _ in glow), max(x for x, _ in glow)
+    y0g, y1g = min(y for _, y in glow), max(y for _, y in glow)
+    check("the sword's light: by the dragon, off the TV and the shelf",
+          430 <= x0g and x1g < 520 and 90 <= y0g and y1g < 175 and not set(glow) & glass_px(rows, defs),
+          "x %d-%d, y %d-%d" % (x0g, x1g, y0g, y1g))
 
     # 4b. the room: the reference picture (PLAN-library.md step 1), its
     # TV's glass the app's screen.

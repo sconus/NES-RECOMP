@@ -570,6 +570,11 @@ def run(exe, rom, script_lines, base_script, frames, tag, files, extra=()):
     """Run headless with the game's script plus `script_lines`; returns
     (stderr, the frames' fingerprints, 32 bytes each)."""
     script = os.path.join(OUT, tag + ".txt")
+    # A script line is words split at spaces, so a picture's path is given
+    # from the project folder, where the game runs: the folder's own path
+    # may have a space (the Windows run's scratch copies, "nesrecomp break
+    # ...", do).
+    script_lines = [l.replace("shot=" + ROOT + os.sep, "shot=") for l in script_lines]
     with open(script, "w") as f:
         if base_script:
             f.write(open(os.path.join(ROOT, base_script)).read() + "\n")

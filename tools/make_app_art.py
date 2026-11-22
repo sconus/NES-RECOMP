@@ -399,6 +399,31 @@ GAPS = [[59, 96, 132, 169, 205, 242, 279], [359, 396, 432, 468, 504, 540, 577]]
 GLASS_SEED = (312, 60)                  # a pixel on the TV's glass
 LED = (394, 35)                         # the TV's little light (2x2)
 ROOM_COLOURS = 1000                     # the picture's colours, kept
+# The dragon's sword (step 2): its blade, the bright cyan pixels in this
+# box (the hilt's guard, below, left out); the app adds a pulsing cyan
+# light to it and, fading, to GLOW_REACH pixels around it.
+SWORD_BOX = (448, 100, 500, 164)        # x0, y0, x1, y1 (x1, y1 not in it)
+GLOW_REACH = 4
+GLOW = []                               # (x, y, strength 1-255)
+
+
+def sword_glow(rgb):
+    """The sword's light: every pixel within GLOW_REACH of the blade, with
+    how much of the light it gets (255 on the blade, less further off)."""
+    x0, y0, x1, y1 = SWORD_BOX
+    blade = {(x, y) for y in range(y0, y1) for x in range(x0, x1)
+             if rgb[y][x][1] > 130 and rgb[y][x][2] > 140 and rgb[y][x][0] < 120
+             and rgb[y][x][1] > rgb[y][x][0] + 50}
+    out = []
+    for y in range(y0 - GLOW_REACH, y1 + GLOW_REACH):
+        for x in range(x0 - GLOW_REACH, x1 + GLOW_REACH):
+            d = min(((x - bx) ** 2 + (y - by) ** 2) ** 0.5 for bx, by in blade
+                    if abs(bx - x) <= GLOW_REACH and abs(by - y) <= GLOW_REACH) \
+                if any(abs(bx - x) <= GLOW_REACH and abs(by - y) <= GLOW_REACH for bx, by in blade) else 99
+            if d <= GLOW_REACH:
+                k = 1.0 if d == 0 else 0.55 * (1 - d / (GLOW_REACH + 1)) ** 1.5
+                out.append((x, y, max(1, int(round(255 * k)))))
+    return out
 
 
 def read_png_rgb(path):
@@ -579,6 +604,7 @@ def draw():
     for y0 in SLOT_Y:
         for x0 in SLOT_X:
             placeholder(rgb, x0, y0, rgb[y0 + 12][x0 + 2])  # (the cleared back there)
+    GLOW[:] = sword_glow(rgb)
     screen = glass(rgb)
     top = min(y for _, y in screen)
     counts = {}
@@ -711,6 +737,12 @@ def main():
     lines.append("#define ART_SLOT_ROWS %d" % len(SLOT_Y))
     lines.append("static const short art_slot_x[ART_SLOTS_ROW] = { %s };" % ", ".join(map(str, SLOT_X)))
     lines.append("static const short art_slot_y[ART_SLOT_ROWS] = { %s };" % ", ".join(map(str, SLOT_Y)))
+    lines.append("/* The sword's light (PLAN-library.md step 2): x, y, and how much of it (1-255). */")
+    lines.append("#define ART_GLOW_N %d" % len(GLOW))
+    lines.append("static const short art_glow[ART_GLOW_N][3] = {")
+    for k in range(0, len(GLOW), 8):
+        lines.append("    " + " ".join("{%d,%d,%d}," % g for g in GLOW[k:k + 8]))
+    lines.append("};")
     lines.append("static const unsigned short art_pixels[ART_H][ART_W] = {")
     for row in c.px:
         lines.append("    {" + ",".join(str(v) for v in row) + "},")
