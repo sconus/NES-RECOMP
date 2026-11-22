@@ -42,10 +42,12 @@ int video_audio_queued(void);           /* samples waiting, or -1 */
 /* A controller's buttons (player 0-3) from the keyboard (players 0 and
    1 only) and game controllers, as of the last video_present. */
 uint8_t video_buttons(int player);
-/* Backspace held: rewind (PLAN-savestates.md step 3). */
+/* Backspace (or a controller's left shoulder) held: rewind
+   (PLAN-savestates.md step 3; PLAN-pause.md step 2). */
 int video_rewind_held(void);
-/* ` (backquote) held: fast-forward (step 4). Frames come `n` times as
-   often (1: normal); a frame not drawn still reads the keys and waits. */
+/* ` (backquote, or a controller's right shoulder) held: fast-forward
+   (step 4). Frames come `n` times as often (1: normal); a frame not
+   drawn still reads the keys and waits. */
 int video_fast_held(void);
 void video_set_speed(int n);
 void video_skip(void);

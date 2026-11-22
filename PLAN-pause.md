@@ -175,6 +175,60 @@ cards still say ESC QUIT until step 4.
   it (games lose that combination), a button leaking into the game when
   the menu closes.
 
+**Where step 2 ended (2026-11-21).** In `runtime/gamepad.c`:
+`gamepad_frame` runs once a frame (from the window's event handling,
+also on fast-forward's undrawn frames and in the menu) and says what the
+controllers want besides the game's buttons. Any of the four controllers
+can do it:
+- Select+Start held 0.5 s (both, counted from when both are down) asks
+  for the menu once; a shorter press reaches the game as before. Held
+  on, or held as the menu closes, it doesn't open again until let go.
+  Home / Guide opens it at once where the system lets SDL see it. The
+  terminal says "controller N: menu", then "frame N: MENU" as before.
+- In the menu only presses made after it opened count: the D-pad or
+  stick moves (a held direction repeats after 0.4 s, then every 0.1 s),
+  A or Start chooses, B or Home closes.
+- Left shoulder held rewinds, right shoulder fast-forwards (with
+  Backspace and ` as before); not in the menu, and not game buttons.
+- The buttons held when the menu closes are ignored by the game until
+  let go, now kept per controller (`gamepad_ignore_held`); the window's
+  own guard covers only the keyboard.
+
+The check: `--test-gamepads` (in `make test` and the Windows run's
+tests/run_nestest.py) now also drives a virtual controller with a
+pretend clock through all of the above, frame by frame.
+
+Breaks, each in a scratch copy:
+
+| broken | FAIL lines |
+| --- | --- |
+| a short Select+Start opens the menu | 4 |
+| a button held as the menu closes reaches the game | 2 |
+| buttons held as the menu opens act in it | 5 |
+| the left shoulder doesn't rewind | 1 |
+| the shoulders work in the menu | 1 |
+| Select+Start held as the menu closes opens it again | 1 (after fixing the test: at first it only looked at the last frame) |
+| a held direction doesn't repeat | 1 |
+
+Found in a live window (an Xbox Series controller, Bluetooth): the
+pad was opened twice, as controllers 1 and 2, because SDL announces the
+controllers already connected after `gamepad_init` has opened them (a
+bug since controllers were added: one pad played as both players, and in
+the menu each D-pad press moved two lines). Now each is opened once; the
+self-test announces them again, with a free slot, and checks no slot is
+added (the break, opening it twice: 1 FAIL line; with all four slots
+full the check couldn't see it, so one is unplugged first).
+
+Tried in a live window (mmc3_split.nes, the same controller):
+Select+Start opened it as controller 1, the D-pad moved one line, SAVE
+STATE, RESUME and QUIT worked, the left shoulder rewound. The right
+shoulder (fast-forward) wasn't tried.
+
+Not checked by a test: the window's wiring (that the event handling
+calls `gamepad_frame` and passes on what it wants, and that closing the
+menu calls `gamepad_ignore_held`); only in a live window with a real
+controller.
+
 ### 3. Sound and window in the menu
 - SOUND: on/off and a volume (in steps); WINDOW: the size steps (as
   Cmd+= / Cmd+-) and FULL SCREEN.

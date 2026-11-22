@@ -178,6 +178,21 @@ int video_scale(void) {
     return window_scale;
 }
 
+/* The controllers' menu buttons and shoulders (gamepad.c), once a frame. */
+static int pad_rewind, pad_fast;
+
+static void pad_frame(void) {
+    struct pad_wants w;
+    gamepad_frame(SDL_GetTicks(), menu_is_open(), &w);
+    pad_rewind = w.rewind;
+    pad_fast = w.fast;
+    if (w.open && !menu_is_open() && runtime_has_menu()) {
+        fprintf(stderr, "controller %d: menu\n", w.open);
+        menu_request();
+    }
+    for (int i = 0; i < w.nkeys; i++) menu_key(w.keys[i], NULL);
+}
+
 static void handle_events(void) {
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
@@ -233,6 +248,7 @@ static void handle_events(void) {
             e.key.keysym.sym <= SDLK_9 && !e.key.repeat)
             runtime_disk_key(e.key.keysym.sym - SDLK_0);
     }
+    pad_frame();
 }
 
 /* Keyboard layout: controller 1 on the arrows and the keys around the
@@ -253,34 +269,40 @@ int video_fast_held(void) {
        reports it as the key beside left Shift, and the other way round,
        so either counts. */
     const Uint8 *k = SDL_GetKeyboardState(NULL);
-    return k[SDL_SCANCODE_GRAVE] || k[SDL_SCANCODE_NONUSBACKSLASH];
+    return k[SDL_SCANCODE_GRAVE] || k[SDL_SCANCODE_NONUSBACKSLASH] || pad_fast;
 }
 
 int video_rewind_held(void) {
-    return SDL_GetKeyboardState(NULL)[SDL_SCANCODE_BACKSPACE] != 0;
+    return SDL_GetKeyboardState(NULL)[SDL_SCANCODE_BACKSPACE] != 0 || pad_rewind;
 }
 
-/* Buttons held when the menu closed (Return is Start too): not seen by
-   the game until they're let go, so closing the menu presses nothing. */
-static uint8_t held_mask[4];
-static uint8_t raw_buttons(int player);
+/* Keys held when the menu closed (Return is Start too): not seen by the
+   game until they're let go, so closing the menu presses nothing. The
+   controllers keep their own (gamepad_ignore_held). */
+static uint8_t held_mask[2];
+static uint8_t keyboard_buttons(int player);
 
 void video_ignore_held(void) {
-    for (int p = 0; p < 4; p++) held_mask[p] = raw_buttons(p);
+    for (int p = 0; p < 2; p++) held_mask[p] = keyboard_buttons(p);
+    gamepad_ignore_held();
 }
 
-uint8_t video_buttons(int player) {
-    uint8_t b = raw_buttons(player);
-    held_mask[player] &= b;
-    return b & (uint8_t)~held_mask[player];
-}
-
-static uint8_t raw_buttons(int player) {
+static uint8_t keyboard_buttons(int player) {
     const Uint8 *keys = SDL_GetKeyboardState(NULL);
     uint8_t b = 0;
     if (player < 2)             /* the keyboard has room for two players */
         for (int i = 0; i < 8; i++)
             if (keys[keymap[player][i].key]) b |= keymap[player][i].button;
+    return b;
+}
+
+uint8_t video_buttons(int player) {
+    uint8_t b = 0;
+    if (player < 2) {
+        b = keyboard_buttons(player);
+        held_mask[player] &= b;
+        b &= (uint8_t)~held_mask[player];
+    }
     b |= gamepad_buttons(player);
     /* A real D-pad can't press opposite directions at once, and some
        games misbehave if they see it; cancel both instead. */
