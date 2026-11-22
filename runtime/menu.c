@@ -9,13 +9,13 @@
 
 /* The layout, in NES pixels (tests/check_menu.py reads these). */
 #define MENU_BOX_X 36
-#define MENU_BOX_Y 54
+#define MENU_BOX_Y 50
 #define MENU_BOX_W 184
-#define MENU_BOX_H 124
-#define MENU_TITLE_Y 64
+#define MENU_BOX_H 140
+#define MENU_TITLE_Y 60
 #define MENU_ITEM_X 64
 #define MENU_CURSOR_X 54
-#define MENU_ITEM_Y 84
+#define MENU_ITEM_Y 78
 #define MENU_LINE_H 13
 #define MENU_INFO_X 136                     /* the slot's EMPTY / date */
 
@@ -27,9 +27,10 @@
 #define INK_PICKED 0x30                     /* white */
 #define INK_CURSOR 0x21                     /* light blue */
 
-enum { ITEM_RESUME, ITEM_SAVE, ITEM_LOAD, ITEM_SLOT, ITEM_RESET, ITEM_QUIT, ITEM_COUNT };
+enum { ITEM_RESUME, ITEM_SAVE, ITEM_LOAD, ITEM_SLOT, ITEM_RESET, ITEM_SOUND, ITEM_WINDOW,
+       ITEM_QUIT, ITEM_COUNT };
 static const char *const item_names[ITEM_COUNT] = {
-    "RESUME", "SAVE STATE", "LOAD STATE", "SLOT", "RESET", "QUIT",
+    "RESUME", "SAVE STATE", "LOAD STATE", "SLOT", "RESET", "SOUND", "WINDOW", "QUIT",
 };
 
 static int wanted, is_open, cursor;
@@ -87,7 +88,15 @@ static void draw(uint16_t *out, const uint16_t *fb) {
         int y = MENU_ITEM_Y + i * MENU_LINE_H;
         char line[32];
         if (i == ITEM_SLOT) snprintf(line, sizeof line, "SLOT  < %d >", runtime_slot());
-        else snprintf(line, sizeof line, "%s", item_names[i]);
+        else if (i == ITEM_SOUND) {
+            int v = runtime_sound();
+            if (v) snprintf(line, sizeof line, "SOUND < %d >", v);
+            else snprintf(line, sizeof line, "SOUND < OFF >");
+        } else if (i == ITEM_WINDOW) {
+            int w = runtime_window();
+            if (w) snprintf(line, sizeof line, "WINDOW < %dX >", w);
+            else snprintf(line, sizeof line, "WINDOW < FULL >");
+        } else snprintf(line, sizeof line, "%s", item_names[i]);
         draw_text_5x7(out, MENU_ITEM_X, y, line, i == cursor ? INK_PICKED : INK_ITEM);
         if (i == ITEM_SLOT) {
             char info[32];
@@ -120,6 +129,8 @@ static int press(int key, int *chosen) {
     case MENU_LEFT: case MENU_RIGHT:
         if (cursor == ITEM_SLOT)
             runtime_set_slot((runtime_slot() + (key == MENU_LEFT ? 2 : 0)) % 4 + 1);
+        else if (cursor == ITEM_SOUND) runtime_sound_step(key == MENU_LEFT ? -1 : 1);
+        else if (cursor == ITEM_WINDOW) runtime_window_step(key == MENU_LEFT ? -1 : 1);
         break;
     case MENU_BACK: *chosen = ITEM_RESUME; return 0;
     case MENU_OK:
@@ -127,6 +138,8 @@ static int press(int key, int *chosen) {
             runtime_set_slot(runtime_slot() % 4 + 1);
             break;
         }
+        if (cursor == ITEM_SOUND) { runtime_sound_toggle(); break; }    /* as M */
+        if (cursor == ITEM_WINDOW) { runtime_window_toggle(); break; }  /* as Cmd+F */
         *chosen = cursor;
         return 0;
     }

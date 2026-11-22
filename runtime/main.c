@@ -304,6 +304,55 @@ static uint64_t code_since(void) {
    recording. */
 static int rewind_held(void);
 
+/* The speakers' sound (PLAN-pause.md step 3): the volume, 1 to 10 (10
+   as loud as before), and off (M, or SOUND in the menu). Each step down
+   is 3 dB quieter: the gains are 32768 * 10^(-3 (10 - n) / 20), so the
+   same on every machine. Only the speakers: a WAV file and a recording
+   keep the game's own sound. --speaker-out F writes what the speakers
+   would get to F (raw 16-bit samples), for the tests, headless too. */
+static const int32_t volume_gain[11] = {
+    0, 1464, 2068, 2920, 4125, 5827, 8231, 11627, 16423, 23198, 32768,
+};
+static int volume = 10, sound_off;
+static FILE *speaker_out;
+
+static void to_speakers(const int16_t *buf, int n) {
+    int16_t out[4096];
+    int32_t g = sound_off ? 0 : volume_gain[volume];
+    for (int i = 0; i < n; i++) out[i] = (int16_t)((buf[i] * g) >> 15);
+    if (speakers && !sound_off) video_queue_audio(out, n);
+    if (speaker_out) fwrite(out, sizeof out[0], (size_t)n, speaker_out);
+}
+
+int runtime_sound(void) { return sound_off ? 0 : volume; }
+
+/* In the terminal too, so a live try can be checked afterwards. */
+static void say_sound(void) {
+    if (sound_off) fprintf(stderr, "frame %llu: SOUND OFF\n", (unsigned long long)ppu.frame);
+    else fprintf(stderr, "frame %llu: SOUND %d\n", (unsigned long long)ppu.frame, volume);
+}
+
+/* Left / right in the menu: down to 1, then OFF; up from OFF to 1. */
+void runtime_sound_step(int d) {
+    if (d < 0) {
+        if (sound_off) return;
+        if (volume > 1) volume--;
+        else sound_off = 1;
+    } else if (sound_off) {
+        sound_off = 0;
+        volume = 1;
+    } else if (volume < 10) volume++;
+    video_set_muted(sound_off);
+    say_sound();
+}
+
+/* M, or Return on SOUND: off and on again at the same volume. */
+void runtime_sound_toggle(void) {
+    sound_off = !sound_off;
+    video_set_muted(sound_off);
+    say_sound();
+}
+
 static void drain_sound(void) {
     int16_t buf[4096];
     apu_catch_up();
@@ -312,8 +361,8 @@ static void drain_sound(void) {
         if (state_test_on || rewind_test_on || prints_out)
             sound_hash = fnv(sound_hash, buf, (size_t)n * sizeof buf[0]);
         if (wav_path) wav_write(buf, n);
-        if (speakers && !rewinding && !fast_forwarding)
-            video_queue_audio(buf, n);  /* rewind and fast-forward are silent */
+        if ((speakers || speaker_out) && !rewinding && !fast_forwarding)
+            to_speakers(buf, n);        /* rewind and fast-forward are silent */
         record_audio(buf, n);
     }
 }
@@ -391,13 +440,20 @@ void runtime_snap_key(void) {
     if (video_save_png(last_frame, path) == 0) fprintf(stderr, "saved a picture to %s\n", path);
 }
 
+static int pretend_scale, pretend_full;   /* headless: a pretend window */
+
 static void at_exit(void) {
     if (remember_size) {
         int s = video_scale();
         FILE *f = fopen(remember_size, "w");
-        if (f) { fprintf(f, "game_scale %d\n", s ? s : start_scale); fclose(f); }
+        if (f) {
+            fprintf(f, "game_scale %d\nvolume %d\nsound_off %d\n",
+                    s ? s : pretend_scale ? pretend_scale : start_scale, volume, sound_off);
+            fclose(f);
+        }
     }
     if (sound_on) drain_sound();        /* the last part of a frame */
+    if (speaker_out) fclose(speaker_out);
     if (wav_path) wav_close();
     record_stop();
     save_missed();
@@ -768,6 +824,46 @@ unsigned long long runtime_frame(void) { return (unsigned long long)ppu.frame; }
 void runtime_menu_present(const uint16_t *pic) { video_present(pic); }
 int runtime_has_menu(void) { return cart.mapper != MAPPER_NSF; }
 
+/* WINDOW in the menu: the size in whole steps, or 0 for full screen.
+   Headless, a pretend window (its biggest size 4X, as on a 1080p
+   screen) so the tests can check the menu and what's remembered. */
+#define PRETEND_MOST 4
+int runtime_window(void) {
+    if (!headless) return video_full_screen() ? 0 : video_scale();
+    return pretend_full ? 0 : pretend_scale;
+}
+
+/* Left / right: a step smaller or bigger; past the biggest, full
+   screen; left from full screen, the window again. */
+static void say_window(int w) {
+    if (w) fprintf(stderr, "frame %llu: WINDOW %dX\n", (unsigned long long)ppu.frame, w);
+    else fprintf(stderr, "frame %llu: WINDOW FULL\n", (unsigned long long)ppu.frame);
+}
+
+void runtime_window_step(int d) {
+    if (!headless) {
+        if (video_full_screen()) { if (d < 0) video_set_full_screen(0); }
+        else if (d > 0 && video_scale() >= video_most_scale()) video_set_full_screen(1);
+        else video_resize_step(d);
+        say_window(runtime_window());
+        return;
+    }
+    if (pretend_full) { if (d < 0) pretend_full = 0; }
+    else if (d > 0 && pretend_scale >= PRETEND_MOST) pretend_full = 1;
+    else {
+        pretend_scale += d;
+        if (pretend_scale < 1) pretend_scale = 1;
+    }
+    say_window(runtime_window());
+}
+
+/* Return on WINDOW: full screen on and off. */
+void runtime_window_toggle(void) {
+    if (!headless) video_set_full_screen(!video_full_screen());
+    else pretend_full = !pretend_full;
+    say_window(runtime_window());
+}
+
 void runtime_state_slot(int n) {
     if (cart.mapper == MAPPER_NSF || n < 1 || n > 4) return;
     use_slot(n);
@@ -1074,8 +1170,12 @@ static void usage(const char *prog) {
         "  --record-dir D     where V's movies and P's pictures go\n"
         "                     (default ~/Movies/NES RECOMP)\n"
         "  --mute             no sound from the speakers (M toggles it)\n"
+        "  --volume N         the speakers' volume, 1 to 10 (default 10)\n"
+        "  --sound-off        start with the sound off (as M; M or the menu turn it on)\n"
+        "  --speaker-out F    write what the speakers get to F (raw 16-bit, for tests)\n"
         "  --audio-stats      print the sound queue depth once a second\n"
-        "  --remember-size F  on exit, write the window's size (game_scale N) to F\n"
+        "  --remember-size F  on exit, write the window's size and the volume to F\n"
+        "                     (game_scale N, volume N, sound_off 0|1)\n"
         "  --ram-stats        on exit, count the instructions in RAM ($6000-$DFFF)\n"
         "                     that ran translated and interpreted (FDS, FDS NSFs)\n"
         "  --input FILE       scripted button presses (see README.md)\n"
@@ -1162,6 +1262,15 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "--record") && more) record_path = argv[++i];
         else if (!strcmp(a, "--record-dir") && more) record_dir = argv[++i];
         else if (!strcmp(a, "--mute")) mute = 1;
+        else if (!strcmp(a, "--volume") && more) {
+            volume = atoi(argv[++i]);
+            if (volume < 1 || volume > 10) { fprintf(stderr, "--volume: 1 to 10\n"); return 1; }
+        }
+        else if (!strcmp(a, "--sound-off")) sound_off = 1;
+        else if (!strcmp(a, "--speaker-out") && more) {
+            speaker_out = fopen(argv[++i], "wb");
+            if (!speaker_out) { fprintf(stderr, "can't write %s\n", argv[i]); return 1; }
+        }
         else if (!strcmp(a, "--audio-stats")) audio_stats = 1;
         else if (!strcmp(a, "--ram-stats")) ram_stats = 1;
         else if (!strcmp(a, "--state-test") && i + 2 < argc) {
@@ -1276,7 +1385,8 @@ int main(int argc, char **argv) {
         video_init(scale < 1 ? 1 : scale, name);
         if (zapper_plugged()) video_crosshair();
     }
-    start_scale = scale < 1 ? 1 : scale;
+    start_scale = pretend_scale = scale < 1 ? 1 : scale;
+    if (!headless) video_set_muted(sound_off);
     atexit(at_exit);
     /* Ctrl+C and the like end the program at the frame's end, through
        at_exit: the .missed file, a battery save and a recording are
@@ -1289,7 +1399,7 @@ int main(int argc, char **argv) {
     if (wav_path) wav_open(wav_path);
     /* (Muted, or with no window, the sound is made from when a recording
        starts: start_recording.) */
-    sound_on = wav_path || speakers || state_test_on || rewind_test_on || prints_out;
+    sound_on = wav_path || speakers || speaker_out || state_test_on || rewind_test_on || prints_out;
     if (sound_on) apu_enable_sound();
     if (record_path) start_recording(record_path);
     ppu_schedule();

@@ -759,15 +759,25 @@ static int card_is_music;
 static int card_page;                   /* a game's: 0 the controls, 1 save and rewind */
 static char prefs[PATH_MAX];            /* app-prefs.txt in the build folder */
 
-/* The game window's size: whole steps of 256x240, kept between runs. */
-static int game_scale(void) {
-    int scale = 3;
+/* The game window's size (whole steps of 256x240) and the speakers'
+   volume (1-10, and whether the sound is off), kept between runs: the
+   game writes them on exit (--remember-size), one "name value" a line. */
+static struct { int scale, volume, sound_off; } game_prefs;
+
+static void read_game_prefs(void) {
+    game_prefs.scale = 3;
+    game_prefs.volume = 10;
+    game_prefs.sound_off = 0;
     FILE *f = fopen(prefs, "r");
-    if (f) {
-        if (fscanf(f, "game_scale %d", &scale) != 1 || scale < 1 || scale > 16) scale = 3;
-        fclose(f);
+    if (!f) return;
+    char name[32];
+    int v;
+    while (fscanf(f, "%31s %d", name, &v) == 2) {
+        if (!strcmp(name, "game_scale") && v >= 1 && v <= 16) game_prefs.scale = v;
+        else if (!strcmp(name, "volume") && v >= 1 && v <= 10) game_prefs.volume = v;
+        else if (!strcmp(name, "sound_off")) game_prefs.sound_off = v != 0;
     }
-    return scale;
+    fclose(f);
 }
 
 /* ---- the file picker (a click on the TV), on a thread of its own: the
@@ -930,6 +940,14 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--trace-progress")) trace = 1;
         else if (!strcmp(argv[i], "--progress-model")) model = 1;
         else if (!strcmp(argv[i], "--sdl-info")) sdl_info = 1;
+        else if (!strcmp(argv[i], "--game-prefs") && more) {
+            /* For tests: what the next game would be given from a prefs file. */
+            snprintf(prefs, sizeof prefs, "%s", argv[++i]);
+            read_game_prefs();
+            printf("scale %d volume %d sound_off %d\n", game_prefs.scale, game_prefs.volume,
+                   game_prefs.sound_off);
+            return 0;
+        }
         else if (!strcmp(argv[i], "--version")) { puts(APP_VERSION); return 0; }
         else if (!strcmp(argv[i], "--support-url")) { puts(SUPPORT_URL); return 0; }
         else if (!strcmp(argv[i], "--menu-test")) menu_test = 1;
@@ -1210,10 +1228,15 @@ int main(int argc, char **argv) {
         if (screen == S_CARD && n >= card_until) {
             /* Play it, with this window out of the way, at the size the
                last game's window had. */
-            char scale[16];
-            snprintf(scale, sizeof scale, "%d", game_scale());
-            char *args[] = { "--scale", scale, "--remember-size", prefs, NULL, NULL, NULL };
-            if (strcmp(job.files_at, job.rom)) { args[4] = "--files-at"; args[5] = job.files_at; }
+            char scale[16], volume[16];
+            read_game_prefs();
+            snprintf(scale, sizeof scale, "%d", game_prefs.scale);
+            snprintf(volume, sizeof volume, "%d", game_prefs.volume);
+            char *args[10] = { "--scale", scale, "--remember-size", prefs, "--volume", volume };
+            int na = 6;
+            if (game_prefs.sound_off) args[na++] = "--sound-off";
+            if (strcmp(job.files_at, job.rom)) { args[na++] = "--files-at"; args[na++] = job.files_at; }
+            args[na] = NULL;
             snprintf(game_log, sizeof game_log, "%s/%s.game.log", builds, job.name);   /* (no .exe) */
             game = play_start(job.out, job.rom, args, game_log);
             if (game < 0) {

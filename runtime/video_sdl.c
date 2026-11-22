@@ -83,8 +83,7 @@ void video_restart_audio(void) {
 }
 
 void video_queue_audio(const int16_t *samples, int n) {
-    if (!audio) return;
-    if (muted) { SDL_ClearQueuedAudio(audio); return; }
+    if (!audio || muted) return;
     SDL_QueueAudio(audio, samples, (Uint32)n * sizeof *samples);
     int queued = (int)(SDL_GetQueuedAudioSize(audio) / sizeof *samples);
     if (queued > AUDIO_TOO_FULL) {       /* after a stall: catch up at once */
@@ -101,8 +100,12 @@ int video_audio_queued(void) {
     return audio ? (int)(SDL_GetQueuedAudioSize(audio) / 2) : -1;
 }
 
-static void toggle_mute(void) {
-    muted = !muted;
+/* The sound off (main.c: M, or SOUND in the menu): nothing more is
+   queued, what's queued is dropped, and the title says so. */
+void video_set_muted(int on) {
+    muted = on;
+    if (audio && on) SDL_ClearQueuedAudio(audio);
+    if (!window) return;
     char title[300];
     snprintf(title, sizeof title, "%s%s", window_title, muted ? " (muted)" : "");
     SDL_SetWindowTitle(window, title);
@@ -157,15 +160,31 @@ static int current_scale(void) {
     return s < 1 ? 1 : s;
 }
 
-static void resize_step(int d) {
-    if (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN_DESKTOP) return;
-    int s = current_scale() + d;
+/* The biggest whole step that fits on the window's screen. */
+int video_most_scale(void) {
     SDL_DisplayMode m;
     int most = 16;
-    if (SDL_GetDesktopDisplayMode(SDL_GetWindowDisplayIndex(window), &m) == 0) {
+    if (window && SDL_GetDesktopDisplayMode(SDL_GetWindowDisplayIndex(window), &m) == 0) {
         int mx = m.w / NES_WIDTH, my = m.h / NES_HEIGHT;
         most = mx < my ? mx : my;
     }
+    return most < 1 ? 1 : most;
+}
+
+int video_full_screen(void) {
+    return window && (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN_DESKTOP) != 0;
+}
+
+void video_set_full_screen(int on) {
+    if (!window || on == video_full_screen()) return;
+    if (on) window_scale = current_scale();     /* the size to remember */
+    SDL_SetWindowFullscreen(window, on ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
+}
+
+void video_resize_step(int d) {
+    if (!window || video_full_screen()) return;
+    int s = current_scale() + d;
+    int most = video_most_scale();
     if (s < 1) s = 1;
     if (s > most) s = most;
     SDL_SetWindowSize(window, NES_WIDTH * s, NES_HEIGHT * s);
@@ -215,12 +234,9 @@ static void handle_events(void) {
             if (k >= SDLK_1 && k <= SDLK_4) runtime_state_slot(k - SDLK_0);
             else if (k == SDLK_s) runtime_state_key(STATE_SAVE);
             else if (k == SDLK_l) runtime_state_key(STATE_LOAD);
-            else if (k == SDLK_EQUALS || k == SDLK_PLUS || k == SDLK_KP_PLUS) resize_step(1);
-            else if (k == SDLK_MINUS || k == SDLK_KP_MINUS) resize_step(-1);
-            else if (k == SDLK_f) {
-                int full = SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN_DESKTOP;
-                SDL_SetWindowFullscreen(window, full ? 0 : SDL_WINDOW_FULLSCREEN_DESKTOP);
-            }
+            else if (k == SDLK_EQUALS || k == SDLK_PLUS || k == SDLK_KP_PLUS) video_resize_step(1);
+            else if (k == SDLK_MINUS || k == SDLK_KP_MINUS) video_resize_step(-1);
+            else if (k == SDLK_f) video_set_full_screen(!video_full_screen());
             continue;
         }
         /* While the menu is open, the keys are its own. */
@@ -237,7 +253,7 @@ static void handle_events(void) {
             continue;
         }
         if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_m && !e.key.repeat)
-            toggle_mute();
+            runtime_sound_toggle();
         if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_r && !e.key.repeat)
             cpu_request_reset();
         if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_v && !e.key.repeat)

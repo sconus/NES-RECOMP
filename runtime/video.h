@@ -26,6 +26,15 @@ void runtime_state_key(int what);
 void runtime_state_slot(int n);
 /* Empty the sound queue and start again from silence (after a load). */
 void video_restart_audio(void);
+/* The sound off (1) or on (0): nothing queued, and the title says
+   "(muted)". main.c keeps the volume and calls it (M, the menu). */
+void video_set_muted(int on);
+void runtime_sound_toggle(void);
+/* The window's size (the pause menu, Cmd+=, Cmd+-, Cmd+F). */
+int video_most_scale(void);
+int video_full_screen(void);
+void video_set_full_screen(int on);
+void video_resize_step(int d);
 /* The speakers paused (1) or going again (0): the pause menu. */
 void video_pause_audio(int on);
 /* Buttons held now are ignored until let go (the menu closing). */

@@ -237,6 +237,57 @@ controller.
 - Checks: the volume actually scales the samples (a sound check), and is
   remembered. Breaks: the volume not applied, not remembered.
 
+**Where step 3 ended (2026-11-21).** Two lines, not four, so the menu
+stays short (8 lines; the box moved up a little):
+- `SOUND < 10 >`: left / right change the speakers' volume, 10 (as loud
+  as before) down to 1, then OFF; right from OFF is 1. Return turns it
+  off and on at the same volume, as M does (M and the menu are now the
+  same setting, kept in main.c). Each step is 3 dB: the gains are a
+  table of whole numbers, the same on every machine. Only the speakers:
+  a WAV file and a recording keep the game's own sound, and the game's
+  fingerprints don't change. The sound is paused while the menu is open,
+  so a new volume is heard when it closes.
+- `WINDOW < 3X >`: left / right a step smaller or bigger, as Cmd+- and
+  Cmd+=; one step past the biggest that fits the screen is FULL; left
+  from FULL is the window again. Return switches full screen, as Cmd+F.
+- Remembered: `--remember-size` now writes `game_scale N`, `volume N`,
+  `sound_off 0|1` (full screen keeps the last window size). The app
+  reads them back for the next game (`--volume N`, `--sound-off`); an
+  older file with only `game_scale` still works. Full screen itself
+  isn't remembered.
+- New options: `--volume N`, `--sound-off`, and for the tests
+  `--speaker-out F` (what the speakers would get, headless too). Headless,
+  WINDOW works on a pretend window (4X at most) so the tests can see it.
+
+The checks (`tests/check_menu.py`, all pass): pictures with SOUND 7 and
+WINDOW FULL, and with SOUND OFF and WINDOW 2X; on the FDS demo
+(mmc3_split.nes is silent) the speakers' samples are exactly the plain
+run's at 15 dB less from the frame the menu closed (SOUND 5), silent with
+OFF and with ten steps down, and `--volume 5` from the start; the volume
+doesn't change the fingerprints; SOUND 8 / 2X and OFF / FULL are written
+on exit. `tests/check_app.py`: the game writes the volume, the app reads
+it back (`--game-prefs`, a test hook), and reads a 2.0 file.
+
+Breaks, each in a scratch copy:
+
+| broken | FAIL lines |
+| --- | --- |
+| the volume not applied | 2 |
+| the volume not remembered | 2 |
+| steps of 4 dB, not 3 (my first table was wrong: the test's own numbers caught it before any break) | 2 |
+| OFF not silencing the speakers | 2 |
+| SOUND shows a number while off | 2 (after adding the OFF picture: 0 before) |
+| WINDOW shows a size other than the one used | 2 (after adding the 2X picture: 0 before) |
+| the app not reading the volume back | 1 |
+
+The terminal says each change ("frame N: SOUND 7", "SOUND OFF",
+"WINDOW 4X", "WINDOW FULL"). Committed without a live try of SOUND and
+WINDOW (the user's call); a live run opened and closed the menu.
+
+Not checked by a test: the real window's resize and full screen from
+the menu, and the speakers themselves (only `--speaker-out`, which the
+speakers get the same samples as); only in a live window.
+
 ### 4. The app, Windows, the README
 - The app's cards: ESC MENU (and the controller's way) in place of
   ESC QUIT.

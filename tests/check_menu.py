@@ -14,6 +14,11 @@ menu lines ("100 menu down ok", see runtime/main.c).
 - The slot picked in the menu is the file written: slot 2 writes
   .state2, not .state1.
 - Opening and closing happen at the same frame (no game runs meanwhile).
+- SOUND and WINDOW (step 3): their pictures; the volume scales what the
+  speakers get (--speaker-out), by 3 dB a step, and OFF silences it, from
+  the frame the menu closes; --volume does the same from the start; what
+  was picked is written on exit (--remember-size), and the window's
+  steps reach FULL (headless: a pretend window, 4X at most).
 
 How the menu changes nothing over the whole suite is in
 tests/check_states.py.
@@ -72,7 +77,7 @@ def text_pixels(fnt, s, x0, y0):
     return on
 
 
-def expected_box(L, fnt, cursor, slot, info):
+def expected_box(L, fnt, cursor, slot, info, sound="10", window="3X"):
     """The menu's box as menu.c draws it: {(x, y): colour}."""
     want = {}
     x0, y0, w, h = L["MENU_BOX_X"], L["MENU_BOX_Y"], L["MENU_BOX_W"], L["MENU_BOX_H"]
@@ -83,7 +88,8 @@ def expected_box(L, fnt, cursor, slot, info):
     title = "PAUSED"
     for p in text_pixels(fnt, title, 128 - (len(title) * 6 - 1) // 2, L["MENU_TITLE_Y"]):
         want[p] = L["INK_TITLE"]
-    items = ["RESUME", "SAVE STATE", "LOAD STATE", "SLOT  < %d >" % slot, "RESET", "QUIT"]
+    items = ["RESUME", "SAVE STATE", "LOAD STATE", "SLOT  < %d >" % slot, "RESET",
+             "SOUND < %s >" % sound, "WINDOW < %s >" % window, "QUIT"]
     for i, name in enumerate(items):
         y = L["MENU_ITEM_Y"] + i * L["MENU_LINE_H"]
         for p in text_pixels(fnt, name, L["MENU_ITEM_X"], y):
@@ -135,7 +141,7 @@ def build(rom, cflags, libs, rt_objs):
     return exe
 
 
-def run(exe, rom, script_lines, base_script, frames, tag, files):
+def run(exe, rom, script_lines, base_script, frames, tag, files, extra=()):
     """Run headless with the game's script plus `script_lines`; returns
     (stderr, the frames' fingerprints, 32 bytes each)."""
     script = os.path.join(OUT, tag + ".txt")
@@ -146,9 +152,102 @@ def run(exe, rom, script_lines, base_script, frames, tag, files):
     prints = os.path.join(OUT, tag + ".prints")
     r = run_tests.sh([exe, os.path.join(ROOT, rom), "--headless", "--no-save",
                       "--files-at", files, "--frames", str(frames), "--input", script,
-                      "--prints-out", prints], cwd=ROOT, timeout=120)
+                      "--prints-out", prints] + list(extra), cwd=ROOT, timeout=120)
     data = open(prints, "rb").read() if os.path.exists(prints) else b""
     return r.stderr, [data[i:i + 32] for i in range(0, len(data), 32)]
+
+
+SOUND_GAMES = ("fds_demo.fds",)        # mmc3_split.nes is silent
+GAIN = [0] + [round(32768 * 10 ** (-3 * (10 - n) / 20)) for n in range(1, 11)]
+
+
+def samples(path):
+    d = open(path, "rb").read() if os.path.exists(path) else b""
+    return [int.from_bytes(d[i:i + 2], "little", signed=True) for i in range(0, len(d) - 1, 2)]
+
+
+def scaled(xs, level):
+    return [(x * GAIN[level]) >> 15 for x in xs]
+
+
+def split_ok(full, got, level):
+    """got is full up to some sample, then full at `level`: where, or why not."""
+    if len(got) != len(full):
+        return None, "%d samples, not %d" % (len(got), len(full))
+    k = next((i for i, (a, b) in enumerate(zip(full, got)) if a != b), len(full))
+    if k == 0 or k == len(full):
+        return None, "changed at sample %d of %d" % (k, len(full))
+    if got[k:] != scaled(full[k:], level):
+        return None, "after sample %d not the volume asked for" % k
+    return k, ""
+
+
+def sound_and_window(exe, rom, base, name, L, fnt):
+    down5 = "down down down down down"
+    # Pictures: SOUND turned down three steps, WINDOW up two (to FULL).
+    pic = os.path.join(OUT, name + ".sw.raw")
+    run(exe, rom, ["60 menu %s left left left down right right shot=%s back" % (down5, pic)],
+        base, 70, name + ".swpic", os.path.join(OUT, name + ".swpic"))
+    why = picture_ok(pic, expected_box(L, fnt, 6, 1, "EMPTY", "7", "FULL"))
+    check("%s: the menu with SOUND at 7 and WINDOW at FULL" % name, not why, why or "")
+    pic = os.path.join(OUT, name + ".sw2.raw")
+    run(exe, rom, ["60 menu %s ok down left shot=%s back" % (down5, pic)],
+        base, 70, name + ".swpic2", os.path.join(OUT, name + ".swpic2"))
+    why = picture_ok(pic, expected_box(L, fnt, 6, 1, "EMPTY", "OFF", "2X"))
+    check("%s: the menu with SOUND OFF and WINDOW at 2X" % name, not why, why or "")
+
+    # The speakers' sound: plain, then turned down to 5 at frame 40, then off.
+    def speakers(tag, lines, extra=()):
+        out = os.path.join(OUT, name + "." + tag + ".pcm")
+        err, _ = run(exe, rom, lines, base, 120, name + "." + tag,
+                     os.path.join(OUT, name + "." + tag), ["--speaker-out", out] + list(extra))
+        return samples(out), err
+    if name not in SOUND_GAMES:
+        return remembered(exe, rom, base, name, down5)
+    full, _ = speakers("full", [])
+    check("%s: the speakers get sound (or the next checks prove nothing)" % name,
+          len(full) > 48000 and any(full), "%d samples" % len(full))
+    five, err = speakers("five", ["40 menu %s left left left left left back" % down5])
+    k, why = split_ok(full, five, 5)
+    check("%s: SOUND 5 in the menu: the speakers 15 dB quieter from then on" % name, k, why)
+    # From the frame it closed, frame 40's end (798.7 samples a frame;
+    # the first sample that differs can be a little later, as a 0 stays 0).
+    if k:
+        f = k / (48000 / 60.0988)
+        check("%s: ... from about the frame the menu closed (%.1f)" % (name, f), 39 <= f <= 41.5,
+              "from sample %d (frame %.1f)" % (k, f))
+    off, _ = speakers("off", ["40 menu %s ok back" % down5])
+    k, why = split_ok(full, off, 0)
+    check("%s: SOUND OFF in the menu silences the speakers" % name, k, why)
+    to_off, _ = speakers("tooff", ["40 menu %s %s back" % (down5, " ".join(["left"] * 10))])
+    k, why = split_ok(full, to_off, 0)
+    check("%s: ten steps down is OFF" % name, k, why)
+    start, _ = speakers("start5", [], ["--volume", "5"])
+    check("%s: --volume 5 from the start" % name, start == scaled(full, 5),
+          "%d samples, %d differ" % (len(start), sum(a != b for a, b in zip(start, scaled(full, 5)))))
+    # Only the speakers: the game's own sound (the fingerprints) unchanged.
+    _, rows_full = run(exe, rom, [], base, 120, name + ".fp1", os.path.join(OUT, name + ".fp1"))
+    _, rows_five = run(exe, rom, [], base, 120, name + ".fp2", os.path.join(OUT, name + ".fp2"),
+                       ["--volume", "3", "--sound-off"])
+    check("%s: the volume doesn't change the game or its own sound" % name,
+          rows_full == rows_five and len(rows_full) == 120, "the fingerprints differ")
+
+    remembered(exe, rom, base, name, down5)
+
+
+def remembered(exe, rom, base, name, down5):
+    # Remembered: the size and the volume picked in the menu, on exit.
+    prefs = os.path.join(OUT, name + ".prefs.txt")
+    run(exe, rom, ["40 menu %s left left down left back" % down5], base, 60, name + ".rem",
+        os.path.join(OUT, name + ".rem"), ["--remember-size", prefs])
+    said = open(prefs).read() if os.path.exists(prefs) else ""
+    check("%s: SOUND 8 and WINDOW 2X from the menu are remembered" % name,
+          said == "game_scale 2\nvolume 8\nsound_off 0\n", repr(said))
+    run(exe, rom, ["40 menu %s ok down right right back" % down5], base, 60, name + ".rem2",
+        os.path.join(OUT, name + ".rem2"), ["--remember-size", prefs])
+    said = open(prefs).read() if os.path.exists(prefs) else ""
+    check("%s: SOUND OFF, and full screen keeps the last window size" % name,
+          said == "game_scale 4\nvolume 10\nsound_off 1\n", repr(said))
 
 
 def main():
@@ -231,6 +330,7 @@ def main():
               os.path.exists(files + ".state2") and not os.path.exists(files + ".state1"),
               "state1 %s, state2 %s" % (os.path.exists(files + ".state1"),
                                        os.path.exists(files + ".state2")))
+        sound_and_window(exe, rom, base, name, L, fnt)
     print("\nall menu checks pass" if not failures else "\n%d menu check(s) failed" % failures)
     sys.exit(1 if failures else 0)
 

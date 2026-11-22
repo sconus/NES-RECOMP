@@ -817,7 +817,27 @@ def main():
         subprocess.run([exe, spaced, "--headless", "--frames", "10", "--no-save", "--scale", "5",
                         "--remember-size", remember], capture_output=True)
     said = open(remember).read() if os.path.exists(remember) else ""
-    check("the game remembers its window's size", said == "game_scale 5\n", repr(said))
+    check("the game remembers its window's size and the volume",
+          said == "game_scale 5\nvolume 10\nsound_off 0\n", repr(said))
+    # The volume (PLAN-pause.md step 3): written by the game, read back by
+    # the app for the next game.
+    if os.path.exists(exe):
+        subprocess.run([exe, spaced, "--headless", "--frames", "10", "--no-save", "--scale", "2",
+                        "--volume", "4", "--sound-off", "--remember-size", remember],
+                       capture_output=True)
+    said = open(remember).read() if os.path.exists(remember) else ""
+    check("the game remembers a volume and the sound off",
+          said == "game_scale 2\nvolume 4\nsound_off 1\n", repr(said))
+    got = subprocess.run([APP, "--game-prefs", remember], capture_output=True,
+                         text=True).stdout.strip()
+    check("the app gives the next game the size and volume remembered",
+          got == "scale 2 volume 4 sound_off 1", repr(got))
+    old_style = os.path.join(OUT, "prefs-old.txt")
+    open(old_style, "w").write("game_scale 6\n")       # written by 2.0
+    got = subprocess.run([APP, "--game-prefs", old_style], capture_output=True,
+                         text=True).stdout.strip()
+    check("an older prefs file (size only) still works",
+          got == "scale 6 volume 10 sound_off 0", repr(got))
 
     # 9. without Apple's C compiler.
     lower = {                                   # the lowercase letters it draws

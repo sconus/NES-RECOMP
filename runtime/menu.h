@@ -30,6 +30,12 @@ const char *runtime_slot_path(void);        /* the slot's file */
 void runtime_menu_save(void);               /* as Cmd+S */
 void runtime_menu_load(void);               /* as Cmd+L */
 void runtime_menu_reset(void);              /* as R */
+int runtime_sound(void);                    /* 1-10, or 0: off */
+void runtime_sound_step(int d);             /* -1 quieter (to OFF), +1 louder */
+void runtime_sound_toggle(void);            /* as M */
+int runtime_window(void);                   /* the size in steps, or 0: full screen */
+void runtime_window_step(int d);            /* -1 smaller, +1 bigger (to FULL) */
+void runtime_window_toggle(void);           /* as Cmd+F */
 int runtime_headless(void);
 unsigned long long runtime_frame(void);    /* the PPU's frame number */
 /* The menu's picture to the window (it waits for the next 60th of a
