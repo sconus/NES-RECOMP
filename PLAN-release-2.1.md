@@ -124,12 +124,30 @@ Breaks, each in a scratch copy:
   step 1. Anything you find is fixed here, with a check where one can
   be written, and the zips made again.
 
+**Where step 2 ended (2026-11-22).** You tried both zips, the Mac's and
+the Windows one in Boot Camp: both work. Windows runs 60 and 61 (ALL
+KEYS) green; run 62, the release commit's (e4a19cf), still running.
+
 ### 3. Publishing
 - On your go-ahead only: the tag `v2.1` on the release commit, pushed;
   the GitHub release "NES RECOMP 2.1" with both zips and the notes
   (decision 2).
 - After: the README's Releases link already points at the latest; the
   memory notes and `PLAN-release-2.1.md` say where it ended.
+
+**Where step 3 stands (2026-11-22).** Windows run 62, the release
+commit's (e4a19cf), green. On your go-ahead, the tag `v2.1` (annotated,
+"NES RECOMP 2.1") is on e4a19cf and pushed. The GitHub release, with
+both zips and the notes, was to be yours (decision 2); you asked me to
+do it, so I made it through GitHub's API with the sign-in git uses: a
+draft first, both zips uploaded (their sizes checked), then published.
+
+**Where the release ended (2026-11-22).** NES RECOMP 2.1 is published:
+https://github.com/sconus/NES-RECOMP/releases/tag/v2.1, the latest
+release, with `NES-RECOMP-2.1-mac.zip` (2,489,577 bytes) and
+`NES-RECOMP-2.1-windows.zip` (72,867,420 bytes), both downloaded back
+and byte for byte the zips made here, and the notes of
+`build/RELEASE-NOTES-2.1.md`.
 
 ## Not in this plan
 - Notarizing the Mac app (the Apple Developer Program): Open Anyway
