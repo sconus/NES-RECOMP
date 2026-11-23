@@ -74,7 +74,11 @@ def main():
     version = run(prog, "--version").stdout.strip()
     zpath = os.path.join(ROOT, "build", "NES-RECOMP-%s-mac.zip" % version)
     if not os.path.exists(zpath):
-        sys.exit("%s is missing: make release first" % zpath)
+        # A FAIL, not a stop: a zip named for another version is a fault.
+        made = sorted(f for f in os.listdir(os.path.dirname(zpath)) if f.endswith("-mac.zip"))
+        print("FAIL  the zip named for the app's version (%s): there's %s (make release makes it)"
+              % (os.path.basename(zpath), made or "none"))
+        sys.exit(1)
     top = "NES RECOMP %s/" % version
 
     # 1. what's in it.

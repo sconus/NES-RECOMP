@@ -266,7 +266,11 @@ def main():
     version = rel.app_version()
     zip_path = args[0] if args else os.path.join(ROOT, "build", "NES-RECOMP-%s-windows.zip" % version)
     if not os.path.exists(zip_path):
-        sys.exit("no %s: make it first (make release-windows)" % zip_path)
+        # A FAIL, not a stop: a zip named for another version is a fault.
+        made = sorted(f for f in os.listdir(os.path.dirname(zip_path) or ".") if f.endswith("-windows.zip"))
+        print("FAIL  the zip named for the app's version (%s): there's %s (make release-windows makes it)"
+              % (os.path.basename(zip_path), made or "none"))
+        sys.exit(1)
     top = "NES RECOMP %s" % version
     with zipfile.ZipFile(zip_path) as z:
         names = z.namelist()

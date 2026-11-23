@@ -7,7 +7,7 @@
 
 /* The app's version: in the bundle's Info.plist, and in each build's
    record, so a new version builds old games again. */
-#define APP_VERSION "2.0"
+#define APP_VERSION "2.1"
 
 enum { ST_CHECK, ST_RECOMP, ST_GAME, ST_RUNTIME, ST_LINK, ST_COUNT };
 enum { B_RUNNING, B_DONE, B_FAILED };

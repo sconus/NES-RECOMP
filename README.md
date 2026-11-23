@@ -479,7 +479,7 @@ The latest release is on
 [GitHub's Releases page](https://github.com/sconus/NES-RECOMP/releases/latest):
 `NES-RECOMP-<version>-mac.zip` for the Mac, `NES-RECOMP-<version>-windows.zip`
 for Windows. `make release` makes the Mac one here,
-`build/NES-RECOMP-2.0-mac.zip`: the app, a "READ ME FIRST" for whoever
+`build/NES-RECOMP-2.1-mac.zip`: the app, a "READ ME FIRST" for whoever
 gets it, the MIT License and SDL's license. Give that zip to someone,
 or unzip it yourself.
 
@@ -587,7 +587,7 @@ it: you bring your own.
 
     make app-bundle          # builds build/nesrecomp.app
     open build/nesrecomp.app # or double-click it in Finder
-    make release             # build/NES-RECOMP-2.0-mac.zip, to give away
+    make release             # build/NES-RECOMP-2.1-mac.zip, to give away
 
 (`make run-app` opens the same window without the bundle, keeping its
 builds in `build/` here.)
@@ -642,7 +642,7 @@ Building it from this project, on the Mac (Zig builds Windows programs
 here too):
 
     make windows-app         # the app's folder, build/windows/app (no Zig in it)
-    make release-windows     # build/NES-RECOMP-2.0-windows.zip, with Zig
+    make release-windows     # build/NES-RECOMP-2.1-windows.zip, with Zig
     make test-release-windows  # what can be checked of it here
 
 `make release-windows` downloads Zig's official Windows build the first
