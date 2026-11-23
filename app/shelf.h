@@ -30,6 +30,7 @@ struct shelf_game {
     long long played;                   /* seconds since 1970; 0: never (from a stamp) */
     int music;                          /* an NSF: no picture, a note on its box */
     int has_title;                      /* NAME.title was read */
+    int missing;                        /* its ROM isn't where it was (step 5) */
     int colour;                         /* 0 .. SHELF_COLOURS-1 */
     uint32_t thumb[THUMB_W * THUMB_H];  /* 0xRRGGBB */
     uint32_t preview[PREVIEW_W * PREVIEW_H];
@@ -54,6 +55,14 @@ int shelf_save(const struct shelf *s);
 int shelf_played(struct shelf *s, const char *name, const char *rom, long long now);
 /* Read a game's NAME.title again (after it played). */
 void shelf_title(struct shelf *s, int i);
+/* Is each game's ROM still there? (At the start, when the window comes
+   back to the front, after a game.) Says which ones aren't. */
+void shelf_check_roms(struct shelf *s);
+/* Take game i off the shelf, with its built program and what was made
+   with it (NAME, NAME.exe, .c, .o, .listing, .translated, .stamp, .log,
+   .game.log, .title, .history); never its ROM, its .sav, .missed or save
+   states. Saves. */
+void shelf_remove(struct shelf *s, int i);
 /* Its index, or -1. */
 int shelf_find(const struct shelf *s, const char *name);
 /* The colour for a picture (256x240 RGB bytes): an index into

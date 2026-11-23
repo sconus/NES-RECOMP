@@ -562,6 +562,61 @@ own events), and the shelf live in the window: for you to try.
 - Breaks: a missing ROM's box still trying to play; removing deleting
   the save; N removing anyway; a failed build added.
 
+**Where step 5 ended (2026-11-22).**
+- A ROM that isn't where the shelf says (`shelf_check_roms`: at the
+  start, when the window comes back to the front, after each game):
+  its box dimmed to 40%; picked, the TV dims its picture and says "ROM
+  NOT FOUND: DROP IT AGAIN". Enter or a click plays nothing, and the
+  terminal says why ("shelf: NAME's ROM isn't there: drop it again").
+  Dropping the same ROM (the same name) from anywhere builds it (its
+  place changed, so not up to date) and puts it first, with its new
+  place, not dimmed. Its saves stay beside the ROM, as before: they
+  move with it if moved together.
+- Delete or Backspace on a picked game: the TV asks "REMOVE FROM THE
+  SHELF? Y / N" over its dimmed picture. Y removes it from
+  `library.txt` with its built files (the program, `.exe`, `.c`, `.o`,
+  `.listing`, `.translated`, `.stamp`, `.log`, `.game.log`, `.title`,
+  `.history`); its ROM, `.sav`, `.missed` and save states stay. N or
+  Esc keeps it (Esc doesn't quit the app while it asks); other keys,
+  clicks and the mouse do nothing meanwhile; a drop answers no. The
+  pick moves to the next game.
+- A build that fails never touches the shelf (only a finished build
+  does, as in step 4).
+- `--shelf-keys` gained delete, y, n and esc. Pictures sent.
+
+The checks:
+- `--test-shelf`, 5 more: a gone ROM missing and one there not; back
+  again, not missing; removing: 11 built files gone, the ROM, save,
+  notes and states kept (and another game's picture), off
+  `library.txt`.
+- `tests/check_app.py`, 12 more: the dimmed boxes, and one with its ROM
+  not; the TV's message; Enter and a click playing nothing; Delete's
+  question on the TV; Y removing the right files, with an arrow and
+  Enter between doing nothing; N and Esc keeping; Delete with nothing
+  picked; a failed build left off; a moved ROM's box playing nothing
+  (`--box-test`), the same ROM built from its new place first again,
+  not dimmed.
+- The step 4 checks' made-up shelf now has real (tiny) ROM files, so
+  its boxes aren't dimmed.
+
+- `make test-all`: 230 of 231 as before (test28), nestest exact, 240 of
+  240; the same C.
+
+Breaks, each in a scratch copy (`tests/check_app.py`):
+
+| broken | FAIL lines |
+| --- | --- |
+| Enter plays a game whose ROM is gone | 1 |
+| a gone ROM's box not dimmed | 1 |
+| removing deletes the save too | 2 |
+| N removes as well | 1 |
+| a failed `--build` put on the shelf | 2 |
+
+Not checked by a test: the window's own keys (headless has no
+keyboard): that Esc while it asks keeps the game and doesn't quit, and
+that clicks wait meanwhile; and the window coming back to the front
+noticing a ROM moved meanwhile. For you to try live.
+
 ### 6. Windows, the README, the READ ME FIRSTs
 - `check_titles.py` and the shelf's checks join the Windows run (paths
   with backslashes, `NAME.exe`); a picture of the shelf as Windows draws
@@ -583,6 +638,13 @@ table, as in `PLAN-controllers.md`.
 - Retaking a game's picture by hand, box art you supply, sorting and
   searching, more than one shelf.
 - A 2.1 release: your call, as before, after a green Windows run.
+- **Later, your idea (2026-11-22): a KEYS page,** so the keys can be
+  seen again after the cards flash by. Recommended: a KEYS line in the
+  pause menu (between CONTROLLERS and QUIT) opening a page with every
+  key (the two cards' lines, V record, P picture, R reset, M mute) and
+  the pad buttons; maybe also K on the app's drop screen to show the
+  cards again. One list of keys for the cards, the page and the
+  README, so they can't drift apart. To be planned as its own step.
 
 ## Risks
 - **The room needs the picture to be made again.**

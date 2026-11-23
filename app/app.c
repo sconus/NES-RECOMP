@@ -237,6 +237,7 @@ static struct shelf shelf;
 static int shelf_page;                  /* the page shown, from 0 */
 static int shelf_pick = -1;             /* the game picked (arrows, mouse), or -1 */
 static int shelf_pick_shown = -1;       /* ...as drawn: only on the drop screen */
+static int shelf_confirm = -1;          /* asking "REMOVE FROM SHELF? Y / N" for this game */
 #define SHELF_PAGE (ART_SLOTS_ROW * ART_SLOT_ROWS)  /* 32 */
 #define SHELF_PAGE_Y 340                /* the page line, on the shelf's bottom board */
 #define SHELF_PAGE_CX 320
@@ -300,6 +301,11 @@ static void draw_box(int i, int x, int y, int picked) {
         for (int xx = 0; xx < 4; xx++)
             if (!((yy == 0 || yy == 3) && (xx == 0 || xx == 3)))
                 dot(x + 21 + xx, y + 39 + yy, rgb(0xE8, 0xD8, 0xA0));
+    if (g->missing)                                     /* its ROM gone: dimmed */
+        for (int yy = 0; yy < ART_SLOT_H; yy++)
+            for (int xx = 0; xx < ART_SLOT_W; xx++)
+                if (x + xx >= 0 && x + xx < ART_W && y + yy >= 0 && y + yy < ART_H)
+                    canvas[y + yy][x + xx] = shade(canvas[y + yy][x + xx] & 0xFFFFFF, 0.4);
     if (picked) {
         uint32_t o = rgb(0xFF, 0xF4, 0xD8);
         for (int xx = -1; xx <= ART_SLOT_W; xx++) { dot(x + xx, y - 1, o); dot(x + xx, y + ART_SLOT_H, o); }
@@ -400,7 +406,17 @@ static void draw_preview(int i) {
                        : (y % 2 ? rgb(0x1C, 0x1B, 0x24) : rgb(0x23, 0x22, 0x2C));
             dot(x0 + x, y0 + y, v);
         }
-    if (g->music) draw_note(SCREEN_CX - 10, y0 + 22, 3, rgb(0xE8, 0xE0, 0xF0));
+    if (g->missing || shelf_confirm == i) {            /* dimmed, with a message over it */
+        for (int y = 0; y < PREVIEW_H; y++)
+            for (int x = 0; x < PREVIEW_W; x++)
+                canvas[y0 + y][x0 + x] = shade(canvas[y0 + y][x0 + x] & 0xFFFFFF, 0.35);
+        const char *const *say = shelf_confirm == i
+            ? (const char *const[]){ "REMOVE FROM", "THE SHELF?", "", "Y / N" }
+            : (const char *const[]){ "ROM NOT FOUND:", "DROP IT", "AGAIN", "" };
+        for (int k = 0; k < 4; k++)
+            if (say[k][0]) text(say[k], SCREEN_CX, y0 + 14 + k * 12, 1, k == 3 ? ink(INK_NEON) : ink(INK_TEXT), 1);
+    }
+    else if (g->music) draw_note(SCREEN_CX - 10, y0 + 22, 3, rgb(0xE8, 0xE0, 0xF0));
     else if (!g->has_title) {
         text("NO PICTURE", SCREEN_CX, y0 + 26, 1, ink(INK_MANE_HI), 1);
         text("YET", SCREEN_CX, y0 + 38, 1, ink(INK_MANE_HI), 1);
@@ -748,7 +764,7 @@ static int on_tv(int x, int y, int w, int h) {
 }
 
 /* ---- picking on the shelf ---- */
-enum { SK_LEFT, SK_RIGHT, SK_UP, SK_DOWN, SK_PGUP, SK_PGDN, SK_ENTER };
+enum { SK_LEFT, SK_RIGHT, SK_UP, SK_DOWN, SK_PGUP, SK_PGDN, SK_ENTER, SK_DELETE, SK_YES, SK_NO };
 
 static void shelf_say(void) {
     printf("shelf: page %d of %d", shelf_page + 1, shelf_pages());
@@ -772,9 +788,35 @@ static void shelf_flip(int by) {
    page's first box; past a row's end, the next or last page), flip the
    page, or play. Returns the game to play, or -1. */
 static int shelf_key(int k) {
-    if (!shelf.count) return -1;
+    if (shelf_confirm >= 0) {               /* "REMOVE FROM SHELF? Y / N": only Y, N or Esc */
+        if (k == SK_YES) {
+            shelf_remove(&shelf, shelf_confirm);
+            shelf_pick = shelf_confirm < shelf.count ? shelf_confirm : shelf.count - 1;
+            shelf_page = shelf_pick >= 0 ? shelf_pick / SHELF_PAGE : 0;
+            shelf_confirm = -1;
+            shelf_say();
+        } else if (k == SK_NO) {
+            printf("shelf: %s kept\n", shelf.games[shelf_confirm].name);
+            shelf_confirm = -1;
+        }
+        return -1;
+    }
+    if (!shelf.count || k == SK_YES || k == SK_NO) return -1;
+    if (k == SK_DELETE) {
+        if (shelf_pick >= 0 && shelf_pick < shelf.count) {
+            shelf_confirm = shelf_pick;
+            printf("shelf: remove %s? (Y / N)\n", shelf.games[shelf_pick].name);
+        }
+        return -1;
+    }
     if (k == SK_PGUP || k == SK_PGDN) { shelf_flip(k == SK_PGUP ? -1 : 1); return -1; }
-    if (k == SK_ENTER) return shelf_pick;
+    if (k == SK_ENTER) {
+        if (shelf_pick >= 0 && shelf.games[shelf_pick].missing) {
+            printf("shelf: %s's ROM isn't there: drop it again\n", shelf.games[shelf_pick].name);
+            return -1;
+        }
+        return shelf_pick;
+    }
     if (shelf_pick < 0 || shelf_pick / SHELF_PAGE != shelf_page) {
         shelf_pick = shelf_page * SHELF_PAGE;
         shelf_say();
@@ -829,8 +871,9 @@ static int shelf_at_window(int x, int y, int w, int h) {
 
 /* A key's name (--shelf-keys) or SDL key as SK_*, or -1. */
 static int shelf_key_named(const char *k) {
-    static const char *const names[] = { "left", "right", "up", "down", "pgup", "pgdn", "enter" };
-    for (int i = 0; i < 7; i++) if (!strcmp(k, names[i])) return i;
+    static const char *const names[] = { "left", "right", "up", "down", "pgup", "pgdn", "enter", "delete", "y", "n" };
+    for (int i = 0; i < 10; i++) if (!strcmp(k, names[i])) return i;
+    if (!strcmp(k, "esc")) return SK_NO;
     return -1;
 }
 static int shelf_key_sdl(SDL_Keycode k) {
@@ -842,6 +885,9 @@ static int shelf_key_sdl(SDL_Keycode k) {
     case SDLK_PAGEUP: return SK_PGUP;
     case SDLK_PAGEDOWN: return SK_PGDN;
     case SDLK_RETURN: case SDLK_KP_ENTER: return SK_ENTER;
+    case SDLK_DELETE: case SDLK_BACKSPACE: return SK_DELETE;
+    case SDLK_y: return SK_YES;
+    case SDLK_n: return SK_NO;
     default: return -1;
     }
 }
@@ -1204,6 +1250,7 @@ static int install_tools(int wait) {
 /* A file arrived (dropped, or on the command line). */
 static void take(const char *path) {
     if (screen == S_BUILD || screen == S_PLAY || screen == S_CARD) return;  /* busy */
+    shelf_confirm = -1;                     /* a drop answers "no" to removing */
     char why[128];
     screen_name(path, shown_name, sizeof shown_name);
     if (!build_check_file(path, why, sizeof why)) {
@@ -1218,6 +1265,11 @@ static void take(const char *path) {
 /* Play game i from the shelf: the same way as a drop (the build is up
    to date unless the app or the runtime changed). */
 static void play_box(int i) {
+    if (shelf.games[i].missing) {
+        printf("shelf: %s's ROM isn't there: drop it again\n", shelf.games[i].name);
+        fflush(stdout);
+        return;
+    }
     printf("shelf: play %s\n", shelf.games[i].name);
     fflush(stdout);
     take(shelf.games[i].rom);
@@ -1375,6 +1427,7 @@ int main(int argc, char **argv) {
         if (s < 0) usage(argv[0]);
         if (s == S_DROP) {                  /* the shelf first (with --library) */
             int at = shelf_at_window(cx, cy, cw, ch);
+            if (at >= 0 && shelf.games[at].missing) { printf("click: ROM not found, %s\n", shelf.games[at].name); return 0; }
             if (at >= 0) { printf("click: play %s\n", shelf.games[at].name); return 0; }
             if (at == SHELF_BACK || at == SHELF_ON) {
                 printf("click: page %s\n", at == SHELF_BACK ? "back" : "on");
@@ -1449,6 +1502,10 @@ int main(int argc, char **argv) {
         shelf_load(&shelf, builds);
         int at = shelf_at_window(bx, by, bw, bh);
         if (at < 0) { printf("click: no box there\n"); return 1; }
+        if (shelf.games[at].missing) {
+            printf("shelf: %s's ROM isn't there: drop it again\n", shelf.games[at].name);
+            return 1;
+        }
         printf("shelf: play %s\n", shelf.games[at].name);
         job.verbose = 1;
         if (build_run(&job, shelf.games[at].rom)) {
@@ -1566,6 +1623,18 @@ int main(int argc, char **argv) {
                 if (e.type == SDL_DROPFILE) SDL_free(e.drop.file);
                 continue;
             }
+            if (screen == S_DROP && shelf_confirm >= 0 && e.type == SDL_KEYDOWN) {
+                /* "REMOVE FROM SHELF? Y / N": Y, N, or Esc (no, not quit) */
+                SDL_Keycode k = e.key.keysym.sym;
+                if (k == SDLK_y) shelf_key(SK_YES);
+                else if (k == SDLK_n || k == SDLK_ESCAPE) shelf_key(SK_NO);
+                continue;
+            }
+            if (screen == S_DROP && shelf_confirm >= 0 &&
+                (e.type == SDL_MOUSEBUTTONDOWN || e.type == SDL_MOUSEMOTION))
+                continue;                           /* the question first */
+            if (e.type == SDL_WINDOWEVENT && e.window.event == SDL_WINDOWEVENT_FOCUS_GAINED)
+                shelf_check_roms(&shelf);           /* a ROM moved meanwhile? */
             if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_ESCAPE) goto done;
             /* The shelf, on the drop screen: arrows pick, Page Up and Down
                flip, Enter plays; the mouse picks the box it's over. */
@@ -1691,6 +1760,7 @@ int main(int argc, char **argv) {
             int added = add_run(&job, game_log, NULL) == 0;
             int si = shelf_find(&shelf, job.name);      /* its title picture, if it took one */
             if (si >= 0) shelf_title(&shelf, si);
+            shelf_check_roms(&shelf);
             if (r > 0) {
                 if (added) { load_last_history(); screen = S_HOOD; }
                 else screen = S_DROP;

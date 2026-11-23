@@ -113,6 +113,29 @@ void shelf_title(struct shelf *s, int i) {
     g->has_title = 1;
 }
 
+void shelf_check_roms(struct shelf *s) {
+    for (int i = 0; i < s->count; i++) {
+        int gone = !os_exists(s->games[i].rom);
+        if (gone && !s->games[i].missing) printf("shelf: %s's ROM isn't there (%s)\n", s->games[i].name, s->games[i].rom);
+        s->games[i].missing = gone;
+    }
+}
+
+void shelf_remove(struct shelf *s, int i) {
+    if (i < 0 || i >= s->count) return;
+    static const char *const made[] = { "", ".exe", ".c", ".o", ".listing", ".translated", ".stamp", ".log",
+                                        ".game.log", ".title", ".history" };
+    char path[PATH_MAX + 300];
+    for (size_t k = 0; k < sizeof made / sizeof *made; k++) {
+        snprintf(path, sizeof path, "%s/%s%s", s->dir, s->games[i].name, made[k]);
+        if (os_exists(path)) os_remove(path);
+    }
+    printf("shelf: %s removed (its ROM, saves and save states kept)\n", s->games[i].name);
+    memmove(&s->games[i], &s->games[i + 1], (size_t)(s->count - i - 1) * sizeof s->games[0]);
+    s->count--;
+    shelf_save(s);
+}
+
 int shelf_find(const struct shelf *s, const char *name) {
     for (int i = 0; i < s->count; i++)
         if (!strcmp(s->games[i].name, name)) return i;
@@ -178,6 +201,7 @@ void shelf_load(struct shelf *s, const char *dir) {
         for (int i = 0; i < s->count; i++) shelf_title(s, i);
         printf("shelf: no library.txt yet: %d game(s) already built put on it\n", s->count);
         if (s->count) shelf_save(s);
+        shelf_check_roms(s);
         return;
     }
     char line[PATH_MAX + 400];
@@ -212,6 +236,7 @@ void shelf_load(struct shelf *s, const char *dir) {
     }
     for (int i = 0; i < s->count; i++) shelf_title(s, i);
     printf("shelf: %d game(s)\n", s->count);
+    shelf_check_roms(s);
 }
 
 int shelf_save(const struct shelf *s) {
@@ -242,6 +267,7 @@ int shelf_played(struct shelf *s, const char *name, const char *rom, long long n
     }
     snprintf(g.rom, sizeof g.rom, "%s", rom);
     g.played = now;
+    g.missing = !os_exists(rom);
     s->games[0] = g;
     shelf_title(s, 0);
     shelf_save(s);
@@ -356,6 +382,55 @@ int shelf_test(const char *dir) {
     write_file(path, "NESM\x1a and the rest");
     shelf_played(&t, "tune", path, 4000);
     CHECK("a music file: marked as music", t.games[0].music && !t.games[0].has_title);
+    /* 9. A ROM that isn't there any more: marked missing; there: not. */
+    static struct shelf u;
+    snprintf(path, sizeof path, "%s/here.nes", dir);
+    write_file(path, "NES\x1a");
+    snprintf(text, sizeof text, "version 1\nhere\t2\t%s\ngone\t1\t%s/gone.nes\n", path, dir);
+    snprintf(path, sizeof path, "%s/library.txt", dir);
+    write_file(path, text);
+    snprintf(path, sizeof path, "%s/gone.nes", dir);
+    os_remove(path);
+    shelf_load(&u, dir);
+    CHECK("a ROM that's gone: missing; one that's there: not",
+          u.count == 2 && !u.games[0].missing && u.games[1].missing);
+    write_file(path, "NES\x1a");                              /* back */
+    shelf_check_roms(&u);
+    CHECK("the ROM back where it was: not missing any more", !u.games[1].missing);
+    /* 10. Removing: the built program and what was made with it go; the
+       ROM, its save, its notes and its save states stay. */
+    static const char *const made[] = { "gone", "gone.exe", "gone.c", "gone.o", "gone.listing",
+                                        "gone.translated", "gone.stamp", "gone.log", "gone.game.log",
+                                        "gone.title", "gone.history" };
+    static const char *const kept[] = { "gone.nes", "gone.sav", "gone.missed", "gone.state1", "gone.state4",
+                                        "here.title" };
+    for (size_t k = 0; k < sizeof made / sizeof *made; k++) {
+        snprintf(path, sizeof path, "%s/%s", dir, made[k]);
+        write_file(path, "x");
+    }
+    for (size_t k = 0; k < sizeof kept / sizeof *kept; k++) {
+        snprintf(path, sizeof path, "%s/%s", dir, kept[k]);
+        write_file(path, "x");
+    }
+    shelf_remove(&u, 1);
+    int gone = 0, stayed = 0;
+    for (size_t k = 0; k < sizeof made / sizeof *made; k++) {
+        snprintf(path, sizeof path, "%s/%s", dir, made[k]);
+        gone += !os_exists(path);
+    }
+    for (size_t k = 0; k < sizeof kept / sizeof *kept; k++) {
+        snprintf(path, sizeof path, "%s/%s", dir, kept[k]);
+        stayed += os_exists(path);
+    }
+    CHECK("removed: its 11 built files gone", gone == (int)(sizeof made / sizeof *made));
+    CHECK("removed: its ROM, save, notes and save states kept (and the other game's picture)",
+          stayed == (int)(sizeof kept / sizeof *kept));
+    shelf_load(&t, dir);
+    CHECK("removed: off library.txt, the other game still there", t.count == 1 && !strcmp(t.games[0].name, "here"));
+    for (size_t k = 0; k < sizeof kept / sizeof *kept; k++) {
+        snprintf(path, sizeof path, "%s/%s", dir, kept[k]);
+        os_remove(path);
+    }
     /* 8. Bad files: an empty shelf, not a crash. */
     const char *bad[] = {
         "", "version 2\nalpha\t1\t/a.nes\n", "alpha\t1\t/a.nes\n", "version 1\nalpha 1 /a.nes\n",

@@ -365,7 +365,9 @@ def shelf_checks(check, build, stages_of, spaced):
     titles, lines = {}, ["version 1"]
     for i in range(40):
         name = "game_%02d" % (i + 1)
-        rom = "/nowhere/%s.%s" % (name, "nsf" if i == 5 else "nes")
+        rom = os.path.join(lib, "%s.%s" % (name, "nsf" if i == 5 else "nes"))
+        with open(rom, "wb") as f:                          # (there: none of its boxes dimmed)
+            f.write(b"NESM\x1a" if i == 5 else b"NES\x1a")
         lines.append("%s\t%d\t%s" % (name, 1000 - i, rom))
         if i in (5, 7):
             continue
@@ -527,6 +529,106 @@ def shelf_checks(check, build, stages_of, spaced):
     win = [img6[y + 4 + yy][x + 5 + xx] for yy in range(THUMB[1]) for xx in range(THUMB[0])] if img6 else []
     check("and its box shows that picture",
           bool(pic) and all(near(a, b) for a, b in zip(win, shelf_shrink(pic, *THUMB))), "it doesn't")
+
+    # ---- step 5: missing ROMs, removing, failed builds ----
+    def dim(c):
+        return tuple(int(v * 0.4) for v in rgb_of(c))
+    # A copy of the made-up shelf whose ROMs are all gone but game_01's.
+    lib5 = os.path.join(OUT, "shelf_lib5")
+    shutil.rmtree(lib5, ignore_errors=True)
+    shutil.copytree(lib, lib5)
+    l5 = ["version 1"]
+    for ln in lines[1:]:
+        n_, t_, _ = ln.split("\t")
+        l5.append("\t".join([n_, t_, os.path.join(lib5, "game_01.nes") if n_ == "game_01" else "/nowhere/%s.nes" % n_]))
+    open(os.path.join(lib5, "library.txt"), "w").write("\n".join(l5) + "\n")
+    img7, out7 = shot_lib("shelf_missing", "right right", folder=lib5)
+    x1, y1 = place(0)
+    x2, y2 = place(1)
+    x3, y3 = place(2)
+    c1, c2, c3 = (shelf_colour_of(titles[k]) for k in (0, 1, 2))
+    check("a ROM that's gone: its box dimmed; one that's there: as before",
+          img7[y1 + 30][x1 + 10] == rgb_of(SHELF_COLOURS[c1]) and img7[y3 + 30][x3 + 10] == dim(SHELF_COLOURS[c3])
+          and img7[y2 - 2 + 30][x2 + 10] == dim(SHELF_COLOURS[c2]) and img7[y2 - 3][x2 + 10] == outline,
+          "%s %s %s" % (img7[y1 + 30][x1 + 10], img7[y3 + 30][x3 + 10], img7[y2 + 28][x2 + 10]))
+    said = glyph_pixels(font, "ROM NOT FOUND:", cx, sy + 14) | glyph_pixels(font, "DROP IT", cx, sy + 26) | \
+        glyph_pixels(font, "AGAIN", cx, sy + 38)
+    check("picked, the TV says ROM NOT FOUND: DROP IT AGAIN (over its picture, dimmed)",
+          all(img7[y_][x_] == pal[defs["INK_TEXT"]] for x_, y_ in said) and "game_02's ROM isn't there" in out7,
+          out7[-200:])
+    _, o = shot_lib("shelf_missing_enter", "right right enter", folder=lib5)
+    check("Enter on it: nothing played, the terminal says why",
+          "shelf: game_02's ROM isn't there: drop it again" in o and "shelf: play" not in o, o[-200:])
+    bx, by = place(1)
+    got = click(2 * (bx + 15), 2 * (by + 20), lib5)
+    check("a click on it: nothing played", got == ["click: ROM not found, game_02"], "%s" % got)
+
+    # Removing: Delete asks, Y removes (the built files, not the ROM, its
+    # save or states), N or Esc keeps; arrows and Enter do nothing meanwhile.
+    def removal(keys):
+        d = os.path.join(OUT, "shelf_lib_rm")
+        shutil.rmtree(d, ignore_errors=True)
+        shutil.copytree(lib5, d)
+        txt = open(os.path.join(d, "library.txt")).read().replace(os.path.join(lib5, "game_01.nes"),
+                                                                   os.path.join(d, "game_01.nes"))
+        open(os.path.join(d, "library.txt"), "w").write(txt)
+        for f in ("game_01", "game_01.c", "game_01.stamp", "game_01.log", "game_01.sav", "game_01.missed",
+                  "game_01.state2"):
+            open(os.path.join(d, f), "w").write("x")
+        img_, o_ = shot_lib("shelf_rm", keys, folder=d)
+        left = sorted(f for f in os.listdir(d) if f.startswith("game_01"))
+        names = [l.split("\t")[0] for l in open(os.path.join(d, "library.txt")).read().splitlines()[1:]]
+        return img_, o_, left, names
+    img8, o8, _, names8 = removal("right delete")
+    asked = glyph_pixels(font, "REMOVE FROM", cx, sy + 14) | glyph_pixels(font, "THE SHELF?", cx, sy + 26)
+    yn = glyph_pixels(font, "Y / N", cx, sy + 50)
+    check("Delete on a picked game: the TV asks REMOVE FROM THE SHELF? Y / N, nothing removed yet",
+          all(img8[y_][x_] == pal[defs["INK_TEXT"]] for x_, y_ in asked)
+          and all(img8[y_][x_] == pal[defs["INK_NEON"]] for x_, y_ in yn)
+          and "shelf: remove game_01? (Y / N)" in o8 and names8[0] == "game_01", o8[-200:])
+    _, o9, left9, names9 = removal("right delete right enter y")
+    check("Y: removed (off the shelf, its built files gone), its ROM, save, notes and state kept; "
+          "the arrow and Enter in between did nothing",
+          "game_01" not in names9 and len(names9) == 39 and "shelf: play" not in o9
+          and left9 == ["game_01.missed", "game_01.nes", "game_01.sav", "game_01.state2"],
+          "%s, %s" % (left9, names9[:2]))
+    kept = [removal("right delete " + k)[3][0] for k in ("n", "esc")]
+    check("N or Esc: kept", kept == ["game_01", "game_01"], "%s" % kept)
+    _, o10, _, names10 = removal("delete")
+    check("Delete with nothing picked: nothing asked", "remove" not in o10 and len(names10) == 40, o10[-200:])
+
+    # A failed build doesn't go on the shelf.
+    junk = os.path.join(OUT, "roms", "not a rom.nes")
+    open(junk, "wb").write(b"hello, not a game")
+    before_ = open(os.path.join(sb, "library.txt")).read()
+    cj, oj = build(junk, sb, trace=False)
+    check("a build that fails doesn't go on the shelf",
+          cj != 0 and open(os.path.join(sb, "library.txt")).read() == before_, oj[-200:])
+
+    # A ROM moved: its box missing, a click plays nothing; the same file
+    # dropped (built) from its new place brings it back, first.
+    moved_dir = os.path.join(OUT, "roms_moved")
+    shutil.rmtree(moved_dir, ignore_errors=True)
+    os.makedirs(moved_dir)
+    moved = os.path.join(moved_dir, os.path.basename(spaced))
+    shutil.move(spaced, moved)
+    names_ = [l.split("\t")[0] for l in open(os.path.join(sb, "library.txt")).read().splitlines()[1:]]
+    x, y = place(names_.index("my_game__test_"))
+    rm_ = AppRun([APP, "--box-test", "1280x720", str(2 * (x + 15)), str(2 * (y + 20)), "--build-dir", sb,
+                  "--play-args", "--headless --no-save --frames 60"])
+    check("a moved ROM: a click on its box builds and plays nothing, and says why",
+          rm_.returncode != 0 and "my_game__test_'s ROM isn't there" in rm_.stdout and not stages_of(rm_.stdout),
+          rm_.stdout[-200:])
+    cm, om = build(moved, sb, trace=False)
+    lines_ = open(os.path.join(sb, "library.txt")).read().splitlines()[1:]
+    first = lines_[0].split("\t") if lines_ else ["", "", ""]
+    check("the same ROM dropped from its new place: back on the shelf, first, with its new place",
+          cm == 0 and first[0] == "my_game__test_" and first[2] == moved and len(lines_) == 2, "%s" % lines_)
+    img11, _ = shot_lib("shelf_back", folder=sb)
+    x, y = place(0)
+    check("...and its box not dimmed", img11[y + 30][x + 10] in [rgb_of(c) for c in SHELF_COLOURS],
+          "%s" % (img11[y + 30][x + 10],))
+    shutil.move(moved, spaced)
 
 
 def own_compiler(check, build, stages_of, rom):
