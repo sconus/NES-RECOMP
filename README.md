@@ -181,6 +181,9 @@ KEYBOARD 2 change them (below).
 | P | Save a picture of the screen |
 | Escape | The pause menu (below) |
 
+The pause menu's ALL KEYS page lists every key and button the game
+answers to, as they are now (below).
+
 **Save states, rewind and fast-forward.** (Ctrl in place of Cmd on
 Windows.)
 
@@ -229,6 +232,8 @@ it:
         RESET
         SOUND < 10 >
         WINDOW < 3X >
+        CONTROLLERS
+        ALL KEYS
         QUIT
 
 - Up and down move; Return (or Space, or X) chooses; Esc (or Z) goes
@@ -242,6 +247,16 @@ it:
 - WINDOW: the window's size in whole steps, as Cmd+= and Cmd+-; one
   step past the biggest that fits is FULL screen. Return switches full
   screen, as Cmd+F.
+- CONTROLLERS: a button test, the keys and pad buttons, and pairing
+  help (below).
+- ALL KEYS (`PLAN-keys.md`): every key and button, on two pages (Left
+  and Right flip; Esc goes back). THE GAME: keyboard players 1 and 2
+  and the pads, as they are now, so a key you moved shows where it is;
+  Select+Start or Home for the menu, LB and RB to rewind and
+  fast-forward. THE WINDOW: Esc, M, R, V, P, Cmd+S and Cmd+L, Cmd+1 to
+  Cmd+4, Backspace (Delete on a Mac) to rewind, the key left of 1 to
+  fast-forward, Cmd+= and Cmd+- and Cmd+F for the window, and 1-9 and 0
+  for a disk's side. On Windows it says Ctrl for Cmd.
 - QUIT ends the game (as closing the window does, which still quits at
   once, and Cmd+Q on a Mac).
 - While it's open, the game is stopped exactly where it was: no game
@@ -495,9 +510,10 @@ it: you bring your own.
   real stages: checking the file, recompiling, compiling the game,
   building the runtime (once; reused after), linking.
 - **Then the keys** show for a couple of seconds (any key skips them),
-  then saving and rewinding, and where the keys and pad buttons are
-  changed (the pause menu's CONTROLLERS page, "MENU: KEYS+PADS");
-  and the game opens in its own window while the app steps aside. Quit
+  then saving, rewinding and P for a picture; "ESC MENU+KEYS" says the
+  pause menu has the rest (its ALL KEYS page). **K** on the drop screen
+  shows the two cards again, without starting a game. Then the game
+  opens in its own window while the app steps aside. Quit
   the game and the app comes back. In the game, V records a movie and P
   saves a picture (see "Recording" above).
 - **A ROM already built,** with nothing changed since, starts at once.
@@ -929,6 +945,7 @@ and the newer NSF2 and NSFe formats.
     make test-states  # save states, rewind, fast-forward (tests/check_states.py)
     make test-menu    # the pause menu (tests/check_menu.py)
     make test-titles  # the game's title screen, for the shelf (tests/check_titles.py)
+    make test-keys    # the keys the same on the ALL KEYS page, README, cards
     make test-all   # all of these, and the app's checks
 
 `make test` also runs `--test-gamepads`, which plugs in virtual game
@@ -990,8 +1007,14 @@ and playing from a box (`--box-test`): up to date, first after, with its
 title screen. `python3 tests/shelf_pictures.py` saves pictures of the
 shelf to look at (in `build/shelf-pictures`); the Windows run keeps
 them as a download too ("shelf-windows").
+`make test-menu` also checks the ALL KEYS page: both pages pixel by
+pixel, for the Mac's and Windows' key names, with moved keys, and the
+game's frames unchanged. `make test-keys` (`tests/check_keys.py`) checks
+that the window's own keys, as `runtime/video_sdl.c` answers them, are
+exactly the ALL KEYS page's, and that the README and the app's cards
+name them too, so a key added later can't be left out of one.
 `python3 tests/menu_pictures.py` saves pictures of every CONTROLLERS
-page (in `build/menu-pictures`) to look at; the Windows run does the
+page and both ALL KEYS pages (in `build/menu-pictures`) to look at; the Windows run does the
 same on Windows and keeps them as a download on the run's page
 ("controllers-pages-windows"), so Windows' pairing help can be seen as
 Windows draws it.
@@ -1197,12 +1220,12 @@ or display-only `read_joy3` tests are left out of the suite, and so is
 `PLAN-render.md`, `PLAN-mappers2.md`, `PLAN-expansion.md`,
 `PLAN-input.md`, `PLAN-nsf.md`, `PLAN-paddle.md`, `PLAN-zapper.md`,
 `PLAN-nes2.md`, `PLAN-split.md`, `PLAN-fds.md`, `PLAN-gui.md`,
-`PLAN-standalone.md`, `PLAN-mappers3.md` and `PLAN-library.md` have the
+`PLAN-standalone.md`, `PLAN-mappers3.md`, `PLAN-library.md` and `PLAN-keys.md` have the
 step-by-step notes for each stage (graphics, mappers, sound, per-cycle
 timing, rendering, more mappers, expansion sound, controllers, NSF
 music, the paddle, the Zapper and four players, NES 2.0 headers, MMC5's
 split, the Famicom Disk System, the app, the standalone app, the
-mappers of v2, the library), including how each timing value was tuned, what
+mappers of v2, the library, the ALL KEYS page), including how each timing value was tuned, what
 was tried for what still fails, and where the documentation left a
 choice to make.
 

@@ -670,7 +670,7 @@ static void draw_about(long n) {
 static const char *const card_game[][2] = {
     { "ARROWS", "D-PAD" }, { "X", "A BUTTON" }, { "Z", "B BUTTON" },
     { "RETURN", "START" }, { "R.SHIFT", "SELECT" }, { "M", "MUTE" },
-    { "R", "RESET" }, { "V", "RECORD" }, { "ESC", "MENU" }, { NULL, NULL },
+    { "R", "RESET" }, { "V", "RECORD" }, { "ESC", "MENU+KEYS" }, { NULL, NULL },
 };
 /* The second card, after a game's controls (PLAN-savestates.md step 5):
    save states, rewind, fast-forward. The keys as each keyboard names
@@ -688,7 +688,7 @@ static const char *const card_states[][2] = {
     { "DELETE", "REWIND" },
 #endif
     { "` KEY", "FAST X4" }, { "PAD LB", "REWIND" }, { "PAD RB", "FAST X4" },
-    { "SEL+ST", "MENU" }, { "MENU", "KEYS+PADS" }, { NULL, NULL },
+    { "SEL+ST", "MENU" }, { "P", "PICTURE" }, { NULL, NULL },
 };
 static const char *const card_music[][2] = {
     { "LEFT", "LAST SONG" }, { "RIGHT", "NEXT SONG" }, { "R", "RESTART" },
@@ -1079,6 +1079,29 @@ static int open_code(void) {
 static long card_until;
 static int card_is_music;
 static int card_page;                   /* a game's: 0 the controls, 1 save and rewind */
+static int card_view;                   /* K on the drop screen: only looking, no game after */
+
+/* The cards' timing: each for CARD_FRAMES (or until a key), a game's
+   two, a music file's one. Returns 1 at frame n when they're over (then
+   the game starts, or with K the drop screen comes back). */
+static int cards_over(long n) {
+    if (n >= card_until && !card_is_music && card_page == 0) {
+        card_page = 1;                      /* then save and rewind */
+        card_until = n + CARD_FRAMES;
+    }
+    return n >= card_until;
+}
+
+/* K on the drop screen (PLAN-keys.md step 2): the two cards again, with
+   no game started. */
+static void cards_show(long n) {
+    card_view = 1;
+    card_is_music = 0;
+    card_page = 0;
+    card_until = n + CARD_FRAMES;
+    printf("cards: the keys again (K)\n");
+    fflush(stdout);
+}
 static char prefs[PATH_MAX];            /* app-prefs.txt in the build folder */
 static char controls[PATH_MAX];         /* controls.txt beside it: the game's keys */
 
@@ -1249,7 +1272,8 @@ static int install_tools(int wait) {
 
 /* A file arrived (dropped, or on the command line). */
 static void take(const char *path) {
-    if (screen == S_BUILD || screen == S_PLAY || screen == S_CARD) return;  /* busy */
+    if (screen == S_BUILD || screen == S_PLAY || (screen == S_CARD && !card_view)) return;  /* busy */
+    card_view = 0;                          /* a drop while K's cards show: build it */
     shelf_confirm = -1;                     /* a drop answers "no" to removing */
     char why[128];
     screen_name(path, shown_name, sizeof shown_name);
@@ -1285,6 +1309,19 @@ static void shelf_built(const struct build *b) {
 
 int main(int argc, char **argv) {
     if (argc == 3 && !strcmp(argv[1], "--test-shelf")) return shelf_test(argv[2]);
+    if (argc >= 2 && !strcmp(argv[1], "--card-test")) {
+        /* K's cards, frame by frame as the window steps them, with a key
+           pressed at each frame given (any key: the next card). */
+        cards_show(0);
+        int shown = -1;
+        for (long n = 0; n < 2000; n++) {
+            for (int a = 2; a < argc; a++)
+                if (atol(argv[a]) == n) { card_until = 0; printf("frame %ld: a key\n", n); }
+            if (cards_over(n)) { printf("frame %ld: back to the drop screen\n", n); return 0; }
+            if (card_page != shown) { printf("frame %ld: card %d\n", n, card_page + 1); shown = card_page; }
+        }
+        return 1;
+    }
     const char *shot = NULL, *build_rom = NULL, *open_rom = NULL, *bdir = NULL;
     int trace = 0, model = 0, then_play = 0, hit = 0, hw = 0, hh = 0, hx = 0, hy = 0;
     int sdl_info = 0;
@@ -1635,6 +1672,12 @@ int main(int argc, char **argv) {
                 continue;                           /* the question first */
             if (e.type == SDL_WINDOWEVENT && e.window.event == SDL_WINDOWEVENT_FOCUS_GAINED)
                 shelf_check_roms(&shelf);           /* a ROM moved meanwhile? */
+            if (screen == S_CARD && card_view && e.type == SDL_KEYDOWN &&
+                e.key.keysym.sym == SDLK_ESCAPE) {
+                card_view = 0;                      /* K's cards: Esc goes back, not quits */
+                screen = S_DROP;
+                continue;
+            }
             if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_ESCAPE) goto done;
             /* The shelf, on the drop screen: arrows pick, Page Up and Down
                flip, Enter plays; the mouse picks the box it's over. */
@@ -1664,6 +1707,10 @@ int main(int argc, char **argv) {
                          (screen == S_DROP || screen == S_ERROR || screen == S_DONE ||
                           screen == S_STOPPED || screen == S_NEEDCC))
                     screen = S_ABOUT;
+                else if (e.key.keysym.sym == SDLK_k && screen == S_DROP) {
+                    cards_show(n);
+                    screen = S_CARD;
+                }
                 else if (e.key.keysym.sym == SDLK_h && screen == S_DROP) {
                     load_last_history();
                     screen = S_HOOD;
@@ -1728,11 +1775,13 @@ int main(int argc, char **argv) {
                 install_clicked = 0;
             }
         }
-        if (screen == S_CARD && n >= card_until && !card_is_music && card_page == 0) {
-            card_page = 1;                  /* then save and rewind */
-            card_until = n + CARD_FRAMES;
+        if (screen == S_CARD && card_view && cards_over(n)) {
+            card_view = 0;                  /* K's cards: back to the drop screen */
+            screen = S_DROP;
+            printf("cards: back to the drop screen\n");
+            fflush(stdout);
         }
-        if (screen == S_CARD && n >= card_until) {
+        if (screen == S_CARD && cards_over(n)) {
             /* Play it, with this window out of the way, at the size the
                last game's window had. */
             char *args[GAME_ARGS];

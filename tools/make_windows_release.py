@@ -82,7 +82,8 @@ USING IT
 - In a game: arrow keys, X (A), Z (B), Enter (Start), Right Shift
   (Select); M mutes, R resets, V starts and stops a recording, P saves
   a picture. Esc opens the pause menu: save and load, the volume, the
-  window's size, quit. Game controllers work too (hold Select and Start
+  window's size, quit, and ALL KEYS: every key and button, on one
+  page. Game controllers work too (hold Select and Start
   for the menu; the shoulder buttons rewind and fast-forward).
 - The pause menu's CONTROLLERS page: a button test, to see which pad
   is which player; changing the keys (KEYBOARD 1 and 2) and the pad
@@ -96,7 +97,7 @@ USING IT
   file was moved: drop it again.
 - On the drop screen: I shows who made it (and D there opens the
   support page), H shows "under the hood" for the last game; there, C
-  shows its code.
+  shows its code. K shows the keys' cards again.
 - Games get faster as you play them: the places the game ran in the
   interpreter are written to <game>.missed beside the game file, and
   the next build translates them too.

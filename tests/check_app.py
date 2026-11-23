@@ -1235,12 +1235,24 @@ def main():
     check("the LICENSE file: MIT, Serge and Claude",
           lic.startswith("MIT License") and "Copyright (c) 2026 Serge and Claude" in lic, "not as expected")
 
+    # K on the drop screen (PLAN-keys.md step 2): the two cards again,
+    # as the window steps them, then back to the drop screen, no game.
+    got = subprocess.run([APP, "--card-test"], capture_output=True, text=True).stdout.splitlines()
+    check("K: the controls card, then save and rewind (2.5 s each), then the drop screen again",
+          got == ["cards: the keys again (K)", "frame 0: card 1", "frame 150: card 2",
+                  "frame 300: back to the drop screen"], "%s" % got)
+    got = subprocess.run([APP, "--card-test", "40", "90"], capture_output=True, text=True).stdout.splitlines()
+    check("K: a key goes to the next card, and from the last back to the drop screen",
+          got[-4:] == ["frame 40: a key", "frame 40: card 2", "frame 90: a key",
+                       "frame 90: back to the drop screen"], "%s" % got)
+
     def at(s, x):                               # text starting at x
         return x + (len(s) * 6 - 1) // 2
     for name, title, rows in (
             ("card", "CONTROLS", [("ARROWS", "D-PAD"), ("X", "A BUTTON"), ("Z", "B BUTTON"),
                                   ("RETURN", "START"), ("R.SHIFT", "SELECT"), ("M", "MUTE"),
-                                  ("R", "RESET"), ("V", "RECORD"), ("ESC", "MENU")]),
+                                  # Esc: the menu, and its ALL KEYS page (PLAN-keys.md)
+                                  ("R", "RESET"), ("V", "RECORD"), ("ESC", "MENU+KEYS")]),
             ("card_music", "MUSIC PLAYER", [("LEFT", "LAST SONG"), ("RIGHT", "NEXT SONG"),
                                             ("R", "RESTART"), ("M", "MUTE"), ("V", "RECORD"),
                                             ("ESC", "QUIT")]),
@@ -1252,8 +1264,8 @@ def main():
               ("BKSPACE" if WIN else "DELETE", "REWIND"), ("` KEY", "FAST X4"),
               # and a controller's (PLAN-pause.md step 4)
               ("PAD LB", "REWIND"), ("PAD RB", "FAST X4"), ("SEL+ST", "MENU"),
-              # and where keys and pads change (PLAN-controllers.md step 5)
-              ("MENU", "KEYS+PADS")])):
+              # and P, on no card before (PLAN-keys.md step 2)
+              ("P", "PICTURE")])):
         img = screen(name, "--show", name)
         # Nine rows fit only under a title of one height (PLAN-standalone
         # step 6 added V).

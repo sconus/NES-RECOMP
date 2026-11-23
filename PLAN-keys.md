@@ -187,6 +187,61 @@ page (headless has neither); the page in a live window is for you.
 - Breaks: the README's table missing a key; a card without its new
   line; K showing only the first card.
 
+**Where step 2 ended (2026-11-22).**
+- The app: K on the drop screen shows the two cards again (2.5 seconds
+  each, any key for the next), then the drop screen; no game starts.
+  Esc there goes back instead of quitting; a drop meanwhile builds as
+  usual. The cards' timing is one function (`cards_over`), for a game's
+  cards and K's, and `--card-test [FRAME ...]` steps it frame by frame
+  (a key at each frame given). The terminal: "cards: the keys again
+  (K)", "cards: back to the drop screen".
+- The cards: the first's last line is "ESC  MENU+KEYS", the second's
+  "P  PICTURE" (in place of "MENU  KEYS+PADS"), so P is on a card.
+- `tests/check_keys.py` (new, `make test-keys` in `make test-all`, and
+  the Windows run): knows each of the window's 14 keys (its names in
+  `video_sdl.c`, on the page, in the README, on a card); every key
+  `video_sdl.c` names must be one of them or one of the menu's own
+  moves, and each must still be there; the page must list exactly
+  them, in order, with Windows' names; the README must mention each;
+  the cards must have the 10 that belong on one, on both systems.
+- README: the pause menu's sketch (it had neither CONTROLLERS nor ALL
+  KEYS), ALL KEYS, K and the cards' lines, the checks, the plans' list.
+  Both READ ME FIRSTs: ALL KEYS in the pause menu, K on the drop screen;
+  their checks look for both. `tests/menu_pictures.py` also takes both
+  ALL KEYS pages (11 pictures), so the Windows run's download has them.
+
+The checks:
+- `tests/check_app.py`: K's cards (`--card-test`), card 1 then card 2
+  then the drop screen at frames 0, 150, 300, and with keys at 40 and
+  90; both cards pixel by pixel with their new lines.
+- `make test-keys`: 7 checks, all pass.
+- `make test-release`: the Mac READ ME FIRST with ALL KEYS and K, lines
+  of 72 or fewer (a line was 73 at first, and rewrapped).
+- `tests/menu_pictures.py`: 11 of 11, for the Mac and for Windows.
+
+- `make test-all`: 230 of 231 as before (test28), nestest exact, 240 of
+  240; the same C.
+
+Breaks, each in a scratch copy:
+
+| broken | caught by |
+| --- | --- |
+| the README's table without P | `check_keys.py`, 1 FAIL |
+| CMD+F left off the page | `check_keys.py`, 1 |
+| a new key (Q) answered but on no list | `check_keys.py`, 1 |
+| the second card without P | `check_keys.py` 2, `check_app.py` 1 |
+| K showing only the first card | `check_app.py`, 2 |
+
+Not checked by a test: K pressed in a live window (the window's keys),
+and Esc on K's cards going back.
+
+## Where the stage ended (2026-11-22)
+
+ALL KEYS is in the pause menu, and the app's K shows the cards again: 2
+steps, 10 breaks (5 and 5), all caught; `make test-all` 230 of 231
+(test28 as before) and the same C throughout. Step 1: 9367c76.
+Not tried live: the page from a real keyboard and pad, and K in the app.
+
 Each step ends with "Where step N ended" here, its checks and its
 breaks table.
 

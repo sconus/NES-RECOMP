@@ -9,6 +9,8 @@
 #                           the suite (tests/check_states.py, PLAN-savestates.md)
 #   make test-titles        the game's title picture, for the app's shelf
 #                           (tests/check_titles.py, PLAN-library.md)
+#   make test-keys          the window's keys the same on the ALL KEYS page,
+#                           the README and the cards (tests/check_keys.py)
 #   make game ROM=x.nes     recompile any NROM game into build/<name>
 #   make run ROM=x.nes      ...and run it in a window (options: ARGS="...")
 #   make recomp             the recompiler in C (build/nesrecomp-recomp)
@@ -81,7 +83,7 @@ test-ppu: $(RECOMP)
 	python3 tests/run_tests.py
 	python3 tests/check_bandai_save.py
 
-test-all: test test-ppu test-app test-record test-states test-menu test-titles
+test-all: test test-ppu test-app test-record test-states test-menu test-titles test-keys
 
 # --- save states (runtime/state.c, PLAN-savestates.md) -----------------
 test-states: $(RECOMP)
@@ -93,6 +95,9 @@ test-menu: $(RECOMP)
 
 test-titles: $(RECOMP)
 	python3 tests/check_titles.py
+
+test-keys:
+	python3 tests/check_keys.py
 
 # --- recording (runtime/record_mac.m, PLAN-standalone.md step 6) ---------
 test-record: $(RECOMP)

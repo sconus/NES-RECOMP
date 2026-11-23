@@ -9,7 +9,8 @@ tests/check_menu.py is what checks them, pixel by pixel.
 OUT (default build/menu-pictures) gets, each three times the NES's
 size: the CONTROLLERS page, the button test with a virtual pad holding
 A and Start, KEYBOARD 1, PADS, the PAIRING HELP list and each of its
-pages, for the system asked for (default: the one this runs on).
+pages, for the system asked for (default: the one this runs on); and
+the two ALL KEYS pages (PLAN-keys.md), with that system's key names.
 """
 import os
 import struct
@@ -91,15 +92,16 @@ def main():
     for p in range(pages):
         title = L["pages"][check_menu.PAIR_PAGES[system][p]][0]
         menu += ["ok", shot("6-pairing-%d-%s" % (p + 1, title.lower().replace(" ", "-"))), "back", "down"]
-    menu += ["back back back"]
+    menu += ["back back", "down ok", shot("7-all-keys-1-the-game"), "right", shot("8-all-keys-2-the-window"),
+             "back back"]
     files = os.path.join(out, "files")
     err, _ = check_menu.run(exe, ROM, ["60 menu " + " ".join(menu)], None, 70, "pictures", files,
                             ["--pairing-for", system, "--controls", os.path.join(out, "controls.txt")])
     made = sorted(n for n in os.listdir(out) if n.endswith(".png") and not n.endswith("_3x.png"))
     for n in made:
         bigger(os.path.join(out, n))
-    want = 5 + pages
-    print("%d of %d pictures of the CONTROLLERS pages (%s pairing help) in %s" % (len(made), want, system, out))
+    want = 5 + pages + 2
+    print("%d of %d pictures of the CONTROLLERS and ALL KEYS pages (%s) in %s" % (len(made), want, system, out))
     if len(made) != want:
         print(err[-600:])
         sys.exit(1)

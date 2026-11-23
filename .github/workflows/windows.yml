@@ -95,6 +95,9 @@ jobs:
       - name: The title picture on Windows - a Start press, 10 seconds, none for music (tests/check_titles.py)
         run: python tests/check_titles.py
 
+      - name: The keys the same on the ALL KEYS page, the README and the cards (tests/check_keys.py)
+        run: python tests/check_keys.py
+
       - name: Pictures of the Controllers pages as Windows draws them (tests/menu_pictures.py)
         run: python tests/menu_pictures.py build/menu-pictures
 
