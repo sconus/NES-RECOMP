@@ -385,6 +385,9 @@ The built program takes options after the ROM path:
     --record FILE      record the run to a movie (V does it in the window)
     --record-dir D     where V's movies and P's pictures go
                        (default ~/Movies/NES RECOMP)
+    --title-out F      keep the game's title screen in F, for the app's
+                       shelf: the screen as Start is first pressed, or
+                       at 10 seconds (once; a music file keeps none)
     --mute             no sound from the speakers (M toggles it)
     --volume N         the speakers' volume, 1 to 10 (default 10)
     --sound-off        start with the sound off (M or the menu turn it on)
@@ -446,9 +449,11 @@ device instead (below).
 ## The app
 
 NES RECOMP also comes as an app, for the Mac and for Windows: a
-pixel-art room with a TV and a console, in the colours of the Polygon
-Legends channel. You drop a ROM on it, and it recompiles the game to C,
-builds it on your computer and plays it. It's a standalone app: it
+pixel-art living room in the evening light, with a TV and a console on
+a long shelf, the Polygon Legends dragon beside them, and your games on
+the shelf (`design/library-reference.jpg`, `PLAN-library.md`). You drop
+a ROM on the TV, and it recompiles the game to C, builds it on your
+computer and plays it; after that it's a box on the shelf. It's a standalone app: it
 needs nothing from this project folder, from Python or from Homebrew;
 on the Mac only Apple's free C compiler, and on Windows nothing at all
 (its compiler comes with it). Windows is below, under "On Windows".
@@ -496,6 +501,25 @@ it: you bring your own.
   the game and the app comes back. In the game, V records a movie and P
   saves a picture (see "Recording" above).
 - **A ROM already built,** with nothing changed since, starts at once.
+- **The shelf** under the TV is your library: every game you've built
+  is a box there, the last played first, 32 a page (with "< PAGE 1/2 >"
+  on the bottom board when there are more). Each box shows the game's
+  own title screen, kept the first time you play it (the screen as you
+  first press Start, or the one at 10 seconds), and is the colour of
+  that screen; a music file has a note on its box, and a game not yet
+  played a dark window. On the drop screen, the **arrows** pick a game
+  (or point at it with the mouse): its box lifts and the TV shows its
+  title screen and name. **Enter** or a **click** plays it, as a drop
+  would; **Page Up** and **Page Down**, or the page line's arrows, flip
+  pages.
+- **A ROM you moved or deleted:** its box goes dim, and the TV says
+  "ROM NOT FOUND: DROP IT AGAIN". Drop the same ROM from its new place
+  and it's back, first.
+- **Taking a game off the shelf:** pick it and press **Delete** (or
+  Backspace); the TV asks "REMOVE FROM THE SHELF? Y / N". Y removes
+  the box and the built program; never the ROM, its battery save or its
+  save states. N or Esc keeps it. A ROM that fails to build never goes
+  on the shelf.
 - **It gets faster as you play:** like `make run`, each game writes the
   spots it had to interpret to `<rom>.missed` beside the ROM, and the
   next build uses them. Battery saves go to `<rom>.sav` there too. If
@@ -525,8 +549,10 @@ it: you bring your own.
   "THE GAME STOPPED" and why. The whole output is in `NAME.log` and
   `NAME.game.log` in the app's folder.
 - **The app's folder** is `~/Library/Application Support/NES RECOMP`:
-  the games it built, their logs, the runtime compiled once, and the
-  game window's size. Deleting it is safe; games are built again.
+  the games it built, their logs, the runtime compiled once, the game
+  window's size, the shelf (`library.txt`: each game's name, when it
+  was last played and where its ROM is) and each game's title screen
+  (`NAME.title`). Deleting it is safe; games are built again.
   Recordings go to `~/Movies/NES RECOMP`.
 - **The game's window** can be resized by dragging; Cmd+= and Cmd+-
   change it by a whole step and Cmd+F makes it full screen. The picture
@@ -902,6 +928,7 @@ and the newer NSF2 and NSFe formats.
     make test-record  # recording movies (tests/check_record.py)
     make test-states  # save states, rewind, fast-forward (tests/check_states.py)
     make test-menu    # the pause menu (tests/check_menu.py)
+    make test-titles  # the game's title screen, for the shelf (tests/check_titles.py)
     make test-all   # all of these, and the app's checks
 
 `make test` also runs `--test-gamepads`, which plugs in virtual game
@@ -945,6 +972,24 @@ and PADS pages; `make test-states` runs every game with an unusual
 without.
 The pairing help's pages are checked for both systems
 (`--pairing-for mac|windows`) and for the one it runs on.
+`make test` also runs `--test-title`, the title screen's rules with
+made-up pictures (a Start press on a one-colour screen waits for the
+next; no Start: the screen at 10 seconds, written at 30; a game ending
+early; written once). `make test-titles` plays free test ROMs with
+`--title-out`: a scripted Start gives exactly that frame's picture (as
+`--screenshot` saves it), no Start gives frame 600's, a music file
+keeps none; and `make test-states` takes one in every game's
+fast-forward run, which must play the same frames as without.
+The app's checks (`tests/check_app.py`) test the shelf: its self-test
+(`nesrecomp-app --test-shelf DIR`: `library.txt` read and written, bad
+files giving an empty shelf, the builds already there, box colours, the
+pictures shrunk by averaging, missing ROMs, removing), then a made-up
+shelf of 40 games pixel by pixel (`--screenshot --library DIR
+--shelf-keys "right down ..."`), the keys, clicks (`--click-test drop`),
+and playing from a box (`--box-test`): up to date, first after, with its
+title screen. `python3 tests/shelf_pictures.py` saves pictures of the
+shelf to look at (in `build/shelf-pictures`); the Windows run keeps
+them as a download too ("shelf-windows").
 `python3 tests/menu_pictures.py` saves pictures of every CONTROLLERS
 page (in `build/menu-pictures`) to look at; the Windows run does the
 same on Windows and keeps them as a download on the run's page
@@ -1139,6 +1184,8 @@ or display-only `read_joy3` tests are left out of the suite, and so is
 - [x] MMC5's vertical split screen
 - [x] The app: drop a ROM on a pixel-art TV, watch it recompile, play
       it (`build/nesrecomp.app`)
+- [x] The library: the living room, a shelf of the games built, each
+      box with the game's own title screen; pick, play, remove
 - [x] The Famicom Disk System: disk images on the project's own BIOS,
       code in RAM translated with a per-byte check, the BIOS's file and
       other routines, the drive byte by byte, the timer IRQ, the sound
@@ -1150,12 +1197,12 @@ or display-only `read_joy3` tests are left out of the suite, and so is
 `PLAN-render.md`, `PLAN-mappers2.md`, `PLAN-expansion.md`,
 `PLAN-input.md`, `PLAN-nsf.md`, `PLAN-paddle.md`, `PLAN-zapper.md`,
 `PLAN-nes2.md`, `PLAN-split.md`, `PLAN-fds.md`, `PLAN-gui.md`,
-`PLAN-standalone.md` and `PLAN-mappers3.md` have the
+`PLAN-standalone.md`, `PLAN-mappers3.md` and `PLAN-library.md` have the
 step-by-step notes for each stage (graphics, mappers, sound, per-cycle
 timing, rendering, more mappers, expansion sound, controllers, NSF
 music, the paddle, the Zapper and four players, NES 2.0 headers, MMC5's
 split, the Famicom Disk System, the app, the standalone app, the
-mappers of v2), including how each timing value was tuned, what
+mappers of v2, the library), including how each timing value was tuned, what
 was tried for what still fails, and where the documentation left a
 choice to make.
 

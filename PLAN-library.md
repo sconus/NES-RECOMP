@@ -627,6 +627,65 @@ noticing a ROM moved meanwhile. For you to try live.
 - Breaks: the Mac's paths in `library.txt` on Windows; the READ ME
   without the shelf.
 
+**Where step 6 ended (2026-11-22).**
+- The Windows run: `tests/check_titles.py` joined it in step 3, and the
+  shelf's checks are in `tests/check_app.py`, which it already runs.
+  New: `tests/shelf_pictures.py` (five pictures of the shelf at
+  1280x720: empty, a game picked, page 2, a missing ROM, the removing
+  question; `build/shelf-pictures` here) runs there after the app's
+  checks, and the pictures are kept as a download on the run's page
+  ("shelf-windows"). One more Windows break: removing a game leaving
+  its program (`NAME.exe`), caught by the shelf's self-test.
+- README: the app's introduction (the living room, the shelf); under
+  "Using it", the shelf, a moved ROM, taking a game off; the app's
+  folder (`library.txt`, `NAME.title`); the game's `--title-out`; the
+  tests (`make test-titles`, `--test-title`, the shelf's checks and
+  test options, the pictures); the status list and the plans' list.
+- Both READ ME FIRSTs, under USING IT: the shelf (picking, playing,
+  pages, Delete, a dim box); their checks look for it.
+
+The checks:
+- `make test-release`: the Mac zip's READ ME FIRST with the shelf, lines
+  of 72 or fewer. Passes.
+- `python3 tests/shelf_pictures.py`: 5 of 5 pictures.
+- No app, runtime or recompiler code changed since step 5's `make
+  test-all` (230 of 231, the same C).
+- Not run here: the Windows read-me's check and the new Windows break;
+  they run on the next push.
+- The plan's other Windows break, "the Mac's paths in `library.txt`",
+  wasn't made: `library.txt` keeps each path as the system gave it, and
+  on Windows the shelf's checks (`check_app.py`) build and play from
+  Windows paths. The `NAME.exe` break covers what differs on Windows.
+
+Breaks, each in a scratch copy:
+
+| broken | caught by |
+| --- | --- |
+| the Mac READ ME FIRST without the shelf | `make test-release`, 1 FAIL |
+| removing a game leaves `NAME.exe` (the Windows break's Mac side) | `--test-shelf`, 1 FAIL |
+
+## Where the stage ended (2026-11-22)
+
+The app's drop screen is your reference picture, and its shelf is the
+library: 6 steps, 34 breaks (step 1: 5 for the hand-drawn room and 5
+for the picture; then 4, 6, 7, 5 and 2), all caught (two only after a
+check was added or fixed: step 4's garbled file, step 2's blade check),
+`make test-all` 230 of 231 throughout (test28 as before), the same C
+throughout.
+- Step 1: the room at 640x360, first hand-drawn, then (your choice)
+  the reference picture itself, its painted boxes cleared and
+  placeholders drawn; the TV's glass the app's screen. Commits e6aec0f,
+  072278f.
+- Step 2: the sword's glow. With two Windows run fixes (a space in the
+  breaks' folder, zlib's download). 4b2d302.
+- Step 3: the game's title picture (`--title-out`). 433fbec.
+- Step 4: the shelf: boxes, pages, picking, the TV, playing. 2d87120.
+- Step 5: missing ROMs and removing. 448d058.
+- Step 6: Windows pictures, README, READ ME FIRSTs.
+Tried live by you: the room, the shelf filling from the games already
+built, picking, playing from a box, a title picture kept. Not tried
+live: removing and a missing ROM in the window.
+
 Each step ends with "Where step N ended" here, its checks and its breaks
 table, as in `PLAN-controllers.md`.
 

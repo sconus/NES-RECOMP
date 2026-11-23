@@ -68,6 +68,12 @@ USING IT
   is which player; changing the keys (KEYBOARD 1 and 2) and the pad
   buttons (PADS), kept for the next game; and how to pair an Xbox,
   PlayStation or Switch Pro controller with your Mac.
+- The shelf under the TV holds every game you've built, last played
+  first, each box showing the game's own title screen. Arrow keys or
+  the mouse pick one (the TV shows it), Enter or a click plays it, Page
+  Up and Page Down flip pages. Delete takes a game off the shelf (it
+  asks first; your game file and saves stay). A dim box means its game
+  file was moved: drop it again.
 - On the drop screen: I shows who made it (and D there opens the
   support page), H shows "under the hood"
   for the last game; there, C shows its code.

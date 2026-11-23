@@ -74,6 +74,10 @@ from the copy by tools/make_windows_release.py) are in the release:
 PLAN-controllers.md step 5's (checked with tests/check_menu.py) is in
 the pause menu's Windows half:
   - the Mac's pairing help shown on Windows (its default system wrong).
+
+PLAN-library.md step 6's (checked with tests/check_app.py, the shelf's
+self-test) is in the app's Windows half:
+  - removing a game from the shelf leaving its program (NAME.exe).
 """
 import os
 import shlex
@@ -203,6 +207,9 @@ BREAKS = [
     ("controllers: the Mac's pairing help shown on Windows",
      lambda w: sub(w, "runtime/menu.c", "#ifdef _WIN32\nstatic int pair_windows = 1;",
                    "#ifdef _WIN32\nstatic int pair_windows = 0;"), MENU),
+    ("shelf: removing a game leaves its program (NAME.exe)",
+     lambda w: sub(w, "app/shelf.c", 'static const char *const made[] = { "", ".exe", ".c",',
+                   'static const char *const made[] = { "", ".c",'), APP),
 ]
 
 

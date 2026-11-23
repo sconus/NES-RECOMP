@@ -113,6 +113,15 @@ jobs:
       - name: The app on Windows (tests/check_app.py)
         run: python tests/check_app.py
 
+      - name: Pictures of the shelf as Windows draws it (tests/shelf_pictures.py)
+        run: python tests/shelf_pictures.py build/shelf-pictures
+
+      - name: Those pictures, as a download (this run's page, Artifacts)
+        uses: actions/upload-artifact@v4
+        with:
+          name: shelf-windows
+          path: build/shelf-pictures/*.png
+
       - name: The Windows release, made (tools/make_windows_release.py)
         run: python tools/make_windows_release.py --app build/windows/app --zig "$env:NESRECOMP_ZIG" --sdl2-license "$env:NESRECOMP_SDL2\..\LICENSE.txt" --zlib-src "$env:NESRECOMP_ZLIB_SRC"
 
