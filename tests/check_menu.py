@@ -75,7 +75,7 @@ def check(what, ok, why=""):
 def layout():
     src = open(os.path.join(ROOT, "runtime", "menu.c")).read()
     d = {k: int(v, 0) for k, v in
-         re.findall(r"#define ((?:MENU|INK|TEST|CTRL|PAIR|KEYS)_\w+) (0x[0-9A-F]+|\d+)", src)}
+         re.findall(r"#define ((?:MENU|INK|TEST|CTRL|PAIR|KEYS|ALLKEYS)_\w+) (0x[0-9A-F]+|\d+)", src)}
     d["pages"] = {name: re.findall(r'"((?:[^"\\]|\\.)*)"', body) for name, body in
                   re.findall(r"static const char \*const (pair_\w+)\[\] = \{(.*?)NULL,\n\};",
                              src, re.S)}
@@ -121,7 +121,7 @@ def expected_box(L, fnt, cursor, slot, info, sound="10", window="3X"):
     for p in text_pixels(fnt, title, 128 - (len(title) * 6 - 1) // 2, L["MENU_TITLE_Y"]):
         want[p] = L["INK_TITLE"]
     items = ["RESUME", "SAVE STATE", "LOAD STATE", "SLOT  < %d >" % slot, "RESET",
-             "SOUND < %s >" % sound, "WINDOW < %s >" % window, "CONTROLLERS", "QUIT"]
+             "SOUND < %s >" % sound, "WINDOW < %s >" % window, "CONTROLLERS", "ALL KEYS", "QUIT"]
     for i, name in enumerate(items):
         y = L["MENU_ITEM_Y"] + i * L["MENU_LINE_H"]
         for p in text_pixels(fnt, name, L["MENU_ITEM_X"], y):
@@ -244,7 +244,7 @@ def pairing(exe, rom, base, name, L, fnt):
     for system in ("mac", "windows", None):
         tag = "%s.pair_%s" % (name, system or "default")
         pics = [os.path.join(OUT, "%s.%d.raw" % (tag, k)) for k in range(5)]
-        keys = ["up up ok down down down down ok",  # CONTROLLERS, PAIRING HELP
+        keys = ["up up up ok down down down down ok",  # CONTROLLERS, PAIRING HELP
                 "shot=%s ok shot=%s back" % (pics[0], pics[1]),   # the list, XBOX
                 "down ok shot=%s leave" % pics[2],  # PLAYSTATION (Esc goes back)
                 "down ok shot=%s ok" % pics[3],     # SWITCH PRO (OK goes back too)
@@ -329,7 +329,7 @@ def keyboards(exe, rom, base, name, L, fnt):
         os.remove(ctl)
     pics = {k: os.path.join(OUT, "%s.keys.%s.raw" % (name, k))
             for k in ("open", "wait", "refused", "swapped", "cancel", "almost", "timeout", "k2")}
-    keys = ["up up ok down ok",                 # CONTROLLERS, KEYBOARD 1
+    keys = ["up up up ok down ok",                 # CONTROLLERS, KEYBOARD 1
             "shot=%s" % pics["open"],
             "ok shot=%s" % pics["wait"],        # UP: waiting for a key
             "key=m shot=%s" % pics["refused"],  # the window's: still waiting
@@ -384,7 +384,7 @@ def keyboards(exe, rom, base, name, L, fnt):
           "%d frames, %s" % (len(rows), "same file" if after == got else "file changed"))
 
     # DEFAULTS on keyboard 1: its keys, and keyboard 2's UP (it had Up).
-    err, _ = run(exe, rom, ["60 menu up up ok down ok " + "down " * 8 + "ok back back back"], base, 70,
+    err, _ = run(exe, rom, ["60 menu up up up ok down ok " + "down " * 8 + "ok back back back"], base, 70,
                  name + ".keysdef", os.path.join(OUT, name + ".kd"), ["--controls", ctl])
     got = open(ctl).read() if os.path.exists(ctl) else ""
     check("%s: DEFAULTS: the usual keys, and keyboard 2's UP back on W" % name,
@@ -394,7 +394,7 @@ def keyboards(exe, rom, base, name, L, fnt):
     with open(ctl, "w") as f:
         f.write("version 1\nkeyboard1 a\x01\x02 nonsense\n")
     pic = os.path.join(OUT, name + ".keys.garbled.raw")
-    err, rows = run(exe, rom, ["60 menu up up ok down ok shot=%s back back back" % pic], base, 90,
+    err, rows = run(exe, rom, ["60 menu up up up ok down ok shot=%s back back back" % pic], base, 90,
                     name + ".keysbad", os.path.join(OUT, name + ".kb"), ["--controls", ctl])
     why = picture_ok(pic, expected_keys(L, fnt, 1, 0, USUAL[0]))
     check("%s: a garbled --controls file: the usual keys, said" % name,
@@ -411,7 +411,7 @@ def pads(exe, rom, base, name, L, fnt):
         os.remove(ctl)
     pics = {k: os.path.join(OUT, "%s.pads.%s.raw" % (name, k))
             for k in ("open", "wait", "held", "refused", "swapped", "cancel", "timeout", "test")}
-    keys = ["up up ok down down down ok",       # CONTROLLERS, PADS
+    keys = ["up up up ok down down down ok",       # CONTROLLERS, PADS
             "pad=1:none shot=%s" % pics["open"],
             "down down down down down pad=1:y ok shot=%s" % pics["wait"],   # A, top held
             "pad=1:y shot=%s" % pics["held"],   # held since before: not the answer
@@ -460,7 +460,7 @@ def pads(exe, rom, base, name, L, fnt):
           got == controls_text(USUAL_FILE, changed), repr(got[-200:]))
     # Read back by a new run: the PADS page shows the changed layout.
     pic = os.path.join(OUT, name + ".pads.again.raw")
-    run(exe, rom, ["60 menu up up ok down down down ok shot=%s back back back" % pic], base, 70,
+    run(exe, rom, ["60 menu up up up ok down down down ok shot=%s back back back" % pic], base, 70,
         name + ".padsagain", os.path.join(OUT, name + ".pa"), ["--controls", ctl])
     again = list(USUAL_PAD)
     again[4], again[5] = "TOP BUTTON", "BOTTOM BUTTON"
@@ -471,7 +471,7 @@ def pads(exe, rom, base, name, L, fnt):
           len(rows) == 90 and rows == plain, "%d frames, differ from the plain run" % len(rows))
 
     # DEFAULTS: the usual pad, the keys left as they are.
-    err, _ = run(exe, rom, ["60 menu up up ok down down down ok " + "down " * 8 + "ok back back back"],
+    err, _ = run(exe, rom, ["60 menu up up up ok down down down ok " + "down " * 8 + "ok back back back"],
                  base, 70, name + ".padsdef", os.path.join(OUT, name + ".pd"), ["--controls", ctl])
     got = open(ctl).read() if os.path.exists(ctl) else ""
     check("%s: PADS DEFAULTS: the usual pad" % name,
@@ -481,18 +481,131 @@ def pads(exe, rom, base, name, L, fnt):
     with open(ctl, "w") as f:
         f.write("version 2\npad a guide\n")
     pic = os.path.join(OUT, name + ".pads.bad.raw")
-    err, _ = run(exe, rom, ["60 menu up up ok down down down ok shot=%s back back back" % pic], base, 70,
+    err, _ = run(exe, rom, ["60 menu up up up ok down down down ok shot=%s back back back" % pic], base, 70,
                  name + ".padsbad", os.path.join(OUT, name + ".pb"), ["--controls", ctl])
     why = picture_ok(pic, expected_keys(L, fnt, 0, 0, USUAL_PAD))
     check("%s: a --controls file giving A the Home button: the usual pad, said" % name,
           not why and "controls: %s line 2 not understood: the usual keys" % ctl in err, why or err[-200:])
 
 
+# ALL KEYS (PLAN-keys.md step 1): what each page must say, written here
+# (not read from menu.c), so a key left off the page is caught.
+ALLKEYS_FOOT = "< > THE OTHER PAGE    ESC: BACK"
+WINDOW_KEYS = [("ESC", "THIS MENU"), ("M", "SOUND ON / OFF"), ("R", "RESET"),
+               ("V", "RECORD A MOVIE, AND STOP"), ("P", "SAVE A PICTURE"),
+               ("CMD+S", "SAVE A STATE IN THE SLOT"), ("CMD+L", "LOAD THE SLOT'S STATE"),
+               ("CMD+1-4", "PICK THE SLOT"), ("DELETE", "REWIND (HELD)"), ("LEFT OF 1", "FAST X4 (HELD)"),
+               ("CMD+= / -", "WINDOW BIGGER / SMALLER"), ("CMD+F", "FULL SCREEN"),
+               ("1-9", "DISK SIDE (FDS GAMES)"), ("0", "EJECT THE DISK (FDS)")]
+SHORT = {"RIGHT SHIFT": "R.SHIFT", "LEFT SHIFT": "L.SHIFT", "BACKSPACE": "BKSPACE"}
+ALL_ORDER = ["UP", "DOWN", "LEFT", "RIGHT", "A", "B", "START", "SELECT"]
+
+
+def window_keys(system):
+    if system == "mac":
+        return WINDOW_KEYS
+    return [(k.replace("CMD", "CTRL").replace("DELETE", "BKSPACE"), d) for k, d in WINDOW_KEYS]
+
+
+def pad_short(n):
+    if n.endswith(" BUTTON"):
+        return n[:-7]
+    return n.replace("LEFT STICK", "L.STICK").replace("RIGHT STICK", "R.STICK")
+
+
+def allkeys_lines(page, keys, pad_names, system):
+    """ALL KEYS page 1 or 2: [(row, text, header?)]; keys[p][i] and
+    pad_names[i] in BUTTONS order, as the KEYBOARD and PADS pages name them."""
+    if page == 2:
+        return [(i, "%-11s%s" % kd, False) for i, kd in enumerate(window_keys(system))]
+    out = [(0, "         KEYBOARD 1   KEYBOARD 2", True)]
+    for i, b in enumerate(ALL_ORDER):
+        k = BUTTONS.index(b)
+        out.append((1 + i, "%-9s%-13s%s" % (b, SHORT.get(keys[0][k], keys[0][k]), SHORT.get(keys[1][k], keys[1][k])),
+                    False))
+    out.append((10, "PADS", True))
+    for j in range(0, 8, 2):
+        b1, b2 = ALL_ORDER[j], ALL_ORDER[j + 1]
+        out.append((11 + j // 2, "%-7s%-12s%-7s%s" % (b1, pad_short(pad_names[BUTTONS.index(b1)]), b2,
+                                                      pad_short(pad_names[BUTTONS.index(b2)])), False))
+    out += [(15, "SELECT+START HELD, OR HOME: MENU", False), (16, "LB: REWIND   RB: FAST X4", False)]
+    return out
+
+
+def expected_allkeys(L, fnt, page, keys=USUAL, pad_names=USUAL_PAD, system="mac"):
+    want = {}
+    frame_box(want, L, L["TEST_BOX_X"], L["TEST_BOX_Y"], L["TEST_BOX_W"], L["TEST_BOX_H"])
+    centred(want, fnt, "ALL KEYS 2/2: THE WINDOW" if page == 2 else "ALL KEYS 1/2: THE GAME",
+            L["TEST_TITLE_Y"], L["INK_TITLE"])
+    for row, text, head in allkeys_lines(page, keys, pad_names, system):
+        if len(text) > 37:
+            want[("too long", text)] = 0
+        for p in text_pixels(fnt, text, L["ALLKEYS_X"], L["ALLKEYS_Y"] + row * L["ALLKEYS_LINE_H"]):
+            want[p] = L["INK_CURSOR"] if head else L["INK_ITEM"]
+    centred(want, fnt, ALLKEYS_FOOT, L["TEST_FOOT_Y"], L["INK_ITEM"])
+    return want
+
+
+def allkeys(exe, rom, base, name, L, fnt):
+    here = "windows" if sys.platform == "win32" else "mac"
+    to_page = "down " * 8 + "ok"                    # ALL KEYS, the 9th line
+    # The page on this system: 1, then OK and Right flip, Left back; leave
+    # goes back to the menu; the game's frames as if never opened.
+    pics = [os.path.join(OUT, "%s.allkeys.%d.raw" % (name, k)) for k in range(5)]
+    err, rows = run(exe, rom, ["60 menu %s shot=%s ok shot=%s right shot=%s left shot=%s leave shot=%s back"
+                               % ((to_page,) + tuple(pics))], base, 90, name + ".allkeys",
+                    os.path.join(OUT, name + ".ak"))
+    why = picture_ok(pics[0], expected_allkeys(L, fnt, 1, system=here)) or \
+        picture_ok(pics[1], expected_allkeys(L, fnt, 2, system=here)) or \
+        picture_ok(pics[2], expected_allkeys(L, fnt, 1, system=here)) or \
+        picture_ok(pics[3], expected_allkeys(L, fnt, 2, system=here))
+    check("%s: ALL KEYS: page 1 (the game), OK and Right flip to page 2 (the window) and back, "
+          "pixel by pixel (%s)" % (name, here), not why, why or "")
+    why = picture_ok(pics[4], expected_box(L, fnt, 8, 1, "EMPTY"))
+    check("%s: ALL KEYS: leave goes back to the menu, ALL KEYS still picked" % name, not why, why or "")
+    said = [ln[len("frame 60: "):] for ln in err.splitlines() if ln.startswith("frame 60:")]
+    want = ["MENU", "ALL KEYS 1/2", "ALL KEYS 2/2", "ALL KEYS 1/2", "ALL KEYS 2/2", "MENU",
+            "MENU CLOSED (RESUME)"]
+    check("%s: ALL KEYS: the terminal names each page; leave goes back to the menu" % name,
+          said == want, repr(said))
+    _, plain = run(exe, rom, [], base, 90, name + ".akplain", os.path.join(OUT, name + ".akp"))
+    check("%s: ALL KEYS doesn't move the game" % name, len(rows) == 90 and rows == plain,
+          "%d frames, differ from the plain run" % len(rows))
+    # Both systems' names for the window's keys.
+    for system in ("mac", "windows"):
+        pic = os.path.join(OUT, "%s.allkeys.%s.raw" % (name, system))
+        run(exe, rom, ["60 menu %s right shot=%s back back" % (to_page, pic)], base, 70,
+            "%s.allkeys_%s" % (name, system), os.path.join(OUT, name + ".ak" + system),
+            ["--pairing-for", system])
+        why = picture_ok(pic, expected_allkeys(L, fnt, 2, system=system))
+        check("%s: ALL KEYS page 2 for %s (%s)" % (name, system, "CMD, DELETE" if system == "mac" else
+                                                    "CTRL, BKSPACE"), not why, why or "")
+    # Keys moved (A to K on keyboard 1, the pads' A to the top button):
+    # page 1 shows them; back (Z) goes back too.
+    ctl = os.path.join(OUT, name + ".allkeys.controls.txt")
+    moved = [list(USUAL_FILE[0]), list(USUAL_FILE[1])]
+    moved[0][BUTTONS.index("A")] = "K"
+    pads_ = list(USUAL_PAD_FILE)
+    pads_[BUTTONS.index("A")] = "top"
+    open(ctl, "w").write(controls_text(moved, pads_))
+    pic = os.path.join(OUT, "%s.allkeys.moved.raw" % name)
+    err, _ = run(exe, rom, ["60 menu %s shot=%s back back" % (to_page, pic)], base, 70,
+                 name + ".allkeys_moved", os.path.join(OUT, name + ".akm"), ["--controls", ctl])
+    shown = [list(USUAL[0]), list(USUAL[1])]
+    shown[0][BUTTONS.index("A")] = "K"
+    pad_shown = list(USUAL_PAD)
+    pad_shown[BUTTONS.index("A")] = "TOP BUTTON"
+    why = picture_ok(pic, expected_allkeys(L, fnt, 1, shown, pad_shown, here))
+    said = [ln[len("frame 60: "):] for ln in err.splitlines() if ln.startswith("frame 60:")]
+    check("%s: ALL KEYS shows the keys as they are now (A on K, the pads' A on TOP); Z goes back" % name,
+          not why and said[-2:] == ["MENU", "MENU CLOSED (RESUME)"], why or repr(said))
+
+
 def controllers(exe, rom, base, name, L, fnt):
     files = os.path.join(OUT, name + ".ctrl")
     page, test, held, after = (os.path.join(OUT, name + x + ".raw")
                                for x in (".ctrl", ".test", ".held", ".after"))
-    keys = ["up up ok",                         # CONTROLLERS (above QUIT)
+    keys = ["up up up ok",                         # CONTROLLERS (above ALL KEYS, QUIT)
             "pad=2:none shot=%s" % page,        # a virtual controller in slot 2
             "pad=2:a ok",                       # A held as the test opens
             "pad=2:a+b",                        # B pressed, A still held
@@ -789,6 +902,7 @@ def main():
                                        os.path.exists(files + ".state2")))
         sound_and_window(exe, rom, base, name, L, fnt)
         controllers(exe, rom, base, name, L, fnt)
+        allkeys(exe, rom, base, name, L, fnt)
         pairing(exe, rom, base, name, L, fnt)
         keyboards(exe, rom, base, name, L, fnt)
         pads(exe, rom, base, name, L, fnt)

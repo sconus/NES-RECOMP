@@ -83,7 +83,7 @@ def main():
     def shot(name):
         return "shot=" + os.path.join(out, name + ".png")
     pages = len(check_menu.PAIR_PAGES[system])
-    menu = ["up up ok", shot("1-controllers"),
+    menu = ["up up up ok", shot("1-controllers"),
             "pad=1:none ok pad=1:a+start", shot("2-button-test"), "pad=1:none leave",
             "down ok", shot("3-keyboard-1"), "back",
             "down down ok", shot("4-pads"), "back",

@@ -12,13 +12,13 @@
 
 /* The layout, in NES pixels (tests/check_menu.py reads these). */
 #define MENU_BOX_X 36
-#define MENU_BOX_Y 43
+#define MENU_BOX_Y 36
 #define MENU_BOX_W 184
-#define MENU_BOX_H 153
-#define MENU_TITLE_Y 53
+#define MENU_BOX_H 166
+#define MENU_TITLE_Y 46
 #define MENU_ITEM_X 64
 #define MENU_CURSOR_X 54
-#define MENU_ITEM_Y 71
+#define MENU_ITEM_Y 64
 #define MENU_LINE_H 13
 #define MENU_INFO_X 136                     /* the slot's EMPTY / date */
 
@@ -84,16 +84,16 @@ static const char *const part_names[PART_COUNT] = {
 };
 
 enum { ITEM_RESUME, ITEM_SAVE, ITEM_LOAD, ITEM_SLOT, ITEM_RESET, ITEM_SOUND, ITEM_WINDOW,
-       ITEM_CONTROLLERS, ITEM_QUIT, ITEM_COUNT };
+       ITEM_CONTROLLERS, ITEM_ALLKEYS, ITEM_QUIT, ITEM_COUNT };
 static const char *const item_names[ITEM_COUNT] = {
     "RESUME", "SAVE STATE", "LOAD STATE", "SLOT", "RESET", "SOUND", "WINDOW", "CONTROLLERS",
-    "QUIT",
+    "ALL KEYS", "QUIT",
 };
 
 /* The pages: the menu itself, CONTROLLERS, its button test, KEYBOARD 1
    or 2 or PADS (one page, keys_player 0, 1 or KEYS_PADS), PAIRING HELP
    and one of its pages of steps. */
-enum { PAGE_MAIN, PAGE_CONTROLLERS, PAGE_TEST, PAGE_KEYS, PAGE_PAIRING, PAGE_PAIR_TEXT };
+enum { PAGE_MAIN, PAGE_CONTROLLERS, PAGE_TEST, PAGE_KEYS, PAGE_PAIRING, PAGE_PAIR_TEXT, PAGE_ALLKEYS };
 enum { CTRL_TEST, CTRL_KEYS1, CTRL_KEYS2, CTRL_PADS, CTRL_PAIRING, CTRL_BACK, CTRL_COUNT };
 static const char *const ctrl_names[CTRL_COUNT] = {
     "BUTTON TEST", "KEYBOARD 1", "KEYBOARD 2", "PADS", "PAIRING HELP", "BACK",
@@ -264,6 +264,35 @@ static int pair_windows = 0;
 #endif
 
 static int wanted, is_open, cursor, page, ctrl_cursor, pair_cursor, pair_page;
+
+/* ALL KEYS (PLAN-keys.md step 1): every key and button the game answers
+   to, on two pages in the button test's bigger box. Page 1, the game:
+   keyboard players 1 and 2 and the pads, as they are now (controls.c);
+   page 2, the window's own keys (fixed), from this table, which names
+   each key as the Mac's keyboard and as a PC's say it. Left, Right or
+   OK flip the page; Esc, Z, a pad's B or Home go back. */
+#define ALLKEYS_X 16
+#define ALLKEYS_Y 34
+#define ALLKEYS_LINE_H 10
+#define ALLKEYS_FOOT "< > THE OTHER PAGE    ESC: BACK"
+static int allkeys_page;
+static const struct { const char *mac, *win, *does; } window_keys[] = {
+    { "ESC", "ESC", "THIS MENU" },
+    { "M", "M", "SOUND ON / OFF" },
+    { "R", "R", "RESET" },
+    { "V", "V", "RECORD A MOVIE, AND STOP" },
+    { "P", "P", "SAVE A PICTURE" },
+    { "CMD+S", "CTRL+S", "SAVE A STATE IN THE SLOT" },
+    { "CMD+L", "CTRL+L", "LOAD THE SLOT'S STATE" },
+    { "CMD+1-4", "CTRL+1-4", "PICK THE SLOT" },
+    { "DELETE", "BKSPACE", "REWIND (HELD)" },
+    { "LEFT OF 1", "LEFT OF 1", "FAST X4 (HELD)" },
+    { "CMD+= / -", "CTRL+= / -", "WINDOW BIGGER / SMALLER" },
+    { "CMD+F", "CTRL+F", "FULL SCREEN" },
+    { "1-9", "1-9", "DISK SIDE (FDS GAMES)" },
+    { "0", "0", "EJECT THE DISK (FDS)" },
+};
+#define WINDOW_KEYS (int)(sizeof window_keys / sizeof window_keys[0])
 
 #define MAX_KEYS 64
 static struct { int key, code; const char *path; } keys[MAX_KEYS];
@@ -442,6 +471,80 @@ static void draw_keys(uint16_t *out) {
     centred(out, KEYS_STATUS_Y, keys_status, INK_ITEM);
 }
 
+/* A key's name for ALL KEYS: SDL's (as the KEYBOARD pages show it),
+   with the long ones short, at most 12 letters. */
+static const char *key_short(int sc) {
+    static char out[16];
+    static const char *const longer[][2] = {
+        { "RIGHT SHIFT", "R.SHIFT" }, { "LEFT SHIFT", "L.SHIFT" }, { "BACKSPACE", "BKSPACE" },
+        { "RIGHT CTRL", "R.CTRL" }, { "LEFT CTRL", "L.CTRL" }, { "RIGHT ALT", "R.ALT" },
+        { "LEFT ALT", "L.ALT" }, { "KEYPAD ENTER", "KP ENTER" },
+    };
+    const char *n = controls_key_name(sc);
+    for (size_t i = 0; i < sizeof longer / sizeof longer[0]; i++)
+        if (!strcmp(n, longer[i][0])) n = longer[i][1];
+    if (!strncmp(n, "KEYPAD ", 7)) { snprintf(out, sizeof out, "KP %.9s", n + 7); return out; }
+    snprintf(out, sizeof out, "%.12s", n);
+    return out;
+}
+
+/* A pad button's name for ALL KEYS: "BOTTOM", "D-PAD UP", "L.STICK IN". */
+static const char *pad_short(int pad) {
+    static char out[16];
+    const char *n = controls_pad_name(pad);
+    size_t len = strlen(n);
+    if (len > 7 && !strcmp(n + len - 7, " BUTTON")) snprintf(out, sizeof out, "%.*s", (int)(len - 7), n);
+    else if (!strncmp(n, "LEFT STICK", 10)) snprintf(out, sizeof out, "L.STICK%s", n + 10);
+    else if (!strncmp(n, "RIGHT STICK", 11)) snprintf(out, sizeof out, "R.STICK%s", n + 11);
+    else snprintf(out, sizeof out, "%.11s", n);
+    return out;
+}
+
+static void allkeys_line(uint16_t *out, int row, const char *s, uint16_t ink) {
+    draw_text_5x7(out, ALLKEYS_X, ALLKEYS_Y + row * ALLKEYS_LINE_H, s, ink);
+}
+
+static void draw_allkeys(uint16_t *out) {
+    box(out, TEST_BOX_X - 1, TEST_BOX_Y - 1, TEST_BOX_W + 2, TEST_BOX_H + 2, INK_EDGE);
+    box(out, TEST_BOX_X, TEST_BOX_Y, TEST_BOX_W, TEST_BOX_H, INK_BOX);
+    centred(out, TEST_TITLE_Y, allkeys_page ? "ALL KEYS 2/2: THE WINDOW" : "ALL KEYS 1/2: THE GAME",
+            INK_TITLE);
+    char line[48];
+    if (allkeys_page == 0) {
+        allkeys_line(out, 0, "         KEYBOARD 1   KEYBOARD 2", INK_CURSOR);
+        static const int order[CB_COUNT] = { CB_UP, CB_DOWN, CB_LEFT, CB_RIGHT, CB_A, CB_B, CB_START, CB_SELECT };
+        for (int i = 0; i < CB_COUNT; i++) {
+            int b = order[i];
+            char k1[16];
+            snprintf(k1, sizeof k1, "%s", key_short(controls_key(0, b)));
+            snprintf(line, sizeof line, "%-9s%-13s%s", controls_button_names[b], k1, key_short(controls_key(1, b)));
+            allkeys_line(out, 1 + i, line, INK_ITEM);
+        }
+        allkeys_line(out, 10, "PADS", INK_CURSOR);
+        for (int i = 0; i < CB_COUNT; i += 2) {
+            int b1 = order[i], b2 = order[i + 1];
+            char p1[16];
+            snprintf(p1, sizeof p1, "%s", pad_short(controls_pad(b1)));
+            snprintf(line, sizeof line, "%-7s%-12s%-7s%s", controls_button_names[b1], p1,
+                     controls_button_names[b2], pad_short(controls_pad(b2)));
+            allkeys_line(out, 11 + i / 2, line, INK_ITEM);
+        }
+        allkeys_line(out, 15, "SELECT+START HELD, OR HOME: MENU", INK_ITEM);
+        allkeys_line(out, 16, "LB: REWIND   RB: FAST X4", INK_ITEM);
+    } else {
+        for (int i = 0; i < WINDOW_KEYS; i++) {
+            snprintf(line, sizeof line, "%-11s%s", pair_windows ? window_keys[i].win : window_keys[i].mac,
+                     window_keys[i].does);
+            allkeys_line(out, i, line, INK_ITEM);
+        }
+    }
+    centred(out, TEST_FOOT_Y, ALLKEYS_FOOT, INK_ITEM);
+}
+
+static void allkeys_say(void) {
+    fprintf(stderr, "frame %llu: ALL KEYS %d/2\n", runtime_frame(), allkeys_page + 1);
+}
+
 static const char *pairing_title(void) {
     return pair_windows ? "PAIRING HELP (WINDOWS)" : "PAIRING HELP (MAC)";
 }
@@ -467,6 +570,7 @@ static void draw(uint16_t *out, const uint16_t *fb) {
     for (int i = 0; i < 256 * 240; i++) out[i] = darker(fb[i]);
     if (page == PAGE_TEST) { draw_test(out); return; }
     if (page == PAGE_PAIR_TEXT) { draw_pair_text(out); return; }
+    if (page == PAGE_ALLKEYS) { draw_allkeys(out); return; }
     box(out, MENU_BOX_X - 1, MENU_BOX_Y - 1, MENU_BOX_W + 2, MENU_BOX_H + 2, INK_EDGE);
     box(out, MENU_BOX_X, MENU_BOX_Y, MENU_BOX_W, MENU_BOX_H, INK_BOX);
     centred(out, MENU_TITLE_Y, page == PAGE_CONTROLLERS ? "CONTROLLERS" :
@@ -700,6 +804,11 @@ static void press_controllers(int key, int code) {
 
 /* A key: returns 0 when it closes the menu, and what was chosen. */
 static int press(int key, int code, int *chosen) {
+    if (page == PAGE_ALLKEYS) {
+        if (key == MENU_LEFT || key == MENU_RIGHT || key == MENU_OK) { allkeys_page ^= 1; allkeys_say(); }
+        else if (key == MENU_BACK || key == MENU_LEAVE) back_to_main();
+        return 1;
+    }
     if (page != PAGE_MAIN) { press_controllers(key, code); return 1; }
     switch (key) {
     case MENU_UP:   cursor = (cursor + ITEM_COUNT - 1) % ITEM_COUNT; break;
@@ -715,6 +824,12 @@ static int press(int key, int code, int *chosen) {
         if (cursor == ITEM_CONTROLLERS) {
             ctrl_cursor = CTRL_TEST;
             to_controllers();
+            break;
+        }
+        if (cursor == ITEM_ALLKEYS) {
+            page = PAGE_ALLKEYS;
+            allkeys_page = 0;
+            allkeys_say();
             break;
         }
         if (cursor == ITEM_SLOT) {          /* OK on the slot: the next one */
